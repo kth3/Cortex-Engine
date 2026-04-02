@@ -17,7 +17,7 @@ env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
 
-from cortex.db import get_connection, init_schema, to_rel_path, to_abs_path
+from cortex.db import init_schema, to_rel_path
 from cortex import vector_engine as ve
 
 logger = logging.getLogger(__name__)
