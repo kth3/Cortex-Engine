@@ -2,8 +2,6 @@
 AI 응답에 최적화된 코드 캡슐(Pivot + Skeleton)을 생성하는 모듈.
 하이브리드 검색(FTS + Graph Centrality) 및 토큰 예산 관리 기능을 포함합니다.
 """
-import os
-import sys
 
 # 패키지 모듈 임포트
 from cortex.db import get_connection, search_nodes_fts, get_node_by_id
