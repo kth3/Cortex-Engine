@@ -5,7 +5,6 @@ Jules AI 전용 MCP 서버
 """
 import sys
 import json
-import os
 import urllib.request
 from pathlib import Path
 
