@@ -229,9 +229,9 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             })
             
         # 엣지 저장
-        for edge in result["edges"]:
-            conn.execute("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)",
-                         (edge["source_id"], edge["target_id"], edge.get("type", "CALLS")))
+        edges_data = [(edge["source_id"], edge["target_id"], edge.get("type", "CALLS")) for edge in result["edges"]]
+        if edges_data:
+            conn.executemany("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)", edges_data)
             
         conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
                      (rel_path, file_hash, int(time.time()), workspace_id))
