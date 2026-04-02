@@ -96,7 +96,7 @@ def should_include(path: str, workspace: str, settings: dict) -> bool:
             return True
             
     # 2. 포함 경로 체크
-    includes = rules.get("include_paths", ["**/src/**"])
+    includes = rules.get("include_paths", ["**/src/**", "**/*.py"])
     for pattern in includes:
         if fnmatch.fnmatch(rel, pattern):
             return True
@@ -199,16 +199,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             conn.execute("DELETE FROM nodes WHERE file_path = ?", (rel_path,))
             
         # 노드/벡터 저장
+        nodes_data = []
+        cat = "SKILL" if "skills/" in rel_path or "skills\\" in rel_path else "SOURCE"
         for node in result["nodes"]:
-            cat = "SKILL" if "skills/" in rel_path or "skills\\" in rel_path else "SOURCE"
-            conn.execute("""
-                INSERT OR REPLACE INTO nodes 
-                (id, type, name, fqn, file_path, start_line, end_line,
-                 signature, return_type, docstring, is_exported, is_async,
-                 is_test, raw_body, skeleton_standard, skeleton_minimal, language,
-                 module, workspace_id, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            nodes_data.append((
                 node["id"], node["type"], node["name"], node["fqn"],
                 node["file_path"], node["start_line"], node["end_line"],
                 node.get("signature"), node.get("return_type"), node.get("docstring"),
@@ -228,10 +222,20 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 "meta": {"module": mod_name, "file": rel_path, "type": node["type"], "category": cat}
             })
             
+        if nodes_data:
+            conn.executemany("""
+                INSERT OR REPLACE INTO nodes
+                (id, type, name, fqn, file_path, start_line, end_line,
+                 signature, return_type, docstring, is_exported, is_async,
+                 is_test, raw_body, skeleton_standard, skeleton_minimal, language,
+                 module, workspace_id, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, nodes_data)
+
         # 엣지 저장
-        for edge in result["edges"]:
-            conn.execute("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)",
-                         (edge["source_id"], edge["target_id"], edge.get("type", "CALLS")))
+        edges_data = [(edge["source_id"], edge["target_id"], edge.get("type", "CALLS")) for edge in result["edges"]]
+        if edges_data:
+            conn.executemany("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)", edges_data)
             
         conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
                      (rel_path, file_hash, int(time.time()), workspace_id))
