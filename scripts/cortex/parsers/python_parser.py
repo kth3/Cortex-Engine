@@ -4,7 +4,6 @@ Pure-Context Python 파서
 """
 import ast
 import uuid
-import textwrap
 
 def parse_python_file(file_path: str, source: str) -> dict:
     """Python 파일을 파싱하여 노드와 엣지를 추출합니다."""
