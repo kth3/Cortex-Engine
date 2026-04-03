@@ -1,6 +1,6 @@
 import os
 import pytest
-from scripts.cortex.db import to_rel_path, get_db_path
+from scripts.cortex.db import to_rel_path, get_db_path, to_abs_path
 
 def test_get_db_path_normal(tmp_path):
     """
@@ -91,3 +91,37 @@ def test_to_rel_path_exception(mocker):
     result = to_rel_path(full_path, workspace)
 
     assert result == full_path
+
+def test_to_abs_path_normal():
+    workspace = "/home/user/project"
+    rel_path = "ROOT/src/main.py"
+
+    result = to_abs_path(rel_path, workspace)
+
+    expected = os.path.abspath(os.path.join(workspace, "src/main.py"))
+    assert result == expected
+
+def test_to_abs_path_windows_slash():
+    workspace = "C:\\workspace"
+    rel_path = "ROOT\\src\\main.py"
+
+    result = to_abs_path(rel_path, workspace)
+
+    expected = os.path.abspath(os.path.join(workspace, "src\\main.py"))
+    assert result == expected
+
+def test_to_abs_path_no_root():
+    workspace = "/home/user/project"
+    rel_path = "src/main.py"
+
+    result = to_abs_path(rel_path, workspace)
+
+    assert result == "src/main.py"
+
+def test_to_abs_path_empty_or_none():
+    workspace = "/home/user/project"
+
+    assert to_abs_path("", workspace) == ""
+    assert to_abs_path(None, workspace) is None
+    assert to_abs_path("ROOT/src", "") == "ROOT/src"
+    assert to_abs_path("ROOT/src", None) == "ROOT/src"
