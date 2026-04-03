@@ -112,7 +112,21 @@ def should_include(path: str, workspace: str, settings: dict) -> bool:
 
 
 def get_module_name(rel_path: str, settings: dict) -> str:
-    """경로 기반 모듈명 판단"""
+    """파일 경로에서 모듈 이름 추출"""
+    # settings에서 package_roots 가져오기
+    roots = settings.get('package_roots', [])
+
+    path_parts = rel_path.split(os.sep)
+
+    if roots:
+        for root in roots:
+            root_normalized = root.replace('/', os.sep)
+            if rel_path.startswith(root_normalized + os.sep):
+                root_parts = root_normalized.split(os.sep)
+                if len(path_parts) > len(root_parts):
+                    return path_parts[len(root_parts)]
+
+    # Fallback to existing indexing_rules logic
     modules = settings.get("indexing_rules", {}).get("modules", {})
     for mod_name, mod_paths in modules.items():
         for m_path in mod_paths:
