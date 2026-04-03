@@ -9,12 +9,33 @@ import importlib
 # ==============================================================================
 def get_parser_internal(file_path: str):
     """확장자에 맞는 파서 함수 반환 (내부 수복 버전)"""
-    ext = os.path.splitext(file_path)[1]
+    ext = os.path.splitext(file_path)[1].lower()
     if ext == ".java":
         try:
             import cortex.parsers.java_parser as java_parser
             importlib.reload(java_parser)
             return java_parser.parse_java_file
+        except ImportError:
+            return None
+    elif ext == ".py":
+        try:
+            import cortex.parsers.python_parser as python_parser
+            importlib.reload(python_parser)
+            return python_parser.parse_python_file
+        except ImportError:
+            return None
+    elif ext in [".ts", ".js", ".tsx", ".jsx"]:
+        try:
+            import cortex.parsers.typescript_parser as typescript_parser
+            importlib.reload(typescript_parser)
+            return typescript_parser.parse_typescript_file
+        except ImportError:
+            return None
+    elif ext == ".md":
+        try:
+            import cortex.parsers.markdown_parser as markdown_parser
+            importlib.reload(markdown_parser)
+            return markdown_parser.parse_markdown_file
         except ImportError:
             return None
     return None
