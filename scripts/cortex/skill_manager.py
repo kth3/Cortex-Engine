@@ -287,15 +287,25 @@ class SkillManager:
             sem_scored = {}
             try:
                 vec_results = ve.search_similar(self.workspace, query, top_k=limit, use_gpu=False)
+                missing_keys = []
                 for r, vr in enumerate(vec_results):
                     sem_scored[vr["id"]] = 1.0 / (r + 60)  # RRF 점수
-                    # FTS에 없는 항목은 DB에서 보완
+                    # FTS에 없는 항목 추려내기
                     if vr["id"] not in fts_data:
-                        db_row = conn.execute(
-                            "SELECT * FROM memories WHERE key = ?", (vr["id"],)
-                        ).fetchone()
-                        if db_row:
-                            fts_data[vr["id"]] = dict(zip(col_names, db_row))
+                        missing_keys.append(vr["id"])
+
+                # FTS에 없는 항목은 DB에서 보완 (N+1 Query 최적화: IN 절 배치 처리)
+                if missing_keys:
+                    # SQLite의 최대 변수 바인딩 제한 방지를 위해 900개씩 청킹
+                    chunk_size = 900
+                    for i in range(0, len(missing_keys), chunk_size):
+                        chunk = missing_keys[i:i + chunk_size]
+                        placeholders = ",".join(["?"] * len(chunk))
+                        query_sql = f"SELECT * FROM memories WHERE key IN ({placeholders})"
+                        db_rows = conn.execute(query_sql, chunk).fetchall()
+                        for db_row in db_rows:
+                            d = dict(zip(col_names, db_row))
+                            fts_data[d["key"]] = d
             except Exception as ve_err:
                 import sys
                 sys.stderr.write(f"[skill_manager] Vector search skipped: {ve_err}\n")
