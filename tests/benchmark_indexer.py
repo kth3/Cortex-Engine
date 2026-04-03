@@ -20,23 +20,18 @@ conn.execute("""
     )
 """)
 
+# Setup data
 # Let's say we have 10,000 files in cache, and 9000 of them are to be deleted.
 current_files = [f"file_{i}.py" for i in range(1000)]
 cached_paths = [f"file_{i}.py" for i in range(10000)]
 
-def insert_data():
-    conn.execute("DELETE FROM file_cache")
-    conn.execute("DELETE FROM nodes")
+for path in cached_paths:
+    conn.execute("INSERT INTO file_cache (file_path, hash) VALUES (?, ?)", (path, "hash"))
+    for j in range(5): # 5 nodes per file
+        conn.execute("INSERT INTO nodes (id, file_path, name) VALUES (?, ?, ?)", (str(uuid.uuid4()), path, "node"))
 
-    # insert using fast batch methods for setup
-    cache_inserts = [(p, "hash") for p in cached_paths]
-    node_inserts = [(str(uuid.uuid4()), p, "node") for p in cached_paths for _ in range(5)]
+conn.commit()
 
-    conn.executemany("INSERT INTO file_cache (file_path, hash) VALUES (?, ?)", cache_inserts)
-    conn.executemany("INSERT INTO nodes (id, file_path, name) VALUES (?, ?, ?)", node_inserts)
-    conn.commit()
-
-insert_data()
 
 def cleanup_original(conn, current_files):
     cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()
@@ -52,7 +47,15 @@ end_time = time.time()
 
 print(f"Original cleanup took: {end_time - start_time:.4f} seconds")
 
-insert_data()
+# Reset data
+conn.execute("DELETE FROM file_cache")
+conn.execute("DELETE FROM nodes")
+
+for path in cached_paths:
+    conn.execute("INSERT INTO file_cache (file_path, hash) VALUES (?, ?)", (path, "hash"))
+    for j in range(5): # 5 nodes per file
+        conn.execute("INSERT INTO nodes (id, file_path, name) VALUES (?, ?, ?)", (str(uuid.uuid4()), path, "node"))
+conn.commit()
 
 def cleanup_optimized(conn, current_files):
     cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()

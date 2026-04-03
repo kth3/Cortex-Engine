@@ -97,10 +97,27 @@ class PersistentMemoryManager:
             conn.close()
 
     def search(self, project_id: str, query: str, category: str = None, limit: int = 10) -> list:
-        """FTS5 전문 검색 (유연한 토큰 매칭)"""
+        """하이브리드 검색 (FTS5 + 벡터 유사도 병합)"""
+        from cortex import vector_engine as ve
+        
+        results_map = {} # key -> data
+        
+        # 1. 벡터 검색 (의미 기반)
+        try:
+            vector_results = ve.search_similar(self.workspace, query, top_k=limit)
+            for vr in vector_results:
+                # search_similar는 DB에서 실제 데이터를 가져오지 않으므로 read로 보충
+                mem_data = self.read(project_id, vr["id"])
+                if "error" not in mem_data:
+                    if not category or mem_data.get("category") == category:
+                        results_map[vr["id"]] = mem_data
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[persistent_memory] Vector search failed: {e}\n")
+
+        # 2. FTS5 전문 검색 (키워드 기반)
         conn = get_connection(self.workspace)
         try:
-            # 검색어 정제: 특수문자 제거 및 토큰화
             clean_query = query.replace('"', '').replace("'", "")
             tokens = [f'"{t}"*' for t in clean_query.split() if len(t) >= 2]
             fts_query = " OR ".join(tokens) if tokens else "*"
@@ -122,25 +139,18 @@ class PersistentMemoryManager:
                     (fts_query, limit),
                 ).fetchall()
 
-            results = []
             for row in rows:
                 d = dict(row)
-                d["tags"] = json.loads(d.get("tags") or "[]")
-                d["relationships"] = json.loads(d.get("relationships") or "{}")
-                results.append(d)
-            return results
+                if d["key"] not in results_map:
+                    d["tags"] = json.loads(d.get("tags") or "[]")
+                    d["relationships"] = json.loads(d.get("relationships") or "{}")
+                    results_map[d["key"]] = d
         except Exception:
-            # FTS 실패 시 LIKE 폴백
-            try:
-                rows = conn.execute(
-                    "SELECT * FROM memories WHERE content LIKE ? ORDER BY updated_at DESC LIMIT ?",
-                    (f"%{query}%", limit),
-                ).fetchall()
-                return [dict(r) for r in rows]
-            except Exception as e2:
-                return [{"error": str(e2)}]
+            pass # FTS 실패 시 벡터 결과에 의존
         finally:
             conn.close()
+
+        return list(results_map.values())[:limit]
 
     def delete_many(self, project_id: str, keys: list) -> int:
         """주어진 key 리스트에 해당하는 메모리 레코드를 영구 삭제 (FTS 동기화 포함)"""
