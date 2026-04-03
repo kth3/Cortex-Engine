@@ -1,5 +1,5 @@
 """
-Cortex 인덱싱 엔진 (v2.1)
+Cortex 인덱싱 엔진 (v2.2)
 파일 스캔 → 지능형 필터링 → 파서 호출 → DB 저장 → 벡터 임베딩 → 증분 인덱싱
 """
 import os
@@ -134,6 +134,103 @@ def compute_hash(content: str) -> str:
 # 핵심 인덱싱 로직
 # ==============================================================================
 
+def index_file(workspace: str, rel_path: str, conn=None):
+    """단일 파일에 대한 정밀 인덱싱 및 임베딩 (On-Save용)"""
+    full_path = os.path.join(workspace, rel_path)
+    if not os.path.exists(full_path):
+        return {"error": "File not found"}
+
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+            source = f.read()
+    except Exception as e:
+        return {"error": str(e)}
+
+    settings = load_settings(workspace)
+    workspace_id = hashlib.md5(workspace.encode()).hexdigest()[:8]
+    ext = os.path.splitext(rel_path)[1]
+    mod_name = get_module_name(rel_path, settings)
+    _, parser_func = SUPPORTED_EXTENSIONS.get(ext, (None, None))
+    
+    if not parser_func:
+        return {"status": "skipped", "reason": "unsupported extension"}
+
+    close_conn = False
+    if conn is None:
+        conn = db.get_connection(workspace)
+        close_conn = True
+
+    try:
+        result = parser_func(rel_path, source)
+        clean_source = strip_frontmatter(source) if rel_path.startswith(".agents/") else source
+        
+        # 기존 노드/엣지 삭제
+        old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (rel_path,)).fetchall()
+        old_ids = [r[0] for r in old_nodes]
+        if old_ids:
+            chunk_size = 900
+            for i in range(0, len(old_ids), chunk_size):
+                chunk = old_ids[i:i + chunk_size]
+                ph = ",".join("?" * len(chunk))
+                conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
+                conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
+            conn.execute("DELETE FROM nodes WHERE file_path = ?", (rel_path,))
+
+        # 신규 노드 저장
+        nodes_data = []
+        vector_items = []
+        cat = "SKILL" if "skills/" in rel_path else ("RULE" if rel_path.startswith(".agents/") else "SOURCE")
+        
+        for node in result["nodes"]:
+            nodes_data.append((
+                node["id"], node["type"], node["name"], node["fqn"],
+                node["file_path"], node["start_line"], node["end_line"],
+                node.get("signature"), node.get("return_type"), node.get("docstring"),
+                node.get("is_exported", 1), node.get("is_async", 0), node.get("is_test", 0),
+                node["raw_body"], node.get("skeleton_standard"),
+                node.get("skeleton_minimal"), node["language"],
+                mod_name, workspace_id, cat
+            ))
+            
+            vec_text = f"{node['type']} {node['fqn']}\n"
+            if node.get('signature'): vec_text += f"Sig: {node['signature']}\n"
+            if cat == "RULE":
+                vec_text += clean_source[:1200]
+            else:
+                vec_text += node['raw_body'][:1200]
+            
+            vector_items.append({
+                "id": node["id"], "text": vec_text,
+                "meta": {"module": mod_name, "file": rel_path, "type": node["type"], "category": cat}
+            })
+
+        if nodes_data:
+            conn.executemany("""
+                INSERT OR REPLACE INTO nodes
+                (id, type, name, fqn, file_path, start_line, end_line,
+                 signature, return_type, docstring, is_exported, is_async,
+                 is_test, raw_body, skeleton_standard, skeleton_minimal, language,
+                 module, workspace_id, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, nodes_data)
+
+        if edges_data := [(e["source_id"], e["target_id"], e.get("type", "CALLS")) for e in result["edges"]]:
+            conn.executemany("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)", edges_data)
+
+        conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
+                     (rel_path, compute_hash(source), int(time.time()), workspace_id))
+        
+        if vector_items:
+            from cortex import vector_engine as ve
+            ve.index_texts(workspace, vector_items, use_gpu=True)
+            
+        conn.commit()
+        return {"status": "success", "nodes": len(nodes_data)}
+    finally:
+        if close_conn:
+            conn.close()
+
+
 def scan_files(workspace: str) -> list:
     """지능형 필터링을 적용하여 인덱싱할 파일 목록 확보"""
     settings = load_settings(workspace)
@@ -165,20 +262,15 @@ def scan_files(workspace: str) -> list:
 
 
 def index_workspace(workspace: str, force: bool = False) -> dict:
-    """하이브리드 인덱싱 (SQLite + BGE-M3)"""
-    settings = load_settings(workspace)
-    workspace_id = hashlib.md5(workspace.encode()).hexdigest()[:8]
-    
+    """전체 워크스페이스 하이브리드 인덱싱"""
+    files = scan_files(workspace)
     conn = db.get_connection(workspace)
     db.init_schema(conn)
     
-    from cortex import vector_engine as ve
-    vector_items = []
-    
-    files = scan_files(workspace)
     stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
     
     for rel_path in files:
+        # 해시 체크만 수행 (성능 최적화)
         full_path = os.path.join(workspace, rel_path)
         try:
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -193,126 +285,34 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             if cached and cached[0] == file_hash:
                 stats["skipped"] += 1
                 continue
-                
-        ext = os.path.splitext(rel_path)[1]
-        mod_name = get_module_name(rel_path, settings)
-        _, parser_func = SUPPORTED_EXTENSIONS.get(ext, (None, None))
-        if not parser_func: continue
         
-        try:
-            result = parser_func(rel_path, source)
-        except:
+        # 실제 인덱싱은 index_file 함수 재활용
+        res = index_file(workspace, rel_path, conn=conn)
+        if "error" in res:
             stats["errors"] += 1
-            continue
-            
-        # .agents 내부 파일인 경우 본문 정제 (Trigger 등 메타데이터 제거)
-        clean_source = source
-        if rel_path.startswith(".agents/rules") or rel_path.startswith(".agents/protocols"):
-            clean_source = strip_frontmatter(source)
-            
-        # 기존 데이터 삭제
-        old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (rel_path,)).fetchall()
-        old_ids = [r[0] for r in old_nodes]
-        if old_ids:
-            chunk_size = 900
-            for i in range(0, len(old_ids), chunk_size):
-                chunk = old_ids[i:i + chunk_size]
-                ph = ",".join("?" * len(chunk))
-                conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
-                conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
-            conn.execute("DELETE FROM nodes WHERE file_path = ?", (rel_path,))
-            
-        # 노드/벡터 저장
-        nodes_data = []
-        if "skills/" in rel_path or "skills\\" in rel_path:
-            cat = "SKILL"
-        elif rel_path.startswith(".agents/"):
-            cat = "RULE"
         else:
-            cat = "SOURCE"
-            
-        for node in result["nodes"]:
-            nodes_data.append((
-                node["id"], node["type"], node["name"], node["fqn"],
-                node["file_path"], node["start_line"], node["end_line"],
-                node.get("signature"), node.get("return_type"), node.get("docstring"),
-                node.get("is_exported", 1), node.get("is_async", 0), node.get("is_test", 0),
-                node["raw_body"], node.get("skeleton_standard"),
-                node.get("skeleton_minimal"), node["language"],
-                mod_name, workspace_id, cat
-            ))
-            
-            vec_text = f"{node['type']} {node['fqn']}\n"
-            if node.get('signature'): vec_text += f"Sig: {node['signature']}\n"
-            if node.get('docstring'): vec_text += f"Doc: {node['docstring']}\n"
-            
-            # RULE 카테고리의 경우 정제된 본문 사용
-            node_body = clean_source if cat == "RULE" else node['raw_body']
-            vec_text += node_body[:1200]
-            
-            vector_items.append({
-                "id": node["id"], "text": vec_text,
-                "meta": {"module": mod_name, "file": rel_path, "type": node["type"], "category": cat}
-            })
-            
-        if nodes_data:
-            conn.executemany("""
-                INSERT OR REPLACE INTO nodes
-                (id, type, name, fqn, file_path, start_line, end_line,
-                 signature, return_type, docstring, is_exported, is_async,
-                 is_test, raw_body, skeleton_standard, skeleton_minimal, language,
-                 module, workspace_id, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, nodes_data)
+            stats["indexed"] += 1
 
-        # 엣지 저장
-        edges_data = [(edge["source_id"], edge["target_id"], edge.get("type", "CALLS")) for edge in result["edges"]]
-        if edges_data:
-            conn.executemany("INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)", edges_data)
-            
-        conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
-                     (rel_path, file_hash, int(time.time()), workspace_id))
-        stats["indexed"] += 1
-
-    # 벡터 인덱싱
-    if vector_items:
-        sys.stderr.write(f"[cortex-indexer] Vectorizing {len(vector_items)} nodes...\n")
-        ve.index_texts(workspace, vector_items, use_gpu=True)
-
-    _resolve_edges(conn)
-    _cleanup_deleted_files(conn, files)
-    conn.commit()
     conn.close()
     return stats
 
 
-def _resolve_edges(conn):
-    unresolved = conn.execute("SELECT rowid, target_id FROM edges WHERE target_id LIKE '__unresolved__%'").fetchall()
-    for row_id, target_ref in unresolved:
-        target_name = target_ref.replace("__unresolved__::", "")
-        match = conn.execute("SELECT id FROM nodes WHERE name = ? LIMIT 1", (target_name,)).fetchone()
-        if match:
-            try:
-                conn.execute("UPDATE edges SET target_id = ? WHERE rowid = ?", (match[0], row_id))
-            except sqlite3.IntegrityError:
-                conn.execute("DELETE FROM edges WHERE rowid = ?", (row_id,))
-        else:
-            conn.execute("DELETE FROM edges WHERE rowid = ?", (row_id,))
-
-
-def _cleanup_deleted_files(conn, current_files: list):
-    cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()
-    current_set = set(current_files)
-    paths_to_delete = [(cached_path,) for (cached_path,) in cached_files if cached_path not in current_set]
-
-    if paths_to_delete:
-        conn.executemany("DELETE FROM nodes WHERE file_path = ?", paths_to_delete)
-        conn.executemany("DELETE FROM file_cache WHERE file_path = ?", paths_to_delete)
-
-
 if __name__ == "__main__":
     import json
-    workspace = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
-    print(f"Indexing: {workspace}")
-    stats = index_workspace(workspace, force="--force" in sys.argv)
-    print(json.dumps(stats, indent=2))
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Cortex Indexer")
+    parser.add_argument("workspace", help="Path to workspace")
+    parser.add_argument("--file", help="Specific file to index (relative path)")
+    parser.add_argument("--force", action="store_true", help="Force re-indexing")
+    
+    args = parser.parse_args()
+    
+    if args.file:
+        # 단일 파일 모드
+        result = index_file(args.workspace, args.file)
+        print(json.dumps(result, indent=2))
+    else:
+        # 전체 워크스페이스 모드
+        stats = index_workspace(args.workspace, force=args.force)
+        print(json.dumps(stats, indent=2))
