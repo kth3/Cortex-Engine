@@ -174,9 +174,14 @@ def pc_logic_flow(from_fqn, to_fqn):
 
 def pc_save_observation(content, obs_type="insight", file_paths=None):
     from cortex.db import to_rel_path
+    from cortex.extract_inbox import extract_to_inbox
     if file_paths:
         file_paths = [to_rel_path(p, WORKSPACE) for p in file_paths]
     success = pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, obs_type, content, file_paths)
+    try:
+        extract_to_inbox() # 즉시 파일로 추출하여 가시화
+    except:
+        pass
     return json.dumps({"success": success, "session_id": SESSION_ID})
 
 def pc_search_memory(query, limit=10):

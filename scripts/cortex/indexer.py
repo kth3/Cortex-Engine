@@ -225,6 +225,15 @@ def index_file(workspace: str, rel_path: str, conn=None):
             ve.index_texts(workspace, vector_items, use_gpu=True)
             
         conn.commit()
+        
+        # [NEW] 인덱싱 성공 시 history/inbox.md 자동 갱신
+        try:
+            from cortex.extract_inbox import extract_to_inbox
+            extract_to_inbox()
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[indexer] Failed to sync inbox.md: {e}\n")
+            
         return {"status": "success", "nodes": len(nodes_data)}
     finally:
         if close_conn:
