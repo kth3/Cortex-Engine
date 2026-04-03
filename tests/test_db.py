@@ -68,17 +68,17 @@ def test_to_rel_path_empty():
     assert to_rel_path("/path", "") == "/path"
     assert to_rel_path("/path", None) == "/path"
 
-def test_to_rel_path_backslash_normalization(mocker):
+def test_to_rel_path_backslash_normalization(monkeypatch):
     # Test that backslashes are replaced by forward slashes
     workspace = "C:\\workspace"
     full_path = "C:\\workspace\\src\\main.py"
 
-    mocker.patch("os.path.relpath", return_value="src\\main.py")
+    monkeypatch.setattr(os.path, "relpath", lambda *args, **kwargs: "src\\main.py")
 
     result = to_rel_path(full_path, workspace)
     assert result == "ROOT/src/main.py"
 
-def test_to_rel_path_exception(mocker):
+def test_to_rel_path_exception(monkeypatch):
     """
     Test the exception handling block. The actual code catches Exception (which
     includes ValueError) and returns the original full_path.
@@ -86,7 +86,9 @@ def test_to_rel_path_exception(mocker):
     workspace = "C:/workspace"
     full_path = "D:/other/path"
 
-    mocker.patch("os.path.relpath", side_effect=ValueError("path is on mount 'D:', start on mount 'C:'"))
+    def raise_value_error(*args, **kwargs):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+    monkeypatch.setattr(os.path, "relpath", raise_value_error)
 
     result = to_rel_path(full_path, workspace)
 

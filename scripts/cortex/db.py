@@ -42,10 +42,9 @@ def get_connection(workspace: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
-def init_schema(conn: sqlite3.Connection):
-    """DB 스키마 생성 및 마이그레이션 (동적 인덱싱용)"""
+def _create_core_tables(conn: sqlite3.Connection):
+    """핵심 테이블 생성 (파일 캐시, 노드, 엣지 등)"""
     conn.executescript("""
-    -- 파일 캐시: 해시로 증분 인덱싱 판단
     CREATE TABLE IF NOT EXISTS file_cache (
         file_path   TEXT PRIMARY KEY,
         hash        TEXT NOT NULL,
@@ -54,12 +53,11 @@ def init_schema(conn: sqlite3.Connection):
         workspace_id TEXT DEFAULT 'default'
     );
 
-    -- 코드 노드: 클래스, 메서드, 함수 등
     CREATE TABLE IF NOT EXISTS nodes (
         id          TEXT PRIMARY KEY,
-        type        TEXT NOT NULL,       -- class, method, function, interface
+        type        TEXT NOT NULL,
         name        TEXT NOT NULL,
-        fqn         TEXT NOT NULL,       -- Fully Qualified Name
+        fqn         TEXT NOT NULL,
         file_path   TEXT NOT NULL,
         start_line  INTEGER NOT NULL,
         end_line    INTEGER NOT NULL,
@@ -78,51 +76,20 @@ def init_schema(conn: sqlite3.Connection):
         category    TEXT DEFAULT 'SOURCE'
     );
 
-    -- FTS5 전문 검색 인덱스
-    CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
-        name, fqn, docstring, signature,
-        content='nodes',
-        content_rowid='rowid'
-    );
-    """)
-
-    # --- 스키마 마이그레이션 (기존 테이블에 컬럼 추가) ---
-    columns = [c['name'] for c in conn.execute("PRAGMA table_info(nodes)").fetchall()]
-    if 'module' not in columns:
-        conn.execute("ALTER TABLE nodes ADD COLUMN module TEXT DEFAULT 'unknown'")
-    if 'workspace_id' not in columns:
-        conn.execute("ALTER TABLE nodes ADD COLUMN workspace_id TEXT DEFAULT 'default'")
-    if 'category' not in columns:
-        conn.execute("ALTER TABLE nodes ADD COLUMN category TEXT DEFAULT 'SOURCE'")
-    
-    cache_columns = [c['name'] for c in conn.execute("PRAGMA table_info(file_cache)").fetchall()]
-    if 'workspace_id' not in cache_columns:
-        conn.execute("ALTER TABLE file_cache ADD COLUMN workspace_id TEXT DEFAULT 'default'")
-
-    conn.executescript("""
-
-    -- 트리거: nodes 변경 시 FTS 자동 업데이트
-    CREATE TRIGGER IF NOT EXISTS nodes_ai AFTER INSERT ON nodes BEGIN
-        INSERT INTO nodes_fts(rowid, name, fqn, docstring, signature)
-        VALUES (new.rowid, new.name, new.fqn, new.docstring, new.signature);
-    END;
-    CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
-        INSERT INTO nodes_fts(nodes_fts, rowid, name, fqn, docstring, signature)
-        VALUES ('delete', old.rowid, old.name, old.fqn, old.docstring, old.signature);
-    END;
-
-    -- 엣지: 호출/참조/구현 관계
     CREATE TABLE IF NOT EXISTS edges (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         source_id   TEXT NOT NULL,
         target_id   TEXT NOT NULL,
-        type        TEXT NOT NULL DEFAULT 'CALLS',  -- CALLS, IMPORTS, IMPLEMENTS
+        type        TEXT NOT NULL DEFAULT 'CALLS',
         call_site_line INTEGER,
         confidence  REAL DEFAULT 1.0,
         UNIQUE(source_id, target_id, type)
     );
+    """)
 
-    -- Git 파일 이력
+def _create_history_tables(conn: sqlite3.Connection):
+    """Git 이력 및 변경 이력 추적용 테이블 생성"""
+    conn.executescript("""
     CREATE TABLE IF NOT EXISTS file_lineage (
         file_path       TEXT PRIMARY KEY,
         commit_count    INTEGER DEFAULT 0,
@@ -132,7 +99,6 @@ def init_schema(conn: sqlite3.Connection):
         updated_at      INTEGER DEFAULT 0
     );
 
-    -- 파일 간 공동 변경 커플링
     CREATE TABLE IF NOT EXISTS co_change_edges (
         file_a          TEXT NOT NULL,
         file_b          TEXT NOT NULL,
@@ -142,7 +108,21 @@ def init_schema(conn: sqlite3.Connection):
         PRIMARY KEY (file_a, file_b)
     );
 
-    -- 세션 관리
+    CREATE TABLE IF NOT EXISTS ast_diffs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path       TEXT NOT NULL,
+        symbol_fqn      TEXT NOT NULL,
+        diff_type       TEXT NOT NULL,
+        summary         TEXT NOT NULL,
+        old_snippet     TEXT,
+        new_snippet     TEXT,
+        detected_at     INTEGER NOT NULL
+    );
+    """)
+
+def _create_memory_tables(conn: sqlite3.Connection):
+    """에이전트 메모리, 관찰, 세션용 테이블 생성"""
+    conn.executescript("""
     CREATE TABLE IF NOT EXISTS sessions (
         id              TEXT PRIMARY KEY,
         agent_name      TEXT DEFAULT 'unknown',
@@ -154,11 +134,10 @@ def init_schema(conn: sqlite3.Connection):
         observation_count INTEGER DEFAULT 0
     );
 
-    -- 관찰/메모리
     CREATE TABLE IF NOT EXISTS observations (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id      TEXT,
-        type            TEXT NOT NULL,    -- insight, decision, error, pattern
+        type            TEXT NOT NULL,
         content         TEXT NOT NULL,
         file_paths      TEXT,
         stale           INTEGER DEFAULT 0,
@@ -168,69 +147,19 @@ def init_schema(conn: sqlite3.Connection):
         category        TEXT
     );
 
-    -- 에이전트 메모리 (agent-memory-mcp 통합)
     CREATE TABLE IF NOT EXISTS memories (
         key         TEXT PRIMARY KEY,
         project_id  TEXT NOT NULL,
-        category    TEXT NOT NULL,       -- architecture/pattern/feature/api/bug/decision
+        category    TEXT NOT NULL,
         content     TEXT NOT NULL,
-        tags        TEXT,                -- JSON array: ["tag1", "tag2"]
-        relationships TEXT,              -- JSON object: {"dependsOn": [], "implements": []}
+        tags        TEXT,
+        relationships TEXT,
         access_count INTEGER DEFAULT 0,
         created_at  INTEGER NOT NULL,
         updated_at  INTEGER NOT NULL,
-        embedding   BLOB                 -- 임베딩 벡터 (numpy float32 bytes)
+        embedding   BLOB
     );
 
-    -- 메모리 전문 검색 인덱스
-    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-        key, content, tags, category,
-        content='memories',
-        content_rowid='rowid'
-    );
-
-    -- 메모리 FTS 자동 동기화 트리거
-    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-        INSERT INTO memories_fts(rowid, key, content, tags, category)
-        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
-    END;
-    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
-        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
-    END;
-    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
-        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
-        INSERT INTO memories_fts(rowid, key, content, tags, category)
-        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
-    END;
-
-    -- AST Diff 추적
-    CREATE TABLE IF NOT EXISTS ast_diffs (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path       TEXT NOT NULL,
-        symbol_fqn      TEXT NOT NULL,
-        diff_type       TEXT NOT NULL,    -- added, removed, modified, renamed
-        summary         TEXT NOT NULL,
-        old_snippet     TEXT,
-        new_snippet     TEXT,
-        detected_at     INTEGER NOT NULL
-    );
-
-    -- 메타 정보
-    CREATE TABLE IF NOT EXISTS meta (
-        key     TEXT PRIMARY KEY,
-        value   TEXT
-    );
-
-    -- 인덱스
-    CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
-    CREATE INDEX IF NOT EXISTS idx_nodes_fqn ON nodes(fqn);
-    CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
-    CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-    CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-    CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
-    -- 검색 실패 로깅 (개선안 ⑥)
     CREATE TABLE IF NOT EXISTS search_misses (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         query       TEXT NOT NULL,
@@ -239,10 +168,100 @@ def init_schema(conn: sqlite3.Connection):
         created_at  INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS meta (
+        key     TEXT PRIMARY KEY,
+        value   TEXT
+    );
+    """)
+
+def _create_fts_and_triggers(conn: sqlite3.Connection):
+    """FTS5 인덱스와 연관 트리거 생성"""
+    conn.executescript("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+        name, fqn, docstring, signature,
+        content='nodes',
+        content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS nodes_ai AFTER INSERT ON nodes BEGIN
+        INSERT INTO nodes_fts(rowid, name, fqn, docstring, signature)
+        VALUES (new.rowid, new.name, new.fqn, new.docstring, new.signature);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
+        INSERT INTO nodes_fts(nodes_fts, rowid, name, fqn, docstring, signature)
+        VALUES ('delete', old.rowid, old.name, old.fqn, old.docstring, old.signature);
+    END;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        key, content, tags, category,
+        content='memories',
+        content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, key, content, tags, category)
+        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
+        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
+        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
+        INSERT INTO memories_fts(rowid, key, content, tags, category)
+        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
+    END;
+    """)
+
+def _create_indexes(conn: sqlite3.Connection):
+    """성능 최적화용 일반 인덱스 생성"""
+    conn.executescript("""
+    CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
+    CREATE INDEX IF NOT EXISTS idx_nodes_fqn ON nodes(fqn);
+    CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
+    CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+    CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+    CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
     CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
     CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
     CREATE INDEX IF NOT EXISTS idx_search_misses_ts ON search_misses(created_at);
     """)
+
+def _apply_migrations(conn: sqlite3.Connection):
+    """기존 스키마에 대한 마이그레이션 적용"""
+    # nodes 테이블 마이그레이션
+    columns = [c['name'] for c in conn.execute("PRAGMA table_info(nodes)").fetchall()]
+    if 'module' not in columns:
+        conn.execute("ALTER TABLE nodes ADD COLUMN module TEXT DEFAULT 'unknown'")
+    if 'workspace_id' not in columns:
+        conn.execute("ALTER TABLE nodes ADD COLUMN workspace_id TEXT DEFAULT 'default'")
+    if 'category' not in columns:
+        conn.execute("ALTER TABLE nodes ADD COLUMN category TEXT DEFAULT 'SOURCE'")
+
+    # file_cache 테이블 마이그레이션
+    cache_columns = [c['name'] for c in conn.execute("PRAGMA table_info(file_cache)").fetchall()]
+    if 'workspace_id' not in cache_columns:
+        conn.execute("ALTER TABLE file_cache ADD COLUMN workspace_id TEXT DEFAULT 'default'")
+
+    # memories 테이블 마이그레이션
+    existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()]
+    if "embedding" not in existing_cols:
+        conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
+
+def init_schema(conn: sqlite3.Connection):
+    """DB 스키마 생성 및 마이그레이션 (동적 인덱싱용)"""
+    _create_core_tables(conn)
+    _create_history_tables(conn)
+    _create_memory_tables(conn)
+    _create_fts_and_triggers(conn)
+    _create_indexes(conn)
+
+    # 초기화 및 마이그레이션
+    _apply_migrations(conn)
     
     # 메타 정보 초기화
     conn.execute(
@@ -250,12 +269,6 @@ def init_schema(conn: sqlite3.Connection):
         ("schema_version", "1")
     )
     conn.commit()
-
-    # 마이그레이션: 기존 memories 테이블에 embedding 콼럼 없으면 추가
-    existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()]
-    if "embedding" not in existing_cols:
-        conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
-        conn.commit()
 
 # ==============================================================================
 # 쿼리 헬퍼
