@@ -158,9 +158,16 @@ class PersistentMemoryManager:
             return 0
         conn = get_connection(self.workspace)
         try:
-            placeholders = ",".join(["?"] * len(keys))
-            cursor = conn.execute(f"DELETE FROM memories WHERE key IN ({placeholders})", keys)
-            deleted_count = cursor.rowcount
+            # ⚡ Bolt Optimization: Replace single large IN clause with chunked IN clauses
+            # Why: Bypasses SQLite's 999 parameter limit preventing crashes on large deletions,
+            # while maintaining the high performance of IN clauses over single-row executemany.
+            deleted_count = 0
+            chunk_size = 900
+            for i in range(0, len(keys), chunk_size):
+                chunk = keys[i:i + chunk_size]
+                placeholders = ",".join(["?"] * len(chunk))
+                cursor = conn.execute(f"DELETE FROM memories WHERE key IN ({placeholders})", chunk)
+                deleted_count += cursor.rowcount
             conn.commit()
             return deleted_count
         except Exception as e:
