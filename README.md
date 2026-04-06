@@ -72,10 +72,27 @@ python3 scripts/cortex/indexer.py --force
 ```
 
 **4. IDE (MCP 클라이언트) 등록**
-모든 설치가 끝났습니다. 이제 사용 중인 에디터(Cursor, Windsurf, Gemini CLI 등)의 MCP 설정에 아래 항목을 수동으로 기입하세요.
-- **Command (실행기)**: `<프로젝트 절대 경로>/.agents/venv/bin/python3`
-- **Args (인자)**: `["<프로젝트 절대 경로>/.agents/scripts/cortex_mcp.py"]`
-*(주의: 상대 경로(./)나 ~ 대신 반드시 전체 절대 경로를 사용하세요.)*
+모든 설치가 끝났습니다. 이제 사용 중인 에디터(Cursor, Windsurf, Gemini CLI 등)의 MCP 설정에 **Cortex MCP**를 아래와 같이 등록하세요.
+*(주의: 상대 경로 `./` 나 `~` 대신 반드시 전체 절대 경로를 기입해야 합니다.)*
+
+* **이름 (Name)**: `cortex-mcp`
+* **유형 (Type)**: `stdio`
+* **명령어 (Command)**: `<프로젝트 절대 경로>/.agents/venv/bin/python3`
+* **인자 (Arguments)**: `<프로젝트 절대 경로>/.agents/scripts/cortex_mcp.py`
+
+**💡 [참고] 설정 파일(`mcp.json` 등)을 직접 수정하는 경우의 예시:**
+```json
+{
+  "mcpServers": {
+    "cortex-mcp": {
+      "command": "/Users/myname/workspace/project/.agents/venv/bin/python3",
+      "args": [
+        "/Users/myname/workspace/project/.agents/scripts/cortex_mcp.py"
+      ]
+    }
+  }
+}
+```
 
 ---
 
