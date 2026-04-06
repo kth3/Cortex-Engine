@@ -65,13 +65,21 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-**3. 초기 지식 인덱싱 실행**
+**3. 환경 변수 설정 (Hugging Face 토큰 등)**
+모델 다운로드 속도 향상과 권한 오류 방지를 위해 환경 변수를 설정합니다.
 ```bash
-# Cortex 엔진의 DB를 생성하고 워크스페이스를 초기 스캔합니다.
+cp .env.example .env
+# .env 파일을 열고 HF_TOKEN 란에 Hugging Face Access Token을 입력하세요.
+# 발급: https://huggingface.co/settings/tokens
+```
+
+**4. 초기 지식 인덱싱 및 모델 다운로드 실행**
+```bash
+# Cortex 엔진의 DB를 생성하고 임베딩 모델을 자동 다운로드하며 초기 스캔합니다.
 python3 scripts/cortex/indexer.py --force
 ```
 
-**4. IDE (MCP 클라이언트) 등록**
+**5. IDE (MCP 클라이언트) 등록**
 모든 설치가 끝났습니다. 이제 사용 중인 에디터(Cursor, Windsurf, Gemini CLI 등)의 MCP 설정에 **Cortex MCP**를 아래와 같이 등록하세요.
 *(주의: 상대 경로 `./` 나 `~` 대신 반드시 전체 절대 경로를 기입해야 합니다.)*
 
