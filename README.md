@@ -28,13 +28,27 @@
 
 ---
 
-## 🚀 빠른 시작 (Quick Start)
+## 🚀 설치 및 빠른 시작 (Installation & Quick Start)
 
-### 스마트 셋업 (Smart Setup)
-프로젝트 루트에서 단 한 번의 명령으로 모든 주입과 설정을 완결하세요.
+### 🤖 [FOR AGENTS] 자동 설치 프롬프트 (Auto-Install Prompt)
+새로운 환경(다른 PC)에서 에이전트에게 인프라 구성을 지시할 때 **아래 프롬프트를 그대로 복사하여 전달**하세요. 에이전트가 헤매지 않고 스스로 환경을 구축합니다.
+
+> ```markdown
+> [CORTEX INFRA INSTALLATION]
+> 이 프로젝트에 Cortex 인프라를 설치하고 MCP 서버를 구성해줘. 다음 단계를 순서대로 실행할 것:
+> 1. 프로젝트 루트 경로에서 `.agents/setup.sh` 스크립트를 실행하여 가상환경(venv)과 의존성을 설치해. (예: `cd .agents && chmod +x setup.sh && ./setup.sh`)
+> 2. 설치가 완료되면, IDE의 MCP 클라이언트 설정(예: Cursor, Windsurf, Gemini CLI)에 다음 서버를 추가해:
+>    - Command: `<프로젝트루트>/.agents/venv/bin/python3`
+>    - Args: `["<프로젝트루트>/.agents/scripts/cortex_mcp.py"]`
+> 3. 설정 후 `.agents/rules/diagnostics.md`를 읽어 가상환경 충돌 방지 원칙(Phase 0)을 숙지해.
+> ```
+
+### 🧑‍💻 수동 셋업 (Manual Setup)
+직접 설치하는 경우, `.agents` 폴더 내부로 이동하여 스크립트를 실행합니다.
 ```bash
-# 자동으로 .agents 폴더 생성, 가상환경 구축, 초기 인덱싱까지 수행합니다.
-./setup.sh [당신의 프로젝트 경로]
+cd .agents
+chmod +x setup.sh
+./setup.sh
 ```
 
 ---
@@ -79,7 +93,7 @@ cd ..
 
 ## 🤖 [FOR AGENTS] 부트스트랩 프롬프트 (Bootstrap Prompt)
 
-새로운 채팅 세션을 시작할 때, **아래 블록을 통째로 복사하여 전달**하세요. 
+**설치 및 MCP 연동이 모두 끝난 후**, 새로운 채팅 세션을 시작할 때 에이전트에게 **아래 블록을 통째로 복사하여 전달**하세요. 
 
 > [!TIP]
 > **"Agent's First Day Secret Command"**
@@ -88,9 +102,9 @@ cd ..
 > 안녕, 파트너. 너는 지금 이 프로젝트의 Cortex 인프라와 함께 작업하게 될 거야.
 > 지금 즉시 다음 단계를 수행해서 프로젝트 맥락을 확보해:
 > 
-> 1. `.agents/rules/rule.md`를 읽고 보고 원칙과 작업 제약 사항을 숙지해.
-> 2. `cortex-mcp`의 `pc_index_status` 도구를 호출해서 현재 인덱싱된 지식의 양을 확인해.
-> 3. `pc_memory_search_knowledge`로 프로젝트의 '핵심 아키텍처 결정'이나 '기존 지식'을 검색해.
+> 1. `cortex-mcp`의 `pc_index_status` 도구를 호출해서 현재 인덱싱된 지식의 양을 확인해.
+> 2. `pc_memory_search_knowledge`로 카테고리를 `rule`로 설정해 핵심 규칙(rule.md 등)을 검색하고 숙지해.
+> 3. `pc_memory_search_knowledge`로 프로젝트의 '기존 지식'이나 '아키텍처'를 검색해.
 > 4. 마지막으로 `/진행` 워크플로우를 호출해서 이전 세션의 작업 지점을 동기화해.
 > ```
 
