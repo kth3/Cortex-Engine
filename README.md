@@ -44,12 +44,38 @@
 > ```
 
 ### 🧑‍💻 수동 셋업 (Manual Setup)
-직접 설치하는 경우, `.agents` 폴더 내부로 이동하여 스크립트를 실행합니다.
+자동 스크립트(`setup.sh`)가 실패하거나 권한 문제가 발생할 경우, 사람이 직접 터미널에 아래 명령어를 순서대로 입력하여 확실하게 설치를 진행하세요.
+
+**1. 폴더 이동 및 가상환경 생성**
 ```bash
+# .agents 디렉토리로 이동
 cd .agents
-chmod +x setup.sh
-./setup.sh
+
+# 격리된 Python 가상환경 생성 (python3-venv 패키지 필요)
+python3 -m venv venv
 ```
+
+**2. 가상환경 활성화 및 패키지 설치**
+```bash
+# 가상환경 활성화 (Linux/Mac 기준)
+source venv/bin/activate
+
+# 의존성 설치 전 pip 최신화 및 필수 패키지 설치
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**3. 초기 지식 인덱싱 실행**
+```bash
+# Cortex 엔진의 DB를 생성하고 워크스페이스를 초기 스캔합니다.
+python3 scripts/cortex/indexer.py --force
+```
+
+**4. IDE (MCP 클라이언트) 등록**
+모든 설치가 끝났습니다. 이제 사용 중인 에디터(Cursor, Windsurf, Gemini CLI 등)의 MCP 설정에 아래 항목을 수동으로 기입하세요.
+- **Command (실행기)**: `<프로젝트 절대 경로>/.agents/venv/bin/python3`
+- **Args (인자)**: `["<프로젝트 절대 경로>/.agents/scripts/cortex_mcp.py"]`
+*(주의: 상대 경로(./)나 ~ 대신 반드시 전체 절대 경로를 사용하세요.)*
 
 ---
 
