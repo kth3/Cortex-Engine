@@ -553,6 +553,15 @@ def serve():
         except Exception as e:
             sys.stderr.write(f"Error handling request: {str(e)}\n")
             sys.stderr.flush()
+            # 예외 발생 시 클라이언트 대기(마비) 상태를 방지하기 위해 에러 응답 반환
+            try:
+                rid = req.get("id") if 'req' in locals() and isinstance(req, dict) else None
+                if rid is not None:
+                    err_res = {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": f"Internal Error: {str(e)}"}]
+                    sys.stdout.write(json.dumps(err_res, ensure_ascii=False) + "\n")
+                    sys.stdout.flush()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     serve()
