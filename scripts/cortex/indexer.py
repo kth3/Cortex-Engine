@@ -134,8 +134,14 @@ def compute_hash(content: str) -> str:
 # 핵심 인덱싱 로직
 # ==============================================================================
 
-def index_file(workspace: str, rel_path: str, conn=None):
-    """단일 파일에 대한 정밀 인덱싱 및 임베딩 (On-Save용)"""
+def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True):
+    """단일 파일에 대한 정밀 인덱싱 및 임베딩.
+
+    Args:
+        vectorize: True(기본) = 즉시 벡터 임베딩까지 수행 (On-Save 단일 파일용).
+                   False = 파싱/DB 저장만 수행하고 vector_items를 반환값에 포함
+                           (index_workspace의 배치 모드에서 사용).
+    """
     full_path = os.path.join(workspace, rel_path)
     if not os.path.exists(full_path):
         return {"error": "File not found"}
@@ -220,21 +226,26 @@ def index_file(workspace: str, rel_path: str, conn=None):
         conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
                      (rel_path, compute_hash(source), int(time.time()), workspace_id))
         
-        if vector_items:
+        if vectorize and vector_items:
             from cortex import vector_engine as ve
-            ve.index_texts(workspace, vector_items, use_gpu=True)
-            
+            ve.index_texts(workspace, vector_items, use_gpu=False)
+            ve._release_gpu()  # On-Save 단일 파일 모드에서는 즉시 해제
+
         conn.commit()
-        
-        # [NEW] 인덱싱 성공 시 history/inbox.md 자동 갱신
+
+        # 인덱싱 성공 시 history/inbox.md 자동 갱신
         try:
             from cortex.extract_inbox import extract_to_inbox
             extract_to_inbox()
         except Exception as e:
             import sys
             sys.stderr.write(f"[indexer] Failed to sync inbox.md: {e}\n")
-            
-        return {"status": "success", "nodes": len(nodes_data)}
+
+        result = {"status": "success", "nodes": len(nodes_data)}
+        if not vectorize:
+            # 배치 모드: 호출자가 일괄 처리하도록 vector_items 반환
+            result["_vector_items"] = vector_items
+        return result
     finally:
         if close_conn:
             conn.close()
@@ -271,43 +282,55 @@ def scan_files(workspace: str) -> list:
 
 
 def index_workspace(workspace: str, force: bool = False) -> dict:
-    """전체 워크스페이스 하이브리드 인덱싱"""
+    """전체 워크스페이스 하이브리드 인덱싱.
+
+    최적화:
+    - 파싱/DB 저장은 파일별로 수행하되, 벡터 임베딩은 전체 완료 후 1회 배치 처리.
+    - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / GPU 해제 1회.
+    """
     files = scan_files(workspace)
     conn = db.get_connection(workspace)
     db.init_schema(conn)
-    
+
     stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
-    
-    # [NEW] N+1 optimization: bulk load file_cache
+
+    # N+1 최적화: file_cache 일괄 로드
     cache_dict = {}
     if not force:
         cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
         cache_dict = {row[0]: row[1] for row in cached_rows}
 
+    all_vector_items = []  # 전체 vector_items 수집 (배치 임베딩용)
+
     for rel_path in files:
-        # 해시 체크만 수행 (성능 최적화)
         full_path = os.path.join(workspace, rel_path)
         try:
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
-        except:
+        except Exception:
             stats["errors"] += 1
             continue
-            
+
         file_hash = compute_hash(source)
         if not force:
-            # O(1) dictionary lookup instead of N+1 query
             cached_hash = cache_dict.get(rel_path)
             if cached_hash == file_hash:
                 stats["skipped"] += 1
                 continue
-        
-        # 실제 인덱싱은 index_file 함수 재활용
-        res = index_file(workspace, rel_path, conn=conn)
+
+        # vectorize=False: DB 저장만 수행, vector_items는 여기서 수집
+        res = index_file(workspace, rel_path, conn=conn, vectorize=False)
         if "error" in res:
             stats["errors"] += 1
         else:
             stats["indexed"] += 1
+            all_vector_items.extend(res.get("_vector_items", []))
+
+    # 전체 파일 파싱 완료 후 벡터 임베딩 1회 배치 처리
+    if all_vector_items:
+        from cortex import vector_engine as ve
+        ve.index_texts(workspace, all_vector_items, use_gpu=True)
+        ve._release_gpu()  # 배치 완료 후 GPU 해제
 
     conn.close()
     return stats

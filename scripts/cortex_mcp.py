@@ -180,7 +180,7 @@ def pc_save_observation(content, obs_type="insight", file_paths=None):
     success = pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, obs_type, content, file_paths)
     try:
         extract_to_inbox() # 즉시 파일로 추출하여 가시화
-    except:
+    except Exception:
         pass
     return json.dumps({"success": success, "session_id": SESSION_ID})
 
@@ -413,7 +413,7 @@ def pc_session_sync(task_desc):
             match = re.search(r'([A-Z0-9]+-\d+)', branch)
             if match:
                 jira_issues.append(match.group(1))
-        except:
+        except Exception:
             pass
             
         modified_files = []
@@ -427,7 +427,7 @@ def pc_session_sync(task_desc):
                 if f not in seen:
                     seen.add(f)
                     modified_files.append(f)
-        except:
+        except Exception:
             pass
 
         relationships = {

@@ -78,21 +78,58 @@ class PersistentMemoryManager:
 
     def read(self, project_id: str, key: str) -> dict:
         """키로 단일 메모리 조회"""
+        res = self.read_batch(project_id, [key])
+        return res.get(key, {"error": f"Key '{key}' not found"})
+
+    def read_batch(self, project_id: str, keys: list) -> dict:
+        """다수의 키를 이용해 메모리 일괄 조회 (N+1 최적화)"""
+        if not keys:
+            return {}
+
         conn = get_connection(self.workspace)
+        fetched_data = {}
         try:
-            row = conn.execute(
-                "SELECT * FROM memories WHERE key = ?", (key,)
-            ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE memories SET access_count=access_count+1 WHERE key=?", (key,)
-                )
+            chunk_size = 900
+<<<<<<< Updated upstream
+            # 1단계: Batch read (SELECT 먼저)
+=======
+            # Batch update access count
+            for i in range(0, len(keys), chunk_size):
+                chunk = keys[i:i + chunk_size]
+                placeholders = ",".join(["?"] * len(chunk))
+                conn.execute(f"UPDATE memories SET access_count=access_count+1 WHERE key IN ({placeholders})", chunk)
+            conn.commit()
+
+            # Batch read
+>>>>>>> Stashed changes
+            for i in range(0, len(keys), chunk_size):
+                chunk = keys[i:i + chunk_size]
+                placeholders = ",".join(["?"] * len(chunk))
+                query_sql = f"SELECT * FROM memories WHERE key IN ({placeholders})"
+                db_rows = conn.execute(query_sql, chunk).fetchall()
+                for db_row in db_rows:
+<<<<<<< Updated upstream
+                    # Row 객체를 안전하게 dict로 변환
+=======
+>>>>>>> Stashed changes
+                    d = dict(db_row)
+                    d["tags"] = json.loads(d.get("tags") or "[]")
+                    d["relationships"] = json.loads(d.get("relationships") or "{}")
+                    fetched_data[d["key"]] = d
+<<<<<<< Updated upstream
+
+            # 2단계: 실제 존재하는 키만 access_count 업데이트
+            found_keys = list(fetched_data.keys())
+            if found_keys:
+                for i in range(0, len(found_keys), chunk_size):
+                    chunk = found_keys[i:i + chunk_size]
+                    placeholders = ",".join(["?"] * len(chunk))
+                    conn.execute(f"UPDATE memories SET access_count=access_count+1 WHERE key IN ({placeholders})", chunk)
                 conn.commit()
-                d = dict(row)
-                d["tags"] = json.loads(d.get("tags") or "[]")
-                d["relationships"] = json.loads(d.get("relationships") or "{}")
-                return d
-            return {"error": f"Key '{key}' not found"}
+
+=======
+>>>>>>> Stashed changes
+            return fetched_data
         finally:
             conn.close()
 
@@ -105,12 +142,26 @@ class PersistentMemoryManager:
         # 1. 벡터 검색 (의미 기반)
         try:
             vector_results = ve.search_similar(self.workspace, query, top_k=limit)
-            for vr in vector_results:
-                # search_similar는 DB에서 실제 데이터를 가져오지 않으므로 read로 보충
-                mem_data = self.read(project_id, vr["id"])
-                if "error" not in mem_data:
-                    if not category or mem_data.get("category") == category:
-                        results_map[vr["id"]] = mem_data
+<<<<<<< Updated upstream
+            missing_keys = [vr.get("id") for vr in vector_results if vr.get("id")]
+
+            if missing_keys:
+                fetched_data = self.read_batch(project_id, missing_keys)
+=======
+            missing_keys = [vr["id"] for vr in vector_results]
+
+            if missing_keys:
+                # ⚡ Bolt Optimization: Replace N+1 query loop with batched read_batch calls
+                # Reduces database overhead significantly by performing batched reads and updates
+                fetched_data = self.read_batch(project_id, missing_keys)
+
+                # Restore ranking order from vector search results
+>>>>>>> Stashed changes
+                for key in missing_keys:
+                    if key in fetched_data:
+                        d = fetched_data[key]
+                        if not category or d.get("category") == category:
+                            results_map[key] = d
         except Exception as e:
             import sys
             sys.stderr.write(f"[persistent_memory] Vector search failed: {e}\n")
@@ -146,7 +197,7 @@ class PersistentMemoryManager:
                     d["relationships"] = json.loads(d.get("relationships") or "{}")
                     results_map[d["key"]] = d
         except Exception:
-            pass # FTS 실패 시 벡터 결과에 의존
+            pass
         finally:
             conn.close()
 
@@ -158,9 +209,6 @@ class PersistentMemoryManager:
             return 0
         conn = get_connection(self.workspace)
         try:
-            # ⚡ Bolt Optimization: Replace single large IN clause with chunked IN clauses
-            # Why: Bypasses SQLite's 999 parameter limit preventing crashes on large deletions,
-            # while maintaining the high performance of IN clauses over single-row executemany.
             deleted_count = 0
             chunk_size = 900
             for i in range(0, len(keys), chunk_size):
@@ -180,13 +228,27 @@ class PersistentMemoryManager:
         """메모리 저장소 통계"""
         conn = get_connection(self.workspace)
         try:
-            total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+            total_row = conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+            total = total_row[0] if total_row else 0
+
             by_cat = conn.execute(
                 "SELECT category, COUNT(*) as cnt FROM memories GROUP BY category"
             ).fetchall()
+
+            # Row 객체가 튜플로 취급될 경우를 대비해 인덱스로 접근 (가장 안전)
+            stats_by_cat = {}
+            for r in by_cat:
+                cat_name = r[0] # category
+                count = r[1]    # cnt
+                stats_by_cat[cat_name] = count
+
             return {
                 "total_memories": total,
-                "by_category": {r["category"]: r["cnt"] for r in by_cat},
+<<<<<<< Updated upstream
+                "by_category": stats_by_cat,
+=======
+                "by_category": {r[0]: r[1] for r in by_cat},
+>>>>>>> Stashed changes
             }
         finally:
             conn.close()

@@ -54,7 +54,7 @@ def get_file_lineage(workspace, file_path):
         cmd_count = ["git", "rev-list", "--count", "HEAD", "--", rel_path]
         try:
             count = subprocess.check_output(cmd_count, cwd=real_root).decode().strip()
-        except: count = "0"
+        except Exception: count = "0"
         
         return {
             "file_path": file_path,

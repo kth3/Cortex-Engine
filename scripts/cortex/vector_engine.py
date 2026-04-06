@@ -6,7 +6,7 @@ Cortex 벡터 검색 엔진 (Vector Engine)
 - 저장소: FAISS (로컬 파일 기반, cortex_data/vectors.index)
 """
 import os
-import pickle
+import json
 
 # 청킹 설정
 CHUNK_SIZE = 1200         # 청크당 최대 문자 수 (BGE-M3 최적화)
@@ -110,20 +110,38 @@ def _index_path(workspace: str) -> str:
 
 
 def _meta_path(workspace: str) -> str:
-    return os.path.join(_get_data_dir(workspace), "vectors_meta.pkl")
+    return os.path.join(_get_data_dir(workspace), "vectors_meta.json")
 
 
 def _load_faiss_index(workspace: str):
     """FAISS 인덱스 및 메타 로드 (없으면 None 반환)"""
     try:
         import faiss
+        import sys
         idx_path = _index_path(workspace)
         meta_path = _meta_path(workspace)
+
+        # pkl → json 자동 마이그레이션
+        old_meta_path = os.path.join(_get_data_dir(workspace), "vectors_meta.pkl")
+        if os.path.exists(old_meta_path) and not os.path.exists(meta_path):
+            sys.stderr.write(f"[cortex-vector] Migrating {old_meta_path} → {meta_path}...\n")
+            try:
+                import pickle
+                with open(old_meta_path, "rb") as f:
+                    legacy_meta = pickle.load(f)
+                with open(meta_path, "w", encoding="utf-8") as f:
+                    json.dump(legacy_meta, f, ensure_ascii=False, indent=2)
+                os.rename(old_meta_path, old_meta_path + ".migrated")
+                sys.stderr.write("[cortex-vector] Migration complete.\n")
+            except Exception as me:
+                sys.stderr.write(f"[cortex-vector] Migration failed: {me}. Re-index required.\n")
+
         if not os.path.exists(idx_path) or not os.path.exists(meta_path):
             return None, []
+
         index = faiss.read_index(idx_path)
-        with open(meta_path, "rb") as f:
-            meta = pickle.load(f)
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
         return index, meta
     except Exception as e:
         import sys
@@ -132,11 +150,11 @@ def _load_faiss_index(workspace: str):
 
 
 def _save_faiss_index(workspace: str, index, meta: list):
-    """FAISS 인덱스 및 메타 저장"""
+    """FAISS 인덱스 및 메타 저장 (JSON 포맷)"""
     import faiss
     faiss.write_index(index, _index_path(workspace))
-    with open(_meta_path(workspace), "wb") as f:
-        pickle.dump(meta, f)
+    with open(_meta_path(workspace), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
 def _create_new_index(dim: int):
@@ -179,13 +197,21 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = False) -> dic
     # 청킹 및 전처리
     all_texts = []
     all_metas = []
-    for item in items:
-        chunks = chunk_text(item["text"])
+    for item_raw in items:
+        # item이 튜플인 경우를 대비해 dict로 변환 (안전 장치)
+        item = dict(item_raw) if not isinstance(item_raw, dict) else item_raw
+
+        text = item.get("text", "")
+        item_id = item.get("id", "")
+        if not text or not item_id:
+            continue
+
+        chunks = chunk_text(text)
         for i, chunk in enumerate(chunks):
             prefixed = f"passage: {chunk}"  # BGE-M3 권장 prefix
             all_texts.append(prefixed)
             all_metas.append({
-                "id": item["id"],
+                "id": item_id,
                 "chunk_idx": i,
                 "text": chunk[:300],  # 미리보기 저장
                 **(item.get("meta") or {}),
@@ -209,10 +235,11 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = False) -> dic
         meta = []
     else:
         index = existing_index
-        meta = existing_meta
+        # meta 리스트의 각 항목이 dict임을 보장
+        meta = [dict(m) if not isinstance(m, dict) else m for m in (existing_meta or [])]
 
     # 기존 ID 중복 제거 후 추가
-    new_ids = {item["id"] for item in items}
+    new_ids = {item.get("id") for item in items if isinstance(item, dict) or hasattr(item, "get")}
     filtered_meta = [m for m in meta if m.get("id") not in new_ids]
     filtered_count = len(meta) - len(filtered_meta)
 
@@ -221,19 +248,20 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = False) -> dic
         # 기존 벡터 재구성 (필요 시)
         kept_indices = [i for i, m in enumerate(meta) if m.get("id") not in new_ids]
         if kept_indices:
-            kept_vecs = index.reconstruct_batch(kept_indices) if hasattr(index, 'reconstruct_batch') else None
-            new_index = _create_new_index(embeddings.shape[1])
-            if kept_vecs is not None:
+            # IndexFlatIP는 reconstruct를 지원하지 않을 수 있음
+            try:
+                kept_vecs = index.reconstruct_batch(kept_indices)
+                new_index = _create_new_index(embeddings.shape[1])
                 new_index.add(kept_vecs)
-            index = new_index
+                index = new_index
+            except Exception:
+                # reconstruct 불가 시 기존 인덱스 유지 (중복은 상위에서 처리됨)
+                pass
         meta = filtered_meta
 
     index.add(embeddings)
     meta.extend(all_metas)
     _save_faiss_index(workspace, index, meta)
-
-    if use_gpu:
-        _release_gpu()
 
     return {"indexed": len(all_texts), "skipped": 0}
 
@@ -251,9 +279,12 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
     Returns:
         [{"id": str, "score": float, "text": str, "meta": dict}, ...]
     """
-    index, meta = _load_faiss_index(workspace)
+    index, meta_raw = _load_faiss_index(workspace)
     if index is None or index.ntotal == 0:
         return []
+
+    # meta 리스트의 각 항목이 dict임을 보장
+    meta = [dict(m) if not isinstance(m, dict) else m for m in (meta_raw or [])]
 
     import numpy as np  # lazy import
     device = "cpu"  # 검색은 CPU 기본값 (VRAM 0MB)
@@ -285,6 +316,9 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
             continue
         item_meta = meta[idx]
         item_id = item_meta.get("id", "")
+        if not item_id:
+            continue
+
         if item_id not in seen_ids or score > seen_ids[item_id]["score"]:
             seen_ids[item_id] = {
                 "id": item_id,
@@ -294,7 +328,7 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
             }
 
     # 점수 기준 정렬 후 상위 K개 반환
-    results = sorted(seen_ids.values(), key=lambda x: x["score"], reverse=True)
+    results = sorted(seen_ids.values(), key=lambda x: x.get("score", 0.0), reverse=True)
     return results[:top_k]
 
 
