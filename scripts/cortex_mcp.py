@@ -132,11 +132,12 @@ def pc_index_status():
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def pc_capsule(query, category=None):
+def pc_capsule(query, context=None, category=None):
     try:
         _auto_sync()
-        capsule_text = pc_capsule_mod.generate_context_capsule(WORKSPACE, query, category=category)
-        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Capsule search for: {query}", [])
+        search_query = f"{query} {context}" if context else query
+        capsule_text = pc_capsule_mod.generate_context_capsule(WORKSPACE, search_query, category=category)
+        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Capsule search for: {search_query}", [])
         return json.dumps({"capsule": capsule_text}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -248,11 +249,12 @@ def pc_memory_read(key):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def pc_memory_search_knowledge(query, category=None, limit=10):
+def pc_memory_search_knowledge(query, context=None, category=None, limit=10):
     """영구 지식 및 전문가 스킬 검색 → persistent_memory.search_knowledge()에 위임"""
     try:
+        search_query = f"{query} {context}" if context else query
         ve = _ve if _VE_AVAILABLE else None
-        results = get_storage().search_knowledge(query, category, limit, ve_module=ve)
+        results = get_storage().search_knowledge(search_query, category, limit, ve_module=ve)
         return json.dumps(results, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -287,23 +289,24 @@ def pc_skeleton(file_path, detail="standard"):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def pc_run_pipeline(query, category=None):
+def pc_run_pipeline(query, context=None, category=None):
     """최종 통합 파이프라인: Capsule + Impact + Memory 결합"""
     try:
         _auto_sync()
+        search_query = f"{query} {context}" if context else query
         # 1. 캡슐 생성
-        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query, category=category)
+        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, search_query, category=category)
         
         # 2. 관련 기호 임팩트 분석 (가장 첫번째 Pivot 기준)
         conn = pc_db.get_connection(WORKSPACE)
-        first_match = pc_db.search_nodes_fts(conn, query, category=category, limit=1)
+        first_match = pc_db.search_nodes_fts(conn, search_query, category=category, limit=1)
         impact = {}
         if first_match:
             impact = pc_impact_mod.get_impact_tree(conn, first_match[0]["id"], max_depth=2)
         conn.close()
         
         # 3. 과거 메모리 검색
-        mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+        mem = pc_mem_mod.search_memory(WORKSPACE, search_query, limit=3)
         
         return json.dumps({
             "capsule": capsule,
@@ -313,29 +316,30 @@ def pc_run_pipeline(query, category=None):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def pc_auto_explore(query, category=None):
+def pc_auto_explore(query, context=None, category=None):
     """조건부 지능형 다단계 탐색기 (파이썬 내부 자율 추론 엔진)"""
     try:
         _auto_sync()
-        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query, category=category)
+        search_query = f"{query} {context}" if context else query
+        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, search_query, category=category)
         result = {"capsule": capsule}
         
         if len(capsule) < 1500:
             result["reasoning"] = f"Generated capsule was relatively short ({len(capsule)} chars). Autonomously chaining impact graph and memories..."
             conn = pc_db.get_connection(WORKSPACE)
-            first_match = pc_db.search_nodes_fts(conn, query, category=category, limit=1)
+            first_match = pc_db.search_nodes_fts(conn, search_query, category=category, limit=1)
             impact = {}
             if first_match:
                 impact = pc_impact_mod.get_impact_tree(conn, first_match[0]["id"], max_depth=2)
             conn.close()
             
-            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+            mem = pc_mem_mod.search_memory(WORKSPACE, search_query, limit=3)
             result["chained_impact"] = [n["fqn"] for n in impact.get("nodes", {}).values()][:10]
             result["chained_memories"] = mem
         else:
             result["reasoning"] = f"Generated capsule is robust ({len(capsule)} chars). No further chaining required."
             
-        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {query}", [])
+        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {search_query}", [])
         return json.dumps(result, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -417,10 +421,10 @@ TOOLS = [
     {"name": "pc_index_status", "description": "인덱스 통계 조회.", "inputSchema": {"type": "object", "properties": {}}},
 
     # === 검색 (우선순위: pc_capsule > pc_memory_search_knowledge > pc_run_pipeline) ===
-    {"name": "pc_capsule", "description": "[1순위 검색] 소스코드+스킬 통합 검색. 압축된 컨텍스트 반환. 검색 시 가장 먼저 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링할 카테고리 (SOURCE 또는 SKILL)"}}, "required": ["query"]}},
-    {"name": "pc_memory_search_knowledge", "description": "[2순위 검색] 스킬·지식 상세 검색. pc_capsule 부족 시 사용. 200자 요약+점수 반환.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}},
-    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색. 복잡한 분석이 필요할 때 3순위로 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
-    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
+    {"name": "pc_capsule", "description": "[1순위 검색] 소스코드+스킬 통합 검색. 압축된 컨텍스트 반환. 검색 시 가장 먼저 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링할 카테고리 (SOURCE 또는 SKILL)"}}, "required": ["query"]}},
+    {"name": "pc_memory_search_knowledge", "description": "[2순위 검색] 스킬·지식 상세 검색. pc_capsule 부족 시 사용. 200자 요약+점수 반환.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}},
+    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색. 복잡한 분석이 필요할 때 3순위로 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
+    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
 
     # === 코드 구조 분석 ===
     {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
