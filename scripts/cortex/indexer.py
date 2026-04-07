@@ -5,6 +5,7 @@ Cortex 인덱싱 엔진 (v2.2)
 import os
 import sys
 import time
+import datetime
 import hashlib
 import fnmatch
 
@@ -414,6 +415,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 sys.stderr.write(f"[indexer] Synced {total_indexed + total_skipped} memories (New: {total_indexed}, Existing: {total_skipped}).\n")
     except Exception as e:
         sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
+
+    # [NEW] 전체 인덱싱 완료 시각 기록
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.commit()
 
     conn.close()
     return stats
