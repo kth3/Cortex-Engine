@@ -28,13 +28,20 @@ SUPPORTED_EXTENSIONS = {
     ".js": ("javascript", parse_typescript_file),
     ".jsx": ("javascript", parse_typescript_file),
     ".md": ("markdown", parse_markdown_file),
+    ".c": ("c", parse_markdown_file),
+    ".cpp": ("cpp", parse_markdown_file),
+    ".h": ("c", parse_markdown_file),
+    ".hpp": ("cpp", parse_markdown_file),
+    ".html": ("html", parse_markdown_file),
+    ".css": ("css", parse_markdown_file),
 }
 
 DEFAULT_IGNORES = [
     "node_modules", "__pycache__", ".git", ".venv", "venv",
-    "dist", "build", ".gradle", ".idea", ".vscode", ".vexp",
+    "dist", "build", ".gradle", ".idea", ".vscode",
     ".cortex", "target", ".next", "*.min.js", "*.min.css",
-    "*.pyc", "*.class", "skills", "skills/**",
+    "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out", 
+    "skills", "skills/**",
 ]
 
 # ==============================================================================
@@ -228,7 +235,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
         
         if vectorize and vector_items:
             from cortex import vector_engine as ve
-            ve.index_texts(workspace, vector_items, use_gpu=False)
+            ve.index_texts(workspace, vector_items)
             ve._release_gpu()  # On-Save 단일 파일 모드에서는 즉시 해제
 
         conn.commit()
@@ -295,6 +302,15 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     - 파싱/DB 저장은 파일별로 수행하되, 벡터 임베딩은 전체 완료 후 1회 배치 처리.
     - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / GPU 해제 1회.
     """
+    # 0. 사전에 Skills 폴더 자동 동기화 (사용자가 수동으로 돌릴 필요 없도록 통합)
+    from cortex.skill_manager import SkillManager
+    sys.stderr.write("[indexer] Auto-syncing skills to memories DB...\n")
+    try:
+        sm = SkillManager(workspace)
+        sm.sync_skills(workspace)
+    except Exception as e:
+        sys.stderr.write(f"[indexer] Warning - Skill sync failed: {e}\n")
+
     files = scan_files(workspace)
     conn = db.get_connection(workspace)
     db.init_schema(conn)
@@ -307,7 +323,8 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
         cache_dict = {row[0]: row[1] for row in cached_rows}
 
-    all_vector_items = []  # 전체 vector_items 수집 (배치 임베딩용)
+    from pathlib import Path
+    all_vector_items_by_prefix = {}  # 경로 기반으로 프로젝트 분류
 
     for rel_path in files:
         full_path = os.path.join(workspace, rel_path)
@@ -331,13 +348,72 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             stats["errors"] += 1
         else:
             stats["indexed"] += 1
-            all_vector_items.extend(res.get("_vector_items", []))
+            
+            # 소속 폴더 분석 (최상단 폴더 기준)
+            parts = Path(rel_path).parts
+            prefix = "root"
+            if len(parts) > 1 and not parts[0].startswith("."):
+                prefix = parts[0]
+            
+            if prefix not in all_vector_items_by_prefix:
+                all_vector_items_by_prefix[prefix] = []
+            all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
 
-    # 전체 파일 파싱 완료 후 벡터 임베딩 1회 배치 처리
-    if all_vector_items:
+    # 전체 파일 파싱 완료 후 벡터 임베딩 배치 처리 (구역별 그룹화)
+    if all_vector_items_by_prefix:
         from cortex import vector_engine as ve
-        ve.index_texts(workspace, all_vector_items, use_gpu=True)
-        ve._release_gpu()  # 배치 완료 후 GPU 해제
+        for prefix, items in all_vector_items_by_prefix.items():
+            if not items: continue
+            batch_size = 500
+            for i in range(0, len(items), batch_size):
+                batch = items[i:i + batch_size]
+                sys.stderr.write(f"[indexer] Indexing file vectors [{prefix}]: {i}/{len(items)}...\n")
+                ve.index_texts(workspace, batch, prefix=prefix)
+        ve._release_gpu()
+
+    # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
+    try:
+        # 아직 인덱싱되지 않은(embedding IS NULL) 메모리만 조회
+        memory_rows = conn.execute("SELECT key, category, content FROM memories WHERE embedding IS NULL").fetchall()
+        if memory_rows:
+            memory_vector_items = []
+            for row in memory_rows:
+                key, category, content = row
+                memory_vector_items.append({
+                    "id": key,
+                    "text": f"category: {category}\n{content}",
+                    "meta": {"category": category, "type": "memory", "source": "sqlite"}
+                })
+
+            if memory_vector_items:
+                from cortex import vector_engine as ve
+                batch_size = 500
+                total_indexed = 0
+                total_skipped = 0
+                
+                for i in range(0, len(memory_vector_items), batch_size):
+                    batch = memory_vector_items[i:i + batch_size]
+                    batch_keys = [item["id"] for item in batch]
+                    
+                    sys.stderr.write(f"[indexer] Indexing memories: {i}/{len(memory_vector_items)}...\n")
+                    res = ve.index_texts(workspace, batch, prefix="memories")
+                    
+                    indexed_in_batch = res.get("indexed", 0)
+                    skipped_in_batch = res.get("skipped", 0)
+                    total_indexed += indexed_in_batch
+                    total_skipped += skipped_in_batch
+                    
+                    # 배치 단위로 DB 플래그 업데이트
+                    if (indexed_in_batch + skipped_in_batch) > 0:
+                        conn.executemany(
+                            "UPDATE memories SET embedding = 1 WHERE key = ?",
+                            [(k,) for k in batch_keys]
+                        )
+                        conn.commit()
+
+                sys.stderr.write(f"[indexer] Synced {total_indexed + total_skipped} memories (New: {total_indexed}, Existing: {total_skipped}).\n")
+    except Exception as e:
+        sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
 
     conn.close()
     return stats
