@@ -279,45 +279,77 @@ def pc_memory_search_knowledge(query, category=None, limit=10):
                 if rule["key"] not in seen_keys:
                     fts_results.append(rule)
 
-        # 3. FAISS 벡터 검색 (CPU, VRAM 0MB) - faiss 미설치 시 FTS만 반환
-        if not (_VE_AVAILABLE and _ve is not None):
-            return json.dumps(fts_results, ensure_ascii=False)
+        # 휴리스틱 가중치 계산 로직
+        def get_heuristic_boost(item_key, item_category, q):
+            boost = 0.0
+            q_low = q.lower()
+            k_low = item_key.lower()
+            # 1. Exact Key Match (최우선순위)
+            if k_low == q_low: boost += 0.5
+            # 2. Key contains Query (식별자 부분 일치)
+            elif q_low in k_low: boost += 0.1
+            # 3. Category Boost (전문가 지식/규칙 우선)
+            if item_category in ["rule", "skill", "decision", "protocol"]:
+                boost += 0.05
+            return boost
 
-        try:
-            vec_results = _ve.search_similar(WORKSPACE, query, top_k=limit, use_gpu=False)
-            fts_keys = {r["key"] for r in fts_results}
-            vec_map = {vr["id"]: vr for vr in vec_results}
+        # 3. FAISS 벡터 검색 (CPU, VRAM 0MB)
+        vec_results = []
+        if (_VE_AVAILABLE and _ve is not None):
+            try:
+                vec_results = _ve.search_similar(WORKSPACE, query, top_k=limit, use_gpu=False)
+            except Exception:
+                pass
 
-            # RRF 점수 계산
-            fts_rrf = {r["key"]: 1.0 / (i + 60) for i, r in enumerate(fts_results)}
-            vec_rrf = {vr["id"]: 1.0 / (i + 60) for i, vr in enumerate(vec_results)}
+        # 4. 결과 병합 및 가중치 적용
+        fts_keys = {r["key"] for r in fts_results}
+        vec_map = {vr["id"]: vr for vr in vec_results}
+        
+        # RRF 점수 계산
+        fts_rrf = {r["key"]: 1.0 / (i + 60) for i, r in enumerate(fts_results)}
+        vec_rrf = {vr["id"]: 1.0 / (i + 60) for i, vr in enumerate(vec_results)}
 
-            all_keys = set(fts_keys) | set(vec_map.keys())
-            combined = sorted(
-                all_keys,
-                key=lambda k: fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0),
-                reverse=True
-            )[:limit]
+        # 카테고리 정보 맵핑
+        item_info = {}
+        for r in fts_results:
+            item_info[r["key"]] = r.get("category", "unknown")
+        for k, v in vec_map.items():
+            if k not in item_info:
+                item_info[k] = v.get("meta", {}).get("category", "skill")
 
-            # FTS 결과에 벡터 전용 결과 보완
-            fts_result_map = {r["key"]: r for r in fts_results}
-            final = []
-            for k in combined:
-                if k in fts_result_map:
-                    item = fts_result_map[k]
-                    item["_rrf_score"] = round(fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0), 6)
-                    final.append(item)
-                elif k in vec_map:
-                    final.append({
-                        "key": k,
-                        "content": vec_map[k].get("text", ""),
-                        "category": vec_map[k].get("meta", {}).get("category", "skill"),
-                        "_rrf_score": round(vec_rrf.get(k, 0.0), 6),
-                    })
-            return json.dumps(final, ensure_ascii=False)
-        except Exception:
-            # 벡터 검색 실패 시 FTS 결과만 반환 (폴백)
-            return json.dumps(fts_results, ensure_ascii=False)
+        all_keys = set(fts_keys) | set(vec_map.keys())
+        
+        # 최종 점수 정렬
+        combined = sorted(
+            all_keys,
+            key=lambda k: fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0) + get_heuristic_boost(k, item_info.get(k, ""), query),
+            reverse=True
+        )[:limit]
+
+        # 결과 객체 생성
+        fts_result_map = {r["key"]: r for r in fts_results}
+        final = []
+        for k in combined:
+            boost_val = get_heuristic_boost(k, item_info.get(k, ""), query)
+            rrf_val = fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0)
+            
+            if k in fts_result_map:
+                item = fts_result_map[k]
+                item["_score_detail"] = {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)}
+                item["_total_score"] = round(rrf_val + boost_val, 6)
+                final.append(item)
+            elif k in vec_map:
+                final.append({
+                    "key": k,
+                    "content": vec_map[k].get("text", ""),
+                    "category": item_info.get(k, "skill"),
+                    "_score_detail": {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)},
+                    "_total_score": round(rrf_val + boost_val, 6)
+                })
+        return json.dumps(final, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
     except Exception as e:
         return json.dumps({"error": str(e)})

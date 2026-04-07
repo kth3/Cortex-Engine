@@ -1,20 +1,25 @@
 """
 Cortex 벡터 검색 엔진 (Vector Engine)
-- 모델: BAAI/bge-m3 (다국어, 100개+ 언어 지원)
+- 모델: Qwen/Qwen3-Embedding-0.6B (최신 SOTA, 다국어 지원)
 - 인덱싱: GPU(CUDA) 가속 → 빠른 대량 임베딩
 - 검색: CPU 모드 → VRAM 0MB 점유
 - 저장소: FAISS (로컬 파일 기반, cortex_data/vectors.index)
 """
 import os
 import json
+from dotenv import load_dotenv
+
+# .env 로드 (스크립트 위치 기준 동적 해석)
+ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+load_dotenv(ENV_PATH)
 
 # 청킹 설정
-CHUNK_SIZE = 1200         # 청크당 최대 문자 수 (BGE-M3 최적화)
-CHUNK_OVERLAP = 150       # 청크 간 오버랩
-DEFAULT_TOP_K = 5         # 기본 검색 결과 수
+CHUNK_SIZE = 1500         # Qwen3의 긴 컨텍스트(32k)를 고려하여 소폭 확대
+CHUNK_OVERLAP = 200
+DEFAULT_TOP_K = 5
 
 # 모델 식별자
-MODEL_ID = "BAAI/bge-m3"
+MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 
 # 전역 상태 (지연 초기화)
 _model = None
@@ -35,20 +40,46 @@ def _get_data_dir(workspace: str) -> str:
 
 
 def _load_model(device: str = "cpu"):
-    """BGE-M3 모델 지연 로딩 (device: 'cpu' 또는 'cuda')"""
+    """Qwen3 모델 지연 로딩 (device: 'cpu' 또는 'cuda', FP16 최적화)"""
     global _model, _model_device
     if _model is not None and _model_device == device:
         return _model
 
     try:
         from sentence_transformers import SentenceTransformer
+        import torch
         import sys
-        sys.stderr.write(f"[cortex-vector] Loading BGE-M3 on {device}...\n")
-        _model = SentenceTransformer(MODEL_ID, device=device)
+        
+        # 허깅페이스 토큰 로드 확인
+        hf_token = os.getenv("HF_TOKEN")
+        
+        sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device} (FP16 Mode)...\n")
+        
+        # 모델 로딩 옵션 (VRAM 최적화: FP16 강제)
+        model_kwargs = {
+            "trust_remote_code": True,
+            "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+        }
+        
+        _model = SentenceTransformer(
+            MODEL_ID, 
+            device=device, 
+            model_kwargs=model_kwargs,
+            token=hf_token
+        )
+        
+        # 확실하게 FP16으로 변환 (CUDA인 경우)
+        if device == "cuda":
+            _model.half()
+
         _model_device = device
-        sys.stderr.write(f"[cortex-vector] BGE-M3 loaded on {device}.\n")
+        # 실제 장치 확인 로그
+        actual_dev = next(_model.parameters()).device
+        sys.stderr.write(f"[cortex-vector] Qwen3 successfully loaded on {actual_dev}.\n")
     except Exception as e:
-        raise RuntimeError(f"BGE-M3 모델 로딩 실패: {e}")
+        import sys
+        sys.stderr.write(f"[cortex-vector] Model Load Error: {e}\n")
+        raise RuntimeError(f"Qwen3 모델 로딩 실패: {e}")
 
     return _model
 
@@ -105,21 +136,21 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 # FAISS 인덱스 관리
 # ============================================================
 
-def _index_path(workspace: str) -> str:
-    return os.path.join(_get_data_dir(workspace), "vectors.index")
+def _index_path(workspace: str, prefix: str = "vectors") -> str:
+    return os.path.join(_get_data_dir(workspace), f"{prefix}.index")
 
 
-def _meta_path(workspace: str) -> str:
-    return os.path.join(_get_data_dir(workspace), "vectors_meta.json")
+def _meta_path(workspace: str, prefix: str = "vectors") -> str:
+    return os.path.join(_get_data_dir(workspace), f"{prefix}_meta.json")
 
 
-def _load_faiss_index(workspace: str):
+def _load_faiss_index(workspace: str, prefix: str = "vectors"):
     """FAISS 인덱스 및 메타 로드 (없으면 None 반환)"""
     try:
         import faiss
         import sys
-        idx_path = _index_path(workspace)
-        meta_path = _meta_path(workspace)
+        idx_path = _index_path(workspace, prefix)
+        meta_path = _meta_path(workspace, prefix)
 
         # pkl → json 자동 마이그레이션
         old_meta_path = os.path.join(_get_data_dir(workspace), "vectors_meta.pkl")
@@ -149,11 +180,11 @@ def _load_faiss_index(workspace: str):
         return None, []
 
 
-def _save_faiss_index(workspace: str, index, meta: list):
+def _save_faiss_index(workspace: str, index, meta: list, prefix: str = "vectors"):
     """FAISS 인덱스 및 메타 저장 (JSON 포맷)"""
     import faiss
-    faiss.write_index(index, _index_path(workspace))
-    with open(_meta_path(workspace), "w", encoding="utf-8") as f:
+    faiss.write_index(index, _index_path(workspace, prefix))
+    with open(_meta_path(workspace, prefix), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
@@ -167,81 +198,97 @@ def _create_new_index(dim: int):
 # 공개 API
 # ============================================================
 
-def index_texts(workspace: str, items: list[dict], use_gpu: bool = False) -> dict:
+def index_texts(workspace: str, items: list[dict], use_gpu: bool = None, prefix: str = "vectors") -> dict:
     """
-    텍스트 리스트를 임베딩하여 FAISS 인덱스에 저장.
-
-    Args:
-        workspace: 프로젝트 루트 경로
-        items: [{"id": str, "text": str, "meta": dict}, ...] 형태 리스트
-        use_gpu: True면 CUDA 사용 (대량 인덱싱용), False면 CPU
-
-    Returns:
-        {"indexed": int, "skipped": int}
+    텍스트 리스트를 임베딩하여 정의된 prefix 구역의 FAISS 인덱스에 저장 (증분 업데이트 지원)
     """
     if not items:
         return {"indexed": 0, "skipped": 0}
 
-    import numpy as np  # lazy import
+    import numpy as np
+    import hashlib
 
-    device = "cuda" if use_gpu else "cpu"
-    try:
-        import torch
-        if use_gpu and not torch.cuda.is_available():
-            device = "cpu"
-    except ImportError:
-        device = "cpu"
+    # 1. 기존 인덱스 및 메타 로드 (먼저 수행하여 중복 체크)
+    existing_index, existing_meta = _load_faiss_index(workspace, prefix)
+    existing_meta = [dict(m) if not isinstance(m, dict) else m for m in (existing_meta or [])]
+    existing_ids = {m.get("id") for m in existing_meta if m.get("id")}
 
-    model = _load_model(device)
-
-    # 청킹 및 전처리
-    all_texts = []
-    all_metas = []
+    # 2. 임베딩이 필요한 항목만 선별
+    to_embed = []
+    skipped_count = 0
+    
     for item_raw in items:
-        # item이 튜플인 경우를 대비해 dict로 변환 (안전 장치)
         item = dict(item_raw) if not isinstance(item_raw, dict) else item_raw
-        
-        text = item.get("text", "")
         item_id = item.get("id", "")
+        text = item.get("text", "")
+        
         if not text or not item_id:
+            skipped_count += 1
+            continue
+
+        # [중요] 이미 인덱스에 있는 ID면 건너뜀 (강제 업데이트 로직이 필요하다면 여기에 추가)
+        if item_id in existing_ids:
+            skipped_count += 1
             continue
             
+        to_embed.append(item)
+
+    if not to_embed:
+        return {"indexed": 0, "skipped": skipped_count}
+
+    # 3. 청킹 및 전처리
+    all_texts = []
+    all_metas = []
+    for item in to_embed:
+        text = item.get("text", "")
+        item_id = item.get("id", "")
         chunks = chunk_text(text)
         for i, chunk in enumerate(chunks):
-            prefixed = f"passage: {chunk}"  # BGE-M3 권장 prefix
+            prefixed = f"passage: {chunk}"
             all_texts.append(prefixed)
             all_metas.append({
                 "id": item_id,
                 "chunk_idx": i,
-                "text": chunk[:300],  # 미리보기 저장
+                "text": chunk[:300],
                 **(item.get("meta") or {}),
             })
 
-    if not all_texts:
-        return {"indexed": 0, "skipped": len(items)}
+    # 4. [Smart Device Selection]
+    if use_gpu is None:
+        use_gpu = len(all_texts) >= 128
 
-    # 임베딩 생성 (배치 처리)
+    device = "cpu"
+    if use_gpu:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                device = "cuda"
+        except ImportError:
+            pass
+
+    model = _load_model(device)
+
+    # 5. 임베딩 생성
     embeddings = model.encode(
         all_texts,
-        batch_size=64,
+        batch_size=32,
         normalize_embeddings=True,
         show_progress_bar=True,
     ).astype(np.float32)
 
-    # FAISS 인덱스에 추가
-    existing_index, existing_meta = _load_faiss_index(workspace)
+    # 6. FAISS 인덱스 업데이트
     if existing_index is None:
         index = _create_new_index(embeddings.shape[1])
         meta = []
     else:
         index = existing_index
-        # meta 리스트의 각 항목이 dict임을 보장
-        meta = [dict(m) if not isinstance(m, dict) else m for m in (existing_meta or [])]
+        meta = existing_meta
 
-    # 기존 ID 중복 제거 후 추가
-    new_ids = {item.get("id") for item in items if isinstance(item, dict) or hasattr(item, "get")}
-    filtered_meta = [m for m in meta if m.get("id") not in new_ids]
-    filtered_count = len(meta) - len(filtered_meta)
+    index.add(embeddings)
+    meta.extend(all_metas)
+
+    _save_faiss_index(workspace, index, meta, prefix)
+    return {"indexed": len(to_embed), "skipped": skipped_count}
 
     # 기존 항목 제거가 FAISS에서 복잡하므로, 새로 재구성
     if filtered_count > 0 and filtered_meta:
@@ -261,33 +308,24 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = False) -> dic
 
     index.add(embeddings)
     meta.extend(all_metas)
-    _save_faiss_index(workspace, index, meta)
+    _save_faiss_index(workspace, index, meta, prefix)
 
     return {"indexed": len(all_texts), "skipped": 0}
 
 
 def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_gpu: bool = False) -> list[dict]:
     """
-    쿼리와 가장 유사한 문서 청크를 반환.
-
-    Args:
-        workspace: 프로젝트 루트 경로
-        query: 검색 질의 (한국어/영어/스페인어 등 다국어 지원)
-        top_k: 반환할 최대 결과 수
-        use_gpu: True면 CUDA 사용 (False 권장 for 실시간 검색)
-
-    Returns:
-        [{"id": str, "score": float, "text": str, "meta": dict}, ...]
+    쿼리와 가장 유사한 문서 청크를 반환 (모든 *.index 파일 일괄 병합 검색).
     """
-    index, meta_raw = _load_faiss_index(workspace)
-    if index is None or index.ntotal == 0:
+    import glob
+    import numpy as np
+    
+    data_dir = _get_data_dir(workspace)
+    index_files = glob.glob(os.path.join(data_dir, "*.index"))
+    if not index_files:
         return []
-        
-    # meta 리스트의 각 항목이 dict임을 보장
-    meta = [dict(m) if not isinstance(m, dict) else m for m in (meta_raw or [])]
 
-    import numpy as np  # lazy import
-    device = "cpu"  # 검색은 CPU 기본값 (VRAM 0MB)
+    device = "cpu"
     if use_gpu:
         try:
             import torch
@@ -297,50 +335,74 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
 
     model = _load_model(device)
 
-    # BGE-M3 쿼리 prefix
-    query_with_prefix = f"query: {query}"
+    instruction = "Given a search query, retrieve relevant code snippets and documents that help in software engineering tasks."
+    query_with_instruction = f"{instruction}\nQuery: {query}"
+    
     query_vec = model.encode(
-        [query_with_prefix],
+        [query_with_instruction],
         normalize_embeddings=True,
         show_progress_bar=False,
     ).astype(np.float32)
 
-    # FAISS 검색
-    search_k = min(top_k * 3, index.ntotal)  # 중복 ID 제거를 위해 더 많이 검색
-    scores, indices = index.search(query_vec, search_k)
-
-    # 결과 조합 (중복 ID는 최고 점수만 유지)
     seen_ids = {}
-    for score, idx in zip(scores[0], indices[0]):
-        if idx < 0 or idx >= len(meta):
-            continue
-        item_meta = meta[idx]
-        item_id = item_meta.get("id", "")
-        if not item_id:
+
+    # 모든 파편화된 인덱스를 순회하며 검색 및 스코어 갱신
+    for idx_path in index_files:
+        basename = os.path.basename(idx_path)
+        scan_prefix = basename[:-6]  # '.index' 제거
+        
+        index, meta_raw = _load_faiss_index(workspace, scan_prefix)
+        if index is None or index.ntotal == 0:
             continue
             
-        if item_id not in seen_ids or score > seen_ids[item_id]["score"]:
-            seen_ids[item_id] = {
-                "id": item_id,
-                "score": float(score),
-                "text": item_meta.get("text", ""),
-                "meta": {k: v for k, v in item_meta.items() if k not in ("id", "text")},
-            }
+        meta = [dict(m) if not isinstance(m, dict) else m for m in (meta_raw or [])]
+        search_k = min(top_k * 3, index.ntotal)
+        scores, indices = index.search(query_vec, search_k)
 
-    # 점수 기준 정렬 후 상위 K개 반환
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= len(meta):
+                continue
+            item_meta = meta[idx]
+            item_id = item_meta.get("id", "")
+            if not item_id:
+                continue
+                
+            if item_id not in seen_ids or score > seen_ids[item_id]["score"]:
+                seen_ids[item_id] = {
+                    "id": item_id,
+                    "score": float(score),
+                    "text": item_meta.get("text", ""),
+                    "meta": {k: v for k, v in item_meta.items() if k not in ("id", "text")},
+                }
+
     results = sorted(seen_ids.values(), key=lambda x: x.get("score", 0.0), reverse=True)
     return results[:top_k]
 
 
 def get_index_stats(workspace: str) -> dict:
-    """벡터 인덱스 현황 반환"""
-    index, meta = _load_faiss_index(workspace)
-    if index is None:
+    """벡터 인덱스 현황 반환 (모든 *.index 파일 병합 집계)"""
+    import glob
+    import os
+    data_dir = _get_data_dir(workspace)
+    index_files = glob.glob(os.path.join(data_dir, "*.index"))
+    
+    if not index_files:
         return {"status": "empty", "total_vectors": 0, "unique_docs": 0}
-    unique_ids = len(set(m.get("id", "") for m in meta))
+        
+    total_vectors = 0
+    unique_ids = set()
+    
+    for idx_path in index_files:
+        basename = os.path.basename(idx_path)
+        scan_prefix = basename[:-6]
+        index, meta = _load_faiss_index(workspace, scan_prefix)
+        if index is not None:
+            total_vectors += index.ntotal
+            unique_ids.update(m.get("id", "") for m in meta)
+
     return {
         "status": "ready",
-        "total_vectors": index.ntotal,
-        "unique_docs": unique_ids,
+        "total_vectors": total_vectors,
+        "unique_docs": len(unique_ids),
         "model": MODEL_ID,
     }
