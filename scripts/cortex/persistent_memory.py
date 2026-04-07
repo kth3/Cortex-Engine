@@ -205,11 +205,10 @@ class PersistentMemoryManager:
                 "SELECT category, COUNT(*) as cnt FROM memories GROUP BY category"
             ).fetchall()
             
-            # Row 객체가 튜플로 취급될 경우를 대비해 인덱스로 접근 (가장 안전)
             stats_by_cat = {}
             for r in by_cat:
-                cat_name = r[0] # category
-                count = r[1]    # cnt
+                cat_name = r[0]
+                count = r[1]
                 stats_by_cat[cat_name] = count
                 
             return {
@@ -218,3 +217,113 @@ class PersistentMemoryManager:
             }
         finally:
             conn.close()
+
+    def search_knowledge(self, query: str, category: str = None, limit: int = 10, ve_module=None) -> list:
+        """영구 지식 및 전문가 스킬 하이브리드 검색 (FTS5 + FAISS + RRF 스코어링)
+        
+        Args:
+            query: 검색 쿼리
+            category: 필터링 카테고리 (선택)
+            limit: 최대 결과 수
+            ve_module: vector_engine 모듈 (None이면 벡터 검색 생략)
+        Returns:
+            정렬된 결과 리스트 (key, category, content 200자, score)
+        """
+        # 1. FTS5 기반 지식 검색
+        fts_results = self.search("default", query, category, limit)
+
+        # 2. [Invisible Guardrail] 보안/규칙 자동 포함
+        if not category or category not in ["rule", "security"]:
+            auto_rules = self.search("default", "security policy rule convention", limit=2)
+            seen_keys = {r["key"] for r in fts_results}
+            for rule in auto_rules:
+                if rule["key"] not in seen_keys:
+                    fts_results.append(rule)
+
+        # 휴리스틱 가중치 계산
+        def _heuristic_boost(item_key, item_category, q):
+            boost = 0.0
+            q_low = q.lower()
+            k_low = item_key.lower()
+            if k_low == q_low: boost += 0.5
+            elif q_low in k_low: boost += 0.1
+            if item_category in ["rule", "skill", "decision", "protocol"]:
+                boost += 0.05
+            return boost
+
+        # 3. FAISS 벡터 검색
+        vec_results = []
+        if ve_module is not None:
+            try:
+                vec_results = ve_module.search_similar(self.workspace, query, top_k=limit, use_gpu=False)
+            except Exception:
+                pass
+
+        # 4. RRF 점수 병합
+        fts_keys = {r["key"] for r in fts_results}
+        vec_map = {vr["id"]: vr for vr in vec_results}
+        fts_rrf = {r["key"]: 1.0 / (i + 60) for i, r in enumerate(fts_results)}
+        vec_rrf = {vr["id"]: 1.0 / (i + 60) for i, vr in enumerate(vec_results)}
+
+        item_info = {}
+        for r in fts_results:
+            item_info[r["key"]] = r.get("category", "unknown")
+        for k, v in vec_map.items():
+            if k not in item_info:
+                item_info[k] = v.get("meta", {}).get("category", "skill")
+
+        all_keys = set(fts_keys) | set(vec_map.keys())
+        combined = sorted(
+            all_keys,
+            key=lambda k: fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0) + _heuristic_boost(k, item_info.get(k, ""), query),
+            reverse=True
+        )[:limit]
+
+        # 5. 결과 생성 (토큰 절약: content 200자 + 필수 필드만)
+        SNIPPET_LEN = 200
+        KEEP_FIELDS = {"key", "category", "tags", "content", "_score_detail", "_total_score"}
+        fts_result_map = {r["key"]: r for r in fts_results}
+        final = []
+        for k in combined:
+            boost_val = _heuristic_boost(k, item_info.get(k, ""), query)
+            rrf_val = fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0)
+            if k in fts_result_map:
+                raw = fts_result_map[k]
+                item = {f: raw[f] for f in KEEP_FIELDS if f in raw}
+                if "content" in item:
+                    item["content"] = item["content"][:SNIPPET_LEN]
+                item["_score_detail"] = {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)}
+                item["_total_score"] = round(rrf_val + boost_val, 6)
+                final.append(item)
+            elif k in vec_map:
+                final.append({
+                    "key": k,
+                    "content": vec_map[k].get("text", "")[:SNIPPET_LEN],
+                    "category": item_info.get(k, "skill"),
+                    "_score_detail": {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)},
+                    "_total_score": round(rrf_val + boost_val, 6)
+                })
+        return final
+
+
+# === 유틸리티 (cortex_mcp.py 등에서 공유) ===
+
+def append_markdown_with_archive(workspace: str, target_filename: str, content: str):
+    """마크다운 파일에 내용을 추가하고, 50KB 초과 시 자동 아카이빙"""
+    import os
+    import datetime
+    import shutil
+    md_path = os.path.join(workspace, ".agents", "history", target_filename)
+
+    if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
+        archive_dir = os.path.join(workspace, ".agents", "history", "archive")
+        os.makedirs(archive_dir, exist_ok=True)
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        name_part, ext = os.path.splitext(target_filename)
+        archive_path = os.path.join(archive_dir, f"{name_part}_{now_str}{ext}")
+        shutil.move(md_path, archive_path)
+
+    os.makedirs(os.path.dirname(md_path), exist_ok=True)
+    with open(md_path, "a", encoding="utf-8") as f:
+        f.write(content)
+
