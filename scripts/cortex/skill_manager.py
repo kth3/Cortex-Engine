@@ -2,7 +2,7 @@
 스킬 자동 탐색 및 인덱싱 관리자 (SkillManager)
 - {workspace}/skills/**/ 내 SKILL.md 파일을 탐색
 - memories 테이블에 스킬을 카탈로깅하여 FTS5 기반 검색 지원
-- 로컈 BGE-M3 모델(1순위)와 외부 API(2순위, 선택사항)를 통한 하이브리드 검색 지원
+- 로컬 Qwen3 모델(1순위)과 외부 API(2순위, 선택사항)를 통한 하이브리드 검색 지원
 """
 import os
 import re
@@ -22,90 +22,12 @@ from cortex import vector_engine as ve
 
 logger = logging.getLogger(__name__)
 
-# 임베딩 모드: local (BAAI/bge-m3, 기본값) 또는 api (GPU/CPU 부족 환경용 API 폴백)
+# 임베딩 모드: local (Qwen3, 기본값) 또는 api (GPU/CPU 부족 환경용 API 폴백)
 # .env의 CORTEX_EMBEDDING_MODE 변수로 재정의 가능
 EMBEDDING_MODE = os.getenv("CORTEX_EMBEDDING_MODE", "local")
 EMBEDDING_BATCH_SIZE = 32 if EMBEDDING_MODE == "local" else 50
-# API 모드 시 호출할 sentence-transformers 호환 API URL (선택사항)
+# API 모드 시 호출할 sentence-transformers 호환 API 모델 (선택사항)
 EMBEDDING_API_MODEL = os.getenv("CORTEX_EMBEDDING_API_MODEL", "text-embedding-3-small")
-
-class EmbeddingEngine:
-    """임베딩 엔진 (GPU/CPU 부족 환경용 API 폴백 지원)
-    - mode='local': BAAI/bge-m3 로컈 모델 사용 (기본값, VRAM ~1.5GB)
-    - mode='api':   CORTEX_EMBEDDING_API_KEY로 식별 가능한 OpenAI-호환 API 사용
-    """
-    def __init__(self, mode="local"):
-        self.mode = mode
-        self.api_client = None
-        self.local_model = None
-
-        if self.mode == "local":
-            try:
-                import torch
-                from sentence_transformers import SentenceTransformer
-                
-                # 사용 환경 하드웨어 감지 (GPU/CPU)
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                
-                # 고성능 로컬 임베딩 엔진 탑재 (VRAM 최적화)
-                target_model = os.getenv("LOCAL_EMBEDDING_MODEL", "BAAI/bge-m3")
-                self.local_model = SentenceTransformer(target_model, device=device)
-                logger.info(f"로컈 임베딩 모델({target_model})이 [{device.upper()}]에 로드되었습니다.")
-            except ImportError:
-                logger.error("sentence-transformers 또는 torch 패키지를 찾을 수 없습니다.")
-            except Exception as e:
-                logger.error(f"로컈 모델 로드 실패: {e}")
-        elif self.mode == "api":
-            self.api_client = self._setup_api_client()
-
-    def _get_api_key(self) -> str:
-        key = os.getenv("CORTEX_EMBEDDING_API_KEY", "")
-        return key.strip('"').strip("'")
-
-    def _setup_api_client(self):
-        """OpenAI SDK 호환 임베딩 API 클라이언트 초기화.
-        OpenAI, Cohere, 또는 openai-compatible 서트잌으로 동작합니다."""
-        api_key = self._get_api_key()
-        if not api_key:
-            logger.warning("CORTEX_EMBEDDING_API_KEY가 설정되지 않았습니다. API 모드를 사용할 수 없습니다.")
-            return None
-        try:
-            from openai import OpenAI
-            base_url = os.getenv("CORTEX_EMBEDDING_API_URL")  # None 시 OpenAI 기본값
-            return OpenAI(api_key=api_key, base_url=base_url)
-        except ImportError:
-            logger.warning("`openai` 패키지가 없습니다. `pip install openai`로 설치하세요.")
-            return None
-
-    def embed_batch(self, texts: list[str], is_query=False) -> list[bytes | None]:
-        if not texts: return []
-        import numpy as np
-        
-        if self.mode == "local" and self.local_model:
-            try:
-                # normalize_embeddings=True 로 설정해 코사인 유사성 직접 연산 최적화
-                embeddings = self.local_model.encode(texts, normalize_embeddings=True)
-                return [np.array(e, dtype=np.float32).tobytes() for e in embeddings]
-            except Exception as e:
-                logger.warning(f"로컈 임베딩 오류: {e}")
-                return [None] * len(texts)
-
-        elif self.mode == "api" and self.api_client:
-            try:
-                response = self.api_client.embeddings.create(
-                    input=texts,
-                    model=EMBEDDING_API_MODEL,
-                )
-                return [
-                    (np.array(item.embedding, dtype=np.float32).tobytes() if item.embedding else None)
-                    for item in response.data
-                ]
-            except Exception as e:
-                logger.warning(f"Embedding API 오류: {e}")
-                return [None] * len(texts)
-                
-        return [None] * len(texts)
-
 
 def _parse_skill_md(skill_md_path: str) -> dict:
     try:

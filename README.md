@@ -45,7 +45,7 @@
 
 | 모드 | 환경 변수 | 조건 |
 |------|----------|------|
-| **로컬 (기본값)** | `CORTEX_EMBEDDING_MODE=local` | GPU 또는 CPU로 BGE-M3 실행 (RAM 4GB+) |
+| **로컬 (기본값)** | `CORTEX_EMBEDDING_MODE=local` | GPU 또는 CPU로 Qwen3 실행 (RAM 4GB+) |
 | **API (폴백)** | `CORTEX_EMBEDDING_MODE=api` | GPU/RAM 부족 환경, 외부 API 사용 |
 
 ### 2. rclone (백업/로드)
