@@ -71,25 +71,38 @@ cd ..
 
 ## 4. 초기 지식 인덱싱
 
-Cortex 엔진이 현재 프로젝트의 모든 코드와 문서를 읽어 분석을 시작합니다. **모델을 교체하거나 인덱스가 꼬인 경우** 아래 지침을 따르십시오.
+Cortex 엔진이 현재 프로젝트의 모든 코드와 문서를 읽어 분석을 시작합니다.
 
-### [A] 처음 인덱싱하거나 업데이트할 때
+### [A] 처음 인덱싱 (신규 설치)
 ```bash
-# 가상환경의 python을 직접 호출 (PYTHONPATH 명시 필수)
+# 프로젝트 루트에서 실행 (PYTHONPATH 명시 필수)
+PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force
+```
+
+### [B] 증분 업데이트 (일상 사용)
+코드 변경이 있을 때 자동으로 변경된 파일만 갱신합니다. (`--force` 없이 실행)
+```bash
 PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py .
 ```
 
-### [B] 모델 교체 시 (BGE-M3 ↔ Qwen3 등) 기존 인덱스 초기화
-임베딩 모델이 바뀌면 기존 벡터와 호환되지 않으므로, 아래 명령어로 이전 인덱스 파일만 삭제한 뒤 다시 실행해야 합니다. **(소스 코드는 삭제되지 않으므로 안심하세요)**
+### [C] 인덱스 초기화 (모델 교체, 인덱스 꼬임 등)
+임베딩 모델이 바뀌거나 데이터가 꼬인 경우, 아래 명령어로 벡터 데이터만 삭제한 뒤 다시 실행합니다. **(소스 코드는 삭제되지 않으므로 안심하세요)**
 
 ```bash
-# 1. 오래된 벡터 데이터 삭제 (상대 경로)
-rm -f .agents/cortex_data/vectors.index
-rm -f .agents/cortex_data/vectors_meta.json
+# 1. 벡터 데이터 전체 삭제 (프로젝트별 인덱스 포함)
+rm -rf .agents/cortex_data/*
 
-# 2. 전체 다시 인덱싱 (Qwen3 모델 기반으로 새로 구축)
+# 2. 전체 다시 인덱싱
 PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force
 ```
+
+> [!TIP]
+> 인덱스는 프로젝트 폴더별로 독립 생성됩니다 (예: `skills.index`, `S14P31B107.index`).
+> 특정 프로젝트만 다시 인덱싱하려면 해당 `.index` 파일만 삭제 후 재실행하면 됩니다.
+> ```bash
+> rm -f .agents/cortex_data/S14P31B107.index .agents/cortex_data/S14P31B107_meta.json
+> PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force
+> ```
 
 ---
 

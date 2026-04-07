@@ -60,5 +60,6 @@ fi
 echo -e "\n${GREEN}==================================================================${NC}"
 echo -e "${GREEN}  Cortex Agent 설치가 성공적으로 완료되었습니다!${NC}"
 echo -e "${GREEN}==================================================================${NC}"
-echo -e "\n이제 다음 명령어로 초기 인덱싱을 수행하세요:"
-echo -e "${BLUE}  PYTHONPATH=.agents/scripts venv/bin/python3 .agents/scripts/cortex/indexer.py . --force${NC}\n"
+echo -e "\n이제 프로젝트 루트로 이동하여 다음 명령어로 초기 인덱싱을 수행하세요:"
+echo -e "${YELLOW}  cd $PARENT_DIR${NC}"
+echo -e "${BLUE}  PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force${NC}\n"
