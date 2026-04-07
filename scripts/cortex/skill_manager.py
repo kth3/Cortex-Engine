@@ -313,9 +313,11 @@ class SkillManager:
                     ve._release_gpu()
                 sys.stderr.write(f"[skill_manager] Vector indexing done: {v_result}\n")
                 embed_done = v_result.get("indexed", 0)
+                embed_skipped = v_result.get("skipped", 0)
 
-                # Set embedding = 1 so indexer.py doesn't double-index them as memories
-                if embed_done > 0:
+                # Set embedding = 1 for ALL items (indexed + skipped)
+                # Skipped means they already exist in FAISS (e.g. pre-seeded index file)
+                if (embed_done + embed_skipped) > 0:
                     conn = get_connection(self.workspace)
                     try:
                         skill_ids_to_update = [item["id"] for item in vector_items]
