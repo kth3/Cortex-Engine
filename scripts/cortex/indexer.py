@@ -255,6 +255,13 @@ def scan_files(workspace: str) -> list:
     """지능형 필터링을 적용하여 인덱싱할 파일 목록 확보"""
     settings = load_settings(workspace)
     ignore_patterns = load_gitignore(workspace)
+    
+    # [배포 대응] .agents/settings.yaml의 exclude_paths를 ignore_patterns에 추가
+    rules = settings.get("indexing_rules", {})
+    extra_excludes = rules.get("exclude_paths", [])
+    if extra_excludes:
+        ignore_patterns.extend([p.strip("/") for p in extra_excludes if p.strip()])
+    
     files = []
     
     # 1. 기본 소스 코드 스캔

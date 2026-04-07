@@ -1,78 +1,64 @@
 #!/bin/bash
 
 # ==============================================================================
-# 🌌 Cortex Agent Infrastructure Unified Setup (v4.0)
+# Cortex Agent Bootstrap Setup Script
 # ==============================================================================
-# 이 스크립트는 '주입(Injection)'과 '설정(Setup)'을 단일 명령으로 통합합니다.
-# 1. 실행 위치가 프로젝트 루트인 경우: 자동으로 .agents 구성을 주입합니다.
-# 2. 실행 위치가 .agents 내부인 경우: 환경(venv, deps, indexing)을 구축합니다.
-# 사용법: ./setup.sh
-# ==============================================================================
+# 사용법: bash <folder_name>/setup.sh (프로젝트 루트에서 실행 권장)
 
 set -e
 
-# 색상 정의
-RED='\033[0;31m'
+# 1. 색상 정의
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-NC='\033[0m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
-echo -e "${BLUE}[Cortex Setup]${NC} 통합 설치 프로세스를 시작합니다..."
+echo -e "${BLUE}>>> Cortex Agent 초기 설정을 시작합니다...${NC}"
 
-# 1. 위치 감지 및 모드 전환
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-CWD="$(pwd)"
+# 2. 현재 스크립트의 위치 파악
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+CURRENT_DIR_NAME=$(basename "$SCRIPT_DIR")
+PARENT_DIR=$(dirname "$SCRIPT_DIR")
 
-# 실행 위치에 따른 모드 판단
-if [[ "$SCRIPT_DIR" != *".agents" ]]; then
-    # [인젝션 모드] 저장소 루트에서 실행된 경우
-    TARGET_PROJECT="${1:-$(pwd)}"
-    echo -e "${BLUE}[Cortex Injection]${NC} 프로젝트 에이전트화를 준비합니다: ${TARGET_PROJECT}"
-    
-    if [ ! -d "${TARGET_PROJECT}/.agents" ]; then
-        echo -e "${BLUE}[Cortex Injection]${NC} '${TARGET_PROJECT}/.agents' 생성 중..."
-        mkdir -p "${TARGET_PROJECT}/.agents"
+# 3. 폴더명 정규화 (.agents로 변경)
+if [ "$CURRENT_DIR_NAME" != ".agents" ]; then
+    echo -e "${YELLOW}현재 폴더명($CURRENT_DIR_NAME)을 .agents 로 변경합니다...${NC}"
+    if [ -d "$PARENT_DIR/.agents" ]; then
+        echo -e "${RED}오류: 이미 $PARENT_DIR/.agents 폴더가 존재합니다. 기존 폴더를 확인하세요.${NC}"
+        exit 1
     fi
-    
-    echo -e "${BLUE}[Cortex Injection]${NC} 인프라 파일을 주입하는 중..."
-    # 자기 자신을 포함한 모든 필요한 파일을 복사
-    cp -r "$SCRIPT_DIR"/* "${TARGET_PROJECT}/.agents/"
-    
-    echo -e "${GREEN}[Cortex Injection]${NC} 주입 완료. 내부 설정을 계속합니다."
-    cd "${TARGET_PROJECT}/.agents"
-    chmod +x setup.sh
-    exec ./setup.sh # 자기 자신을 다시 실행하여 설정 모드로 진입
+    mv "$SCRIPT_DIR" "$PARENT_DIR/.agents"
+    SCRIPT_DIR="$PARENT_DIR/.agents"
 fi
 
-# [설정 모드] .agents 폴더 내부에서 실행된 경우
-echo -e "${BLUE}[Cortex Setup]${NC} 환경 구축을 시작합니다 (CWD: $(pwd))"
+cd "$SCRIPT_DIR"
 
-# 2. Python 가상환경(venv) 생성
-if [ ! -d "venv" ]; then
-    echo -e "${BLUE}[Cortex Setup]${NC} 가상환경(venv) 생성 중..."
-    python3 -m venv venv
-else
-    echo -e "${GREEN}[Cortex Setup]${NC} 가상환경이 이미 존재합니다."
+# 4. 가상환경(venv) 구축
+echo -e "${BLUE}Python 가상환경을 생성합니다...${NC}"
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}오류: python3가 설치되어 있지 않습니다.${NC}"
+    exit 1
 fi
 
-# 3. 필수 의존성 패키지 설치
-echo -e "${BLUE}[Cortex Setup]${NC} 필수 패키지 설치 중 (pip install)..."
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+python3 -m venv venv
+echo -e "${GREEN}가상환경 생성 완료.${NC}"
 
-# 4. 초기 인덱싱
-echo -e "${BLUE}[Cortex Setup]${NC} 프로젝트 초기 인덱싱 수행 중..."
-python3 scripts/cortex/indexer.py --force
+# 5. 의존성 패키지 설치
+echo -e "${BLUE}필수 라이브러리를 설치합니다 (requirements.txt)...${NC}"
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install -r requirements.txt
+echo -e "${GREEN}라이브러리 설치 완료.${NC}"
 
-# 5. 마무리 보고
-echo -e "\n"
-echo -e "${GREEN}======================================================================${NC}"
-echo -e "${GREEN}✨ 에이전트 인프라 환경 구축이 완전히 완료되었습니다!${NC}"
-echo -e "${GREEN}======================================================================${NC}"
-echo -e "1. ${BLUE}MCP 서버 등록:${NC} 아래 경로를 MCP 클라이언트에 추가하세요."
-echo -e "   - Command: $(pwd)/venv/bin/python3"
-echo -e "   - Args: $(pwd)/scripts/cortex_mcp.py"
-echo -e "\n"
-echo -e "2. ${BLUE}부트스트랩 명령:${NC} 이제 에이전트에게 README의 프롬프트를 입력하세요."
-echo -e "${GREEN}======================================================================${NC}"
+# 6. .env 설정 (기존 .env가 없을 경우 .env.example 복사)
+if [ ! -f ".env" ]; then
+    echo -e "${YELLOW}.env 파일이 없어 .env.example을 복사합니다. 직접 수정이 필요할 수 있습니다.${NC}"
+    cp .env.example .env
+fi
+
+# 7. 완료 및 다음 안내
+echo -e "\n${GREEN}==================================================================${NC}"
+echo -e "${GREEN}  Cortex Agent 설치가 성공적으로 완료되었습니다!${NC}"
+echo -e "${GREEN}==================================================================${NC}"
+echo -e "\n이제 다음 명령어로 초기 인덱싱을 수행하세요:"
+echo -e "${BLUE}  PYTHONPATH=.agents/scripts venv/bin/python3 .agents/scripts/cortex/indexer.py . --force${NC}\n"

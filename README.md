@@ -26,81 +26,15 @@
 └── README.md       # 본 프로젝트 인프라 가이드
 ```
 
----
+## 🚀 설치 가이드 (Manual Installation)
 
-## 🚀 설치 및 빠른 시작 (Installation & Quick Start)
+기존의 자동화 스크립트(`setup.sh`)는 폐지되었습니다. 아래 상세 수동 설치 가이드를 따라 설치를 진행해 주시기 바랍니다.
 
-### 🤖 [FOR AGENTS] 자동 설치 프롬프트 (Auto-Install Prompt)
-새로운 환경(다른 PC)에서 에이전트에게 인프라 구성을 지시할 때 **아래 프롬프트를 그대로 복사하여 전달**하세요. 에이전트가 헤매지 않고 스스로 환경을 구축합니다.
+- **상세 설치 매뉴얼**: [INSTALL.md](./INSTALL.md) (현재 디렉토리 위치)
 
-> ```markdown
-> [CORTEX INFRA INSTALLATION]
-> 이 프로젝트에 Cortex 인프라를 설치하고 MCP 서버를 구성해줘. 다음 단계를 순서대로 실행할 것:
-> 1. 프로젝트 루트 경로에서 `.agents/setup.sh` 스크립트를 실행하여 가상환경(venv)과 의존성을 설치해. (예: `cd .agents && chmod +x setup.sh && ./setup.sh`)
-> 2. 설치가 완료되면, IDE의 MCP 클라이언트 설정(예: Cursor, Windsurf, Gemini CLI)에 다음 서버를 추가해:
->    - Command: `<프로젝트루트>/.agents/venv/bin/python3`
->    - Args: `["<프로젝트루트>/.agents/scripts/cortex_mcp.py"]`
-> 3. 설정 후 `.agents/rules/diagnostics.md`를 읽어 가상환경 충돌 방지 원칙(Phase 0)을 숙지해.
-> ```
+> [!IMPORTANT]
+> **준비 사항**: Ubuntu 환경에서 `python3-venv` 패키지가 설치되어 있어야 하며, 모든 명령어는 가상환경(`venv`)이 활성화된 상태에서 프로젝트 루트를 기준으로 실행해야 합니다.
 
-### 🧑‍💻 수동 셋업 (Manual Setup)
-자동 스크립트(`setup.sh`)가 실패하거나 권한 문제가 발생할 경우, 사람이 직접 터미널에 아래 명령어를 순서대로 입력하여 확실하게 설치를 진행하세요.
-
-**1. 폴더 이동 및 가상환경 생성**
-```bash
-# .agents 디렉토리로 이동
-cd .agents
-
-# 격리된 Python 가상환경 생성 (python3-venv 패키지 필요)
-python3 -m venv venv
-```
-
-**2. 가상환경 활성화 및 패키지 설치**
-```bash
-# 가상환경 활성화 (Linux/Mac 기준)
-source venv/bin/activate
-
-# 의존성 설치 전 pip 최신화 및 필수 패키지 설치
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-**3. 환경 변수 설정 (Hugging Face 토큰 등)**
-모델 다운로드 속도 향상과 권한 오류 방지를 위해 환경 변수를 설정합니다.
-```bash
-cp .env.example .env
-# .env 파일을 열고 HF_TOKEN 란에 Hugging Face Access Token을 입력하세요.
-# 발급: https://huggingface.co/settings/tokens
-```
-
-**4. 초기 지식 인덱싱 및 모델 다운로드 실행**
-```bash
-# Cortex 엔진의 DB를 생성하고 임베딩 모델을 자동 다운로드하며 초기 스캔합니다.
-python3 scripts/cortex/indexer.py --force
-```
-
-**5. IDE (MCP 클라이언트) 등록**
-모든 설치가 끝났습니다. 이제 사용 중인 에디터(Cursor, Windsurf, Gemini CLI 등)의 MCP 설정에 **Cortex MCP**를 아래와 같이 등록하세요.
-*(주의: 상대 경로 `./` 나 `~` 대신 반드시 전체 절대 경로를 기입해야 합니다.)*
-
-* **이름 (Name)**: `cortex-mcp`
-* **유형 (Type)**: `stdio`
-* **명령어 (Command)**: `<프로젝트 절대 경로>/.agents/venv/bin/python3`
-* **인자 (Arguments)**: `<프로젝트 절대 경로>/.agents/scripts/cortex_mcp.py`
-
-**💡 [참고] 설정 파일(`mcp.json` 등)을 직접 수정하는 경우의 예시:**
-```json
-{
-  "mcpServers": {
-    "cortex-mcp": {
-      "command": "/Users/myname/workspace/project/.agents/venv/bin/python3",
-      "args": [
-        "/Users/myname/workspace/project/.agents/scripts/cortex_mcp.py"
-      ]
-    }
-  }
-}
-```
 
 ---
 
@@ -139,25 +73,6 @@ mkdir -p skills && cd skills
 wget -qO- https://api.github.com/repos/sickn33/antigravity-awesome-skills/tarball/main | tar xz --strip-components=2 "*/skills"
 cd ..
 ```
-
----
-
-## 🤖 [FOR AGENTS] 부트스트랩 프롬프트 (Bootstrap Prompt)
-
-**설치 및 MCP 연동이 모두 끝난 후**, 새로운 채팅 세션을 시작할 때 에이전트에게 **아래 블록을 통째로 복사하여 전달**하세요. 
-
-> [!TIP]
-> **"Agent's First Day Secret Command"**
-> ```markdown
-> [CONTEXT SYNC] 
-> 안녕, 파트너. 너는 지금 이 프로젝트의 Cortex 인프라와 함께 작업하게 될 거야.
-> 지금 즉시 다음 단계를 수행해서 프로젝트 맥락을 확보해:
-> 
-> 1. `cortex-mcp`의 `pc_index_status` 도구를 호출해서 현재 인덱싱된 지식의 양을 확인해.
-> 2. `pc_memory_search_knowledge`로 카테고리를 `rule`로 설정해 핵심 규칙(rule.md 등)을 검색하고 숙지해.
-> 3. `pc_memory_search_knowledge`로 프로젝트의 '기존 지식'이나 '아키텍처'를 검색해.
-> 4. 마지막으로 `/진행` 워크플로우를 호출해서 이전 세션의 작업 지점을 동기화해.
-> ```
 
 ---
 

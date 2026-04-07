@@ -83,6 +83,7 @@ try:
     from cortex import memory as pc_mem_mod
     from cortex.persistent_memory import PersistentMemoryManager
     from cortex.skill_manager import SkillManager
+    from cortex.visualizer import generate_graph_viz as pc_viz_mod
 except ImportError:
     # 패키지 구조에 따른 폴백
     import cortex.db as pc_db # type: ignore
@@ -94,6 +95,7 @@ except ImportError:
     import cortex.memory as pc_mem_mod # type: ignore
     from cortex.persistent_memory import PersistentMemoryManager # type: ignore
     from cortex.skill_manager import SkillManager # type: ignore
+    from cortex.visualizer import generate_graph_viz as pc_viz_mod # type: ignore
 
 # ------------------------------------------------------------------------------
 # Cortex Tools Logic
@@ -403,6 +405,13 @@ def pc_auto_explore(query, category=None):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def pc_viz():
+    """지식 그래프 시규얼라이저 호출"""
+    path, err = pc_viz_mod(WORKSPACE)
+    if err:
+        return json.dumps({"error": err})
+    return json.dumps({"status": "success", "viz_path": path, "message": "Knowledge graph visualization generated."}, ensure_ascii=False)
+
 def pc_session_sync(task_desc):
     """자율 관계 추출기를 통한 세션 메모리 자동 동기화"""
     try:
@@ -487,7 +496,8 @@ TOOLS = [
     {"name": "pc_memory_read", "description": "특정 key의 영구 지식 조회.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_memory_search_knowledge", "description": "영구 지식 및 전문가 스킬 검색 (FTS5). 'Skill-First' 수행 시 호출.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}},
     {"name": "pc_memory_sync_skills", "description": "스킬 디렉터리(skills/**/*.md)를 탐색하여 memories DB에 인덱싱.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}}
+    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pc_viz", "description": "지식 그래프 시각화 HTML 생성.", "inputSchema": {"type": "object", "properties": {}}}
 ]
 
 def handle_request(req):
@@ -526,6 +536,7 @@ def handle_request(req):
             elif name == "pc_memory_search_knowledge": res = pc_memory_search_knowledge(args["query"], args.get("category"), args.get("limit", 10))
             elif name == "pc_memory_sync_skills": res = pc_memory_sync_skills()
             elif name == "pc_memory_stats": res = pc_memory_stats()
+            elif name == "pc_viz": res = pc_viz()
             else: return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "Method not found"}}
             
             return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": str(res)}]}}

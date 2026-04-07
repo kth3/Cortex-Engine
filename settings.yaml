@@ -28,8 +28,9 @@ indexing_rules:
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
   
-  # 인덱싱 범위: 기본적으로 src 폴더 내부를 로직으로 인식
+  # 인덱싱 범위: 기본적으로 src 폴더 내부를 로직으로 인식 (exclude_paths가 우선함)
   include_paths: ["**/src/**", "**/skills/**"]
+  exclude_paths: ["skills/**", "node_modules/**"]
   
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist: 
