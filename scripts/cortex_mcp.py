@@ -557,7 +557,7 @@ def serve():
             try:
                 rid = req.get("id") if 'req' in locals() and isinstance(req, dict) else None
                 if rid is not None:
-                    err_res = {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": f"Internal Error: {str(e)}"}]
+                    err_res = {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": f"Internal Error: {str(e)}"}}
                     sys.stdout.write(json.dumps(err_res, ensure_ascii=False) + "\n")
                     sys.stdout.flush()
             except Exception:
