@@ -16,6 +16,7 @@ from cortex.parsers.python_parser import parse_python_file
 from cortex.parsers.java_parser import parse_java_file
 from cortex.parsers.typescript_parser import parse_typescript_file
 from cortex.parsers.markdown_parser import parse_markdown_file
+from cortex.parsers.c_parser import parse_c_file
 
 # ==============================================================================
 # 설정 및 지원 확장자
@@ -29,10 +30,10 @@ SUPPORTED_EXTENSIONS = {
     ".js": ("javascript", parse_typescript_file),
     ".jsx": ("javascript", parse_typescript_file),
     ".md": ("markdown", parse_markdown_file),
-    ".c": ("c", parse_markdown_file),
-    ".cpp": ("cpp", parse_markdown_file),
-    ".h": ("c", parse_markdown_file),
-    ".hpp": ("cpp", parse_markdown_file),
+    ".c": ("c", parse_c_file),
+    ".cpp": ("cpp", parse_c_file),
+    ".h": ("c", parse_c_file),
+    ".hpp": ("cpp", parse_c_file),
     ".html": ("html", parse_markdown_file),
     ".css": ("css", parse_markdown_file),
 }
@@ -296,6 +297,77 @@ def scan_files(workspace: str) -> list:
     return sorted(list(set(files)))
 
 
+def _sync_rules_to_memories(workspace: str, conn):
+    """규칙/프로토콜 .md 문서를 memories 테이블에 동기화.
+    
+    에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록
+    .agents/rules/*.md → category='rule'
+    .agents/protocols/*.md → category='protocol'
+    형태로 memories 테이블에 저장한다.
+    """
+    import json
+    
+    rule_dirs = {
+        "rule": os.path.join(workspace, ".agents", "rules"),
+        "protocol": os.path.join(workspace, ".agents", "protocols"),
+    }
+    
+    synced = 0
+    for category, dir_path in rule_dirs.items():
+        if not os.path.isdir(dir_path):
+            continue
+        for fname in os.listdir(dir_path):
+            if not fname.endswith(".md"):
+                continue
+            full_path = os.path.join(dir_path, fname)
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except Exception:
+                continue
+            
+            key = f"{category}::{os.path.splitext(fname)[0]}"
+            content_clean = strip_frontmatter(content).strip()
+            if not content_clean:
+                continue
+            
+            # 해시 기반 변경 감지 (불필요한 업데이트 방지)
+            content_hash = compute_hash(content_clean)
+            existing = conn.execute(
+                "SELECT content FROM memories WHERE key = ?", (key,)
+            ).fetchone()
+            
+            if existing and compute_hash(existing[0]) == content_hash:
+                continue  # 변경 없음 — 스킵
+            
+            now = int(time.time())
+            tags_json = json.dumps([category, "agent-rule"], ensure_ascii=False)
+            rel_json = json.dumps({}, ensure_ascii=False)
+            
+            # 제목 추출 (첫 번째 # 헤딩 또는 파일명)
+            title = os.path.splitext(fname)[0]
+            for line in content_clean.split("\n"):
+                if line.startswith("# "):
+                    title = line[2:].strip()
+                    break
+            
+            # memories 테이블에 upsert
+            prefixed_content = f"[{category.upper()}] {title}\n{content_clean}"
+            conn.execute(
+                """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at, embedding)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                   ON CONFLICT(key) DO UPDATE SET
+                   content=excluded.content, category=excluded.category,
+                   tags=excluded.tags, updated_at=excluded.updated_at, embedding=NULL""",
+                (key, ".", category, prefixed_content, tags_json, rel_json, now, now)
+            )
+            synced += 1
+    
+    if synced > 0:
+        conn.commit()
+        sys.stderr.write(f"[indexer] Synced {synced} rule/protocol docs to memories table.\n")
+
+
 def index_workspace(workspace: str, force: bool = False) -> dict:
     """전체 워크스페이스 하이브리드 인덱싱.
 
@@ -415,6 +487,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 sys.stderr.write(f"[indexer] Synced {total_indexed + total_skipped} memories (New: {total_indexed}, Existing: {total_skipped}).\n")
     except Exception as e:
         sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
+
+    # [NEW] .agents 내부 규칙/프로토콜 문서를 memories 테이블에 동기화
+    # → 에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록 보장
+    _sync_rules_to_memories(workspace, conn)
 
     # [NEW] 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
