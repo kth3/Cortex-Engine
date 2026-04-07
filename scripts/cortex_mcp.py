@@ -51,25 +51,10 @@ def _find_real_workspace(start_path):
 
 WORKSPACE = _find_real_workspace(SCRIPTS_DIR)
 
-# ==============================================================================
-# 유틸리티: 로그 파일 아카이빙 (50KB 초과 시 .agents/history/archive 폴더로 로테이션)
-# ==============================================================================
+# 유틸리티: persistent_memory 모듈에서 임포트
 def _append_markdown_with_archive(target_filename, content):
-    import datetime
-    import shutil
-    md_path = os.path.join(WORKSPACE, ".agents", "history", target_filename)
-    
-    # 아카이브 체크 (50KB 초과)
-    if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
-        archive_dir = os.path.join(WORKSPACE, ".agents", "history", "archive")
-        os.makedirs(archive_dir, exist_ok=True)
-        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        name_part, ext = os.path.splitext(target_filename)
-        archive_path = os.path.join(archive_dir, f"{name_part}_{now_str}{ext}")
-        shutil.move(md_path, archive_path)
-        
-    with open(md_path, "a", encoding="utf-8") as f:
-        f.write(content)
+    from cortex.persistent_memory import append_markdown_with_archive
+    append_markdown_with_archive(WORKSPACE, target_filename, content)
 
 # Cortex 모듈 임포트
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -264,93 +249,11 @@ def pc_memory_read(key):
         return json.dumps({"error": str(e)})
 
 def pc_memory_search_knowledge(query, category=None, limit=10):
-    """영구 지식 및 전문가 스킬 검색 (FTS5 + FAISS 하이브리드)
-    수행 시작 전 'Skill-First' 규칙에 의해 호출합니다."""
+    """영구 지식 및 전문가 스킬 검색 → persistent_memory.search_knowledge()에 위임"""
     try:
-        st = get_storage()
-        # 1. FTS5 기반 지식 검색
-        fts_results = st.search("default", query, category, limit)
-
-        # 2. [Invisible Guardrail] 보안/규칙 자동 포함
-        if not category or category not in ["rule", "security"]:
-            auto_rules = st.search("default", "security policy rule convention", limit=2)
-            seen_keys = {r["key"] for r in fts_results}
-            for rule in auto_rules:
-                if rule["key"] not in seen_keys:
-                    fts_results.append(rule)
-
-        # 휴리스틱 가중치 계산 로직
-        def get_heuristic_boost(item_key, item_category, q):
-            boost = 0.0
-            q_low = q.lower()
-            k_low = item_key.lower()
-            # 1. Exact Key Match (최우선순위)
-            if k_low == q_low: boost += 0.5
-            # 2. Key contains Query (식별자 부분 일치)
-            elif q_low in k_low: boost += 0.1
-            # 3. Category Boost (전문가 지식/규칙 우선)
-            if item_category in ["rule", "skill", "decision", "protocol"]:
-                boost += 0.05
-            return boost
-
-        # 3. FAISS 벡터 검색 (CPU, VRAM 0MB)
-        vec_results = []
-        if (_VE_AVAILABLE and _ve is not None):
-            try:
-                vec_results = _ve.search_similar(WORKSPACE, query, top_k=limit, use_gpu=False)
-            except Exception:
-                pass
-
-        # 4. 결과 병합 및 가중치 적용
-        fts_keys = {r["key"] for r in fts_results}
-        vec_map = {vr["id"]: vr for vr in vec_results}
-        
-        # RRF 점수 계산
-        fts_rrf = {r["key"]: 1.0 / (i + 60) for i, r in enumerate(fts_results)}
-        vec_rrf = {vr["id"]: 1.0 / (i + 60) for i, vr in enumerate(vec_results)}
-
-        # 카테고리 정보 맵핑
-        item_info = {}
-        for r in fts_results:
-            item_info[r["key"]] = r.get("category", "unknown")
-        for k, v in vec_map.items():
-            if k not in item_info:
-                item_info[k] = v.get("meta", {}).get("category", "skill")
-
-        all_keys = set(fts_keys) | set(vec_map.keys())
-        
-        # 최종 점수 정렬
-        combined = sorted(
-            all_keys,
-            key=lambda k: fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0) + get_heuristic_boost(k, item_info.get(k, ""), query),
-            reverse=True
-        )[:limit]
-
-        # 결과 객체 생성
-        fts_result_map = {r["key"]: r for r in fts_results}
-        final = []
-        for k in combined:
-            boost_val = get_heuristic_boost(k, item_info.get(k, ""), query)
-            rrf_val = fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0)
-            
-            if k in fts_result_map:
-                item = fts_result_map[k]
-                item["_score_detail"] = {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)}
-                item["_total_score"] = round(rrf_val + boost_val, 6)
-                final.append(item)
-            elif k in vec_map:
-                final.append({
-                    "key": k,
-                    "content": vec_map[k].get("text", ""),
-                    "category": item_info.get(k, "skill"),
-                    "_score_detail": {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)},
-                    "_total_score": round(rrf_val + boost_val, 6)
-                })
-        return json.dumps(final, ensure_ascii=False)
-
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
+        ve = _ve if _VE_AVAILABLE else None
+        results = get_storage().search_knowledge(query, category, limit, ve_module=ve)
+        return json.dumps(results, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -509,28 +412,36 @@ def pc_session_sync(task_desc):
         return json.dumps({"error": str(e)})
 
 TOOLS = [
+    # === 인덱싱 관리 ===
     {"name": "pc_reindex", "description": "프로젝트 증분 인덱싱 실행.", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean", "description": "강제 재발행 여부", "default": False}}}},
     {"name": "pc_index_status", "description": "인덱스 통계 조회.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pc_capsule", "description": "지능형 컨텍스트 캡슐 생성.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링할 카테고리 (SOURCE 또는 SKILL)"}}, "required": ["query"]}},
+
+    # === 검색 (우선순위: pc_capsule > pc_memory_search_knowledge > pc_run_pipeline) ===
+    {"name": "pc_capsule", "description": "[1순위 검색] 소스코드+스킬 통합 검색. 압축된 컨텍스트 반환. 검색 시 가장 먼저 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링할 카테고리 (SOURCE 또는 SKILL)"}}, "required": ["query"]}},
+    {"name": "pc_memory_search_knowledge", "description": "[2순위 검색] 스킬·지식 상세 검색. pc_capsule 부족 시 사용. 200자 요약+점수 반환.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}},
+    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색. 복잡한 분석이 필요할 때 3순위로 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
+    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
+
+    # === 코드 구조 분석 ===
     {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
     {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
-
-    {"name": "pc_save_observation", "description": "작업 중 발견한 중요한 통찰/결정 저장 (기존 agent-memory 대체).", "inputSchema": {"type": "object", "properties": {"content": {"type": "string", "description": "관찰 내용"}, "obs_type": {"type": "string", "description": "관찰 유형", "default": "insight"}, "file_paths": {"type": "array", "items": {"type": "string"}, "description": "관련 파일 경로 목록"}}, "required": ["content"]}},
-    {"name": "pc_search_memory", "description": "과거 작업 이력 및 관찰 검색.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색어"}, "limit": {"type": "integer", "description": "최대 결과 수", "default": 10}}, "required": ["query"]}},
-    {"name": "pc_git_log", "description": "특정 파일의 상세 Git 수정 이력 조회.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "limit": {"type": "integer", "description": "최대 로그 수", "default": 5}}, "required": ["file_path"]}},
-    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
-    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
-    {"name": "pc_session_sync", "description": "작업 종료 시, Git 상태와 브랜치명 등을 파싱하여 Jira 이슈 및 수정 파일 관계를 자동으로 DB에 저장합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "지금까지 한 작업 요약"}}, "required": ["task_desc"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
-    # --- 영구 지식 / 스킬 ---
+
+    # === 관찰/이력 (스킬·지식 검색이 아님) ===
+    {"name": "pc_save_observation", "description": "작업 중 발견한 중요한 통찰/결정 저장 (기존 agent-memory 대체).", "inputSchema": {"type": "object", "properties": {"content": {"type": "string", "description": "관찰 내용"}, "obs_type": {"type": "string", "description": "관찰 유형", "default": "insight"}, "file_paths": {"type": "array", "items": {"type": "string"}, "description": "관련 파일 경로 목록"}}, "required": ["content"]}},
+    {"name": "pc_search_memory", "description": "과거 관찰(observation) 이력만 검색. 스킬·지식 검색은 pc_capsule을 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색어"}, "limit": {"type": "integer", "description": "최대 결과 수", "default": 10}}, "required": ["query"]}},
+    {"name": "pc_git_log", "description": "특정 파일의 상세 Git 수정 이력 조회.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "limit": {"type": "integer", "description": "최대 로그 수", "default": 5}}, "required": ["file_path"]}},
+    {"name": "pc_session_sync", "description": "작업 종료 시, Git 상태와 브랜치명 등을 파싱하여 Jira 이슈 및 수정 파일 관계를 자동으로 DB에 저장합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "지금까지 한 작업 요약"}}, "required": ["task_desc"]}},
+
+    # === 영구 지식 / 스킬 관리 ===
     {"name": "pc_memory_write", "description": "ADR, 아키텍처 결정, 프로토콜 등 영구 지식 저장.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["key", "category", "content"]}},
     {"name": "pc_memory_consolidate", "description": "과거 임시 기록들(old_keys)을 깔끔하게 지우고 하나의 새로운 지식(new_key)으로 묶어 DB 파편화를 막습니다.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "특정 key의 영구 지식 조회.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
-    {"name": "pc_memory_search_knowledge", "description": "영구 지식 및 전문가 스킬 검색 (FTS5). 'Skill-First' 수행 시 호출.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}},
     {"name": "pc_memory_sync_skills", "description": "스킬 디렉터리(skills/**/*.md)를 탐색하여 memories DB에 인덱싱.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pc_viz", "description": "지식 그래프 시각화 HTML 생성.", "inputSchema": {"type": "object", "properties": {}}}
 ]
+
 
 def handle_request(req):
     method = req.get("method")
