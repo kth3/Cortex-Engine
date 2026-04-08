@@ -236,21 +236,50 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = None, prefix:
     if not to_embed:
         return {"indexed": 0, "skipped": skipped_count}
 
-    # 3. 청킹 및 전처리
+    # 3. 청킹 및 전처리 (Chunk Enrichment 적용)
     all_texts = []
     all_metas = []
     for item in to_embed:
         text = item.get("text", "")
         item_id = item.get("id", "")
+        meta = item.get("meta") or {}
         chunks = chunk_text(text)
+
+        # Chunk Enrichment: 메타 정보를 임베딩 텍스트에 컨텍스트로 주입
+        # → 벡터 공간에서 "어떤 파일의 어떤 종류 코드인지" 의미가 반영됨
+        enrichment_parts = []
+        if meta.get("file"):
+            enrichment_parts.append(f"File: {meta['file']}")
+        if meta.get("type"):
+            enrichment_parts.append(f"Type: {meta['type']}")
+        if meta.get("category"):
+            enrichment_parts.append(f"Category: {meta['category']}")
+        if meta.get("module"):
+            enrichment_parts.append(f"Module: {meta['module']}")
+        enrichment_prefix = " | ".join(enrichment_parts)
+
         for i, chunk in enumerate(chunks):
-            prefixed = f"passage: {chunk}"
+            # Sentence-Window Retrieval: 임베딩에만 전후 청크 컨텍스트 포함
+            # → 검색 시 단일 청크보다 넓은 의미 범위를 벡터가 포착함
+            window_parts = []
+            if i > 0:
+                window_parts.append(chunks[i - 1][-200:])  # 이전 청크 말미
+            window_parts.append(chunk)
+            if i < len(chunks) - 1:
+                window_parts.append(chunks[i + 1][:200])  # 다음 청크 서두
+            window_text = "\n...\n".join(window_parts)
+
+            # Chunk Enrichment + Sentence Window 결합
+            if enrichment_prefix:
+                prefixed = f"passage: [{enrichment_prefix}]\n{window_text}"
+            else:
+                prefixed = f"passage: {window_text}"
             all_texts.append(prefixed)
             all_metas.append({
                 "id": item_id,
                 "chunk_idx": i,
-                "text": chunk[:300],
-                **(item.get("meta") or {}),
+                "text": chunk,  # 저장은 원본 청크만 (window/enrichment는 임베딩에만 사용)
+                **meta,
             })
 
     # 4. [Smart Device Selection]
@@ -290,36 +319,23 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = None, prefix:
     _save_faiss_index(workspace, index, meta, prefix)
     return {"indexed": len(to_embed), "skipped": skipped_count}
 
-    # 기존 항목 제거가 FAISS에서 복잡하므로, 새로 재구성
-    if filtered_count > 0 and filtered_meta:
-        # 기존 벡터 재구성 (필요 시)
-        kept_indices = [i for i, m in enumerate(meta) if m.get("id") not in new_ids]
-        if kept_indices:
-            # IndexFlatIP는 reconstruct를 지원하지 않을 수 있음
-            try:
-                kept_vecs = index.reconstruct_batch(kept_indices)
-                new_index = _create_new_index(embeddings.shape[1])
-                new_index.add(kept_vecs)
-                index = new_index
-            except Exception:
-                # reconstruct 불가 시 기존 인덱스 유지 (중복은 상위에서 처리됨)
-                pass
-        meta = filtered_meta
 
-    index.add(embeddings)
-    meta.extend(all_metas)
-    _save_faiss_index(workspace, index, meta, prefix)
-
-    return {"indexed": len(all_texts), "skipped": 0}
-
-
-def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_gpu: bool = False) -> list[dict]:
+def search_similar(
+    workspace: str,
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    use_gpu: bool = False,
+    score_threshold: float = 0.3,
+) -> list[dict]:
     """
     쿼리와 가장 유사한 문서 청크를 반환 (모든 *.index 파일 일괄 병합 검색).
+
+    Args:
+        score_threshold: 이 값 미만의 코사인 유사도 결과는 노이즈로 판단해 제외 (기본 0.3)
     """
     import glob
     import numpy as np
-    
+
     data_dir = _get_data_dir(workspace)
     index_files = glob.glob(os.path.join(data_dir, "*.index"))
     if not index_files:
@@ -337,24 +353,25 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
 
     instruction = "Given a search query, retrieve relevant code snippets and documents that help in software engineering tasks."
     query_with_instruction = f"{instruction}\nQuery: {query}"
-    
+
     query_vec = model.encode(
         [query_with_instruction],
         normalize_embeddings=True,
         show_progress_bar=False,
     ).astype(np.float32)
 
-    seen_ids = {}
+    # 청크 단위 중복 제거: (id, chunk_idx)를 키로 사용
+    # → 동일 파일의 서로 다른 청크가 각각 높은 점수를 받으면 모두 반환
+    seen_chunks: dict[str, dict] = {}
 
-    # 모든 파편화된 인덱스를 순회하며 검색 및 스코어 갱신
     for idx_path in index_files:
         basename = os.path.basename(idx_path)
         scan_prefix = basename[:-6]  # '.index' 제거
-        
+
         index, meta_raw = _load_faiss_index(workspace, scan_prefix)
         if index is None or index.ntotal == 0:
             continue
-            
+
         meta = [dict(m) if not isinstance(m, dict) else m for m in (meta_raw or [])]
         search_k = min(top_k * 3, index.ntotal)
         scores, indices = index.search(query_vec, search_k)
@@ -362,20 +379,29 @@ def search_similar(workspace: str, query: str, top_k: int = DEFAULT_TOP_K, use_g
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0 or idx >= len(meta):
                 continue
+
+            # Score threshold: 유사도가 너무 낮은 결과는 노이즈로 간주
+            if float(score) < score_threshold:
+                continue
+
             item_meta = meta[idx]
             item_id = item_meta.get("id", "")
+            chunk_idx = item_meta.get("chunk_idx", 0)
             if not item_id:
                 continue
-                
-            if item_id not in seen_ids or score > seen_ids[item_id]["score"]:
-                seen_ids[item_id] = {
+
+            # (파일ID, 청크번호) 조합으로 고유 식별 → 같은 청크만 중복 제거
+            chunk_key = f"{item_id}::{chunk_idx}"
+            if chunk_key not in seen_chunks or float(score) > seen_chunks[chunk_key]["score"]:
+                seen_chunks[chunk_key] = {
                     "id": item_id,
+                    "chunk_idx": chunk_idx,
                     "score": float(score),
                     "text": item_meta.get("text", ""),
-                    "meta": {k: v for k, v in item_meta.items() if k not in ("id", "text")},
+                    "meta": {k: v for k, v in item_meta.items() if k not in ("id", "text", "chunk_idx")},
                 }
 
-    results = sorted(seen_ids.values(), key=lambda x: x.get("score", 0.0), reverse=True)
+    results = sorted(seen_chunks.values(), key=lambda x: x.get("score", 0.0), reverse=True)
     return results[:top_k]
 
 
