@@ -30,7 +30,7 @@ indexing_rules:
   
   # 인덱싱 범위: 워크스페이스 내의 모든 지원되는 코드 파일을 자동으로 감지 (gitignore 및 하단 exclude 우선)
   include_paths: ["**/*"]
-  exclude_paths: ["skills/**", "node_modules/**"]
+  exclude_paths: ["skills/**", "node_modules/**", ".agents/scripts/**"]
   
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist: 
