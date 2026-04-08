@@ -50,8 +50,8 @@ def _load_model(device: str = "cpu"):
         import torch
         import sys
         
-        # 허깅페이스 토큰 로드 확인
-        hf_token = os.getenv("HF_TOKEN")
+        # 허깅페이스 토큰 로드 확인 (빈 값은 None으로 처리 → Bearer 헤더 오류 방지)
+        hf_token = os.getenv("HF_TOKEN", "").strip() or None
         
         sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device} (FP16 Mode)...\n")
         
