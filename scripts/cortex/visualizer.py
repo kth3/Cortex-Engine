@@ -251,7 +251,7 @@ def generate_graph_viz(workspace_path):
         conn.row_factory = sqlite3.Row
         
         # 1. 필터링 로직: 연결된 엣지가 있는 노드만 추출
-        # 또한 file_path가 .agents/scripts/로 시작하는 것은 제외 (설정 반영)
+        # 테스트 및 스크립트 제외 필터를 더욱 강화 (% 기호를 앞뒤로 추가)
         query = """
             SELECT id, name, fqn, type, category, module, file_path
             FROM nodes 
@@ -260,7 +260,11 @@ def generate_graph_viz(workspace_path):
                 UNION 
                 SELECT target_id FROM edges
             )
-            AND file_path NOT LIKE '.agents/scripts/%'
+            AND file_path NOT LIKE '%.agents/scripts/%'
+            AND file_path NOT LIKE '%.agents/tests/%'
+            AND file_path NOT LIKE '%tests/%'
+            AND name NOT LIKE 'test_%'
+            AND fqn NOT LIKE '%test_%'
         """
         nodes_rows = conn.execute(query).fetchall()
         
