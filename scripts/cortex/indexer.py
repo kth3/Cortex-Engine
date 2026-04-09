@@ -388,6 +388,69 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     conn = db.get_connection(workspace)
     db.init_schema(conn)
 
+    # [NEW] 삭제된 파일 감지 및 정리 로직
+    # DB에는 등록되어 있으나 현재 디스크에는 없는 파일을 찾아 제거합니다.
+    cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()
+    db_file_list = [row[0] for row in cached_files]
+    current_file_set = set(files)
+    
+    deleted_files = [f for f in db_file_list if f not in current_file_set]
+    if deleted_files:
+        sys.stderr.write(f"[indexer] Found {len(deleted_files)} deleted files. Cleaning up DB...\n")
+        from cortex import vector_engine as ve
+        
+        for del_path in deleted_files:
+            # 1. 해당 파일의 모든 노드 ID 조회 (벡터 엔진 삭제용)
+            old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (del_path,)).fetchall()
+            old_ids = [r[0] for r in old_nodes]
+            
+            if old_ids:
+                # 2. 벡터 엔진에서 제거
+                try:
+                    ve.delete_ids(workspace, old_ids)
+                except Exception as e:
+                    sys.stderr.write(f"[indexer] Failed to delete vectors for {del_path}: {e}\n")
+                
+                # 3. DB에서 노드/엣지 삭제
+                chunk_size = 900
+                for i in range(0, len(old_ids), chunk_size):
+                    chunk = old_ids[i:i + chunk_size]
+                    ph = ",".join("?" * len(chunk))
+                    conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
+                    conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
+                conn.execute("DELETE FROM nodes WHERE file_path = ?", (del_path,))
+            
+            # 4. 파일 캐시 제거
+            conn.execute("DELETE FROM file_cache WHERE file_path = ?", (del_path,))
+        
+        conn.commit()
+        sys.stderr.write(f"[indexer] Cleanup complete for {len(deleted_files)} files.\n")
+
+    # [NEW] 고스트 인덱스 파일 정리 (폴더 삭제 대응)
+    # .agents/cortex_data/ 내의 *.index 파일 중 실제 폴더가 없는 것을 삭제합니다.
+    try:
+        from cortex.db import get_db_path
+        db_dir = os.path.dirname(get_db_path(workspace))
+        all_indices = [f for f in os.listdir(db_dir) if f.endswith(".index")]
+        
+        # 보존해야 할 시스템 인덱스 및 현재 존재하는 폴더 목록
+        preserved_prefixes = {"root", "memories", "skills", "default"}
+        for d in os.listdir(workspace):
+            if os.path.isdir(os.path.join(workspace, d)) and not d.startswith("."):
+                preserved_prefixes.add(d)
+        
+        for idx_file in all_indices:
+            prefix = idx_file.replace(".index", "")
+            if prefix not in preserved_prefixes:
+                # 폴더가 사라진 고스트 인덱스 발견
+                sys.stderr.write(f"[indexer] Removing orphaned index: {prefix}\n")
+                os.remove(os.path.join(db_dir, idx_file))
+                meta_file = os.path.join(db_dir, f"{prefix}_meta.json")
+                if os.path.exists(meta_file):
+                    os.remove(meta_file)
+    except Exception as e:
+        sys.stderr.write(f"[indexer] Warning - Failed to cleanup orphaned indices: {e}\n")
+
     stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
 
     # N+1 최적화: file_cache 일괄 로드
