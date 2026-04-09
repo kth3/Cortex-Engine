@@ -1,0 +1,8 @@
+{
+  "current_task": null,
+  "active_agent": null,
+  "status": "IDLE",
+  "phase": "READY",
+  "handoff_to": null,
+  "updated_at": "2026-04-09T00:36:27Z"
+}
