@@ -24,6 +24,12 @@
 - **Skill 표기 원칙**: `pc_` 도구를 통한 검색 결과 중 **`skills/` 디렉터리에 물리적으로 존재하는 파일에 기반한 스킬 ID**만을 쉼표로 구분하여 명시한다. DB에만 존재하는 지식 키(예: `scl_...`)는 제외한다. 식별자 외의 부연 설명(예: "(참조됨)")은 절대 붙이지 않는다. (예: `Skill: frontend-security-coder, clarity-gate`)
 - **MCP 표기 원칙**: 성공적으로 호출된 MCP 서버 명칭만 명시한다. (예: `MCP: cortex-mcp`)
 
+## 6. Multi-Agent Relay & Coordination (Stability First)
+- **3인 협업 체계**: Antigravity, Gemini, Claude 3인이 동일한 코드베이스에서 작동함을 인지하라.
+- **Pre-flight Check**: 작업을 시작하기 전 반드시 `.agents/scripts/relay.py status`로 이전 에이전트의 Handoff Message를 확인하고 `acquire` 명령어로 권한을 획득하라.
+- **Atomic Handoff**: 작업 완료 시 `release` 명령어로 권한을 반납하고, 다음 에이전트에게 필요한 구체적인 맥락(Handoff Message)을 남겨라.
+- **Collision Prevention**: 다른 에이전트가 `BUSY` 상태일 경우 즉시 대기하거나 사용자에게 알리고, Race Condition을 방지하기 위해 파일 쓰기 권한을 엄격히 준수하라.
+
 ## 5. Environment-First Troubleshooting & MD Backup
 - **환경 오염 점검 우선**: 코드 수정 후 동일한 오류가 반복되거나 변경 사항이 반영되지 않을 경우, 내부 로직을 다시 의심하기 전에 **반드시 백그라운드 프로세스의 옛날 코드 캐싱, 가상환경 충돌 등 시스템의 물리적 환경 오염 여부부터 최우선으로 점검**한다.
 - **필수 지식의 MD 보완 원칙**: DB 기반 인덱싱 외에도, '환경 점검 우선'과 같이 시스템 보호를 위해 즉각적으로 참조해야 하는 핵심 룰(Rule)은 DB 로딩 지연 등으로 인해 즉시 불러오지 못할 위험이 존재한다. 따라서, 치명적인 규칙이나 지침은 반드시 물리적인 Markdown(.md) 파일로도 병행하여 작성·보완하여 언제든 직접 열람할 수 있도록 유지한다.
