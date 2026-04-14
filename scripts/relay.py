@@ -60,6 +60,12 @@ def release(agent, handoff=None, message=None, phase="DONE"):
         print(f"[ERROR] {agent} does not hold the lock.")
         sys.exit(1)
     
+    # 📝 스크립트 레벨 제약: 오염 방지를 위한 메시지 길이 제한 (규칙 강제화)
+    if message and len(message) > 250:
+        print(f"[WARNING] Handoff message is too long ({len(message)} chars).")
+        print(f"[WARNING] Truncating to 250 chars. For detailed thoughts or intermediate logs, use 'pc_save_observation'!")
+        message = message[:247] + "..."
+    
     board["status"] = "IDLE" if not handoff else "HANDOFF"
     board["phase"] = phase
     board["handoff_to"] = handoff
