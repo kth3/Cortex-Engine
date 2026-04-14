@@ -55,9 +55,13 @@ def _load_model(device: str = "cpu"):
         
         sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device}...\n")
         
-        # Apple Silicon(macOS arm64) 환경의 크래시 및 메모리 충돌 방지를 위한 환경변수 설정
+        # Apple Silicon(macOS arm64) 환경의 크래시 및 메모리 충돌 방지를 위한 설정
         if sys.platform == "darwin":
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+            try:
+                torch.set_num_threads(1)
+            except Exception:
+                pass
         
         # 모델 로딩 옵션 (VRAM 최적화: CUDA는 FP16, CPU/MPS는 FP32 강제)
         model_kwargs = {
@@ -287,26 +291,35 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = None, prefix:
             })
 
     # 4. [Smart Device Selection]
-    if use_gpu is None:
-        use_gpu = len(all_texts) >= 128
-
     device = "cpu"
-    if use_gpu:
-        try:
-            import torch
-            if torch.cuda.is_available():
+    try:
+        import torch
+        mps_available = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+
+        # macOS Apple Silicon에서는 CPU 경로가 여전히 불안정할 수 있어
+        # MPS가 가능하면 배치 크기와 무관하게 우선 사용한다.
+        if mps_available:
+            device = "mps"
+        else:
+            if use_gpu is None:
+                use_gpu = len(all_texts) >= 128
+            if use_gpu and torch.cuda.is_available():
                 device = "cuda"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                device = "mps"
-        except ImportError:
-            pass
+    except ImportError:
+        pass
 
     model = _load_model(device)
 
     # 5. 임베딩 생성
+    encode_batch_size = 32
+    if device == "mps":
+        encode_batch_size = 4
+    elif device == "cpu":
+        encode_batch_size = 8
+
     embeddings = model.encode(
         all_texts,
-        batch_size=32,
+        batch_size=encode_batch_size,
         normalize_embeddings=True,
         show_progress_bar=True,
     ).astype(np.float32)
@@ -351,7 +364,10 @@ def search_similar(
     if use_gpu:
         try:
             import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
         except ImportError:
             pass
 
@@ -360,8 +376,10 @@ def search_similar(
     instruction = "Given a search query, retrieve relevant code snippets and documents that help in software engineering tasks."
     query_with_instruction = f"{instruction}\nQuery: {query}"
 
+    query_batch_size = 1 if device == "mps" else 8
     query_vec = model.encode(
         [query_with_instruction],
+        batch_size=query_batch_size,
         normalize_embeddings=True,
         show_progress_bar=False,
     ).astype(np.float32)
