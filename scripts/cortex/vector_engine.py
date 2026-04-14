@@ -53,9 +53,13 @@ def _load_model(device: str = "cpu"):
         # 허깅페이스 토큰 로드 확인 (빈 값은 None으로 처리 → Bearer 헤더 오류 방지)
         hf_token = os.getenv("HF_TOKEN", "").strip() or None
         
-        sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device} (FP16 Mode)...\n")
+        sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device}...\n")
         
-        # 모델 로딩 옵션 (VRAM 최적화: FP16 강제)
+        # Apple Silicon(macOS arm64) 환경의 크래시 및 메모리 충돌 방지를 위한 환경변수 설정
+        if sys.platform == "darwin":
+            os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+        
+        # 모델 로딩 옵션 (VRAM 최적화: CUDA는 FP16, CPU/MPS는 FP32 강제)
         model_kwargs = {
             "trust_remote_code": True,
             "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
@@ -292,6 +296,8 @@ def index_texts(workspace: str, items: list[dict], use_gpu: bool = None, prefix:
             import torch
             if torch.cuda.is_available():
                 device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
         except ImportError:
             pass
 
