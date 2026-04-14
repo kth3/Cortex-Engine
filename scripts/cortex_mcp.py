@@ -351,8 +351,8 @@ def pc_viz():
         return json.dumps({"error": err})
     return json.dumps({"status": "success", "viz_path": path, "message": "Knowledge graph visualization generated."}, ensure_ascii=False)
 
-def pc_session_sync(task_desc):
-    """자율 관계 추출기를 통한 세션 메모리 자동 동기화"""
+def pc_session_sync(task_desc, auto_release_agent=None):
+    """자율 관계 추출기를 통한 세션 메모리 자동 동기화 및 자동 락 해제"""
     try:
         branch = "unknown"
         jira_issues = []
@@ -411,6 +411,14 @@ def pc_session_sync(task_desc):
             except Exception:
                 pass
                 
+        if auto_release_agent:
+            try:
+                relay_script = os.path.join(SCRIPTS_DIR, "relay.py")
+                msg = f"Task: {task_desc[:50]} | Modifies: {len(modified_files)} files"
+                subprocess.run([sys.executable, relay_script, "release", auto_release_agent, "", msg], cwd=WORKSPACE)
+            except Exception:
+                pass
+                
         return json.dumps({"success": ok, "key": key, "extracted_relationships": relationships, "markdown_synced": True}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -435,7 +443,7 @@ TOOLS = [
     {"name": "pc_save_observation", "description": "작업 중 발견한 중요한 통찰/결정 저장 (기존 agent-memory 대체).", "inputSchema": {"type": "object", "properties": {"content": {"type": "string", "description": "관찰 내용"}, "obs_type": {"type": "string", "description": "관찰 유형", "default": "insight"}, "file_paths": {"type": "array", "items": {"type": "string"}, "description": "관련 파일 경로 목록"}}, "required": ["content"]}},
     {"name": "pc_search_memory", "description": "과거 관찰(observation) 이력만 검색. 스킬·지식 검색은 pc_capsule을 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색어"}, "limit": {"type": "integer", "description": "최대 결과 수", "default": 10}}, "required": ["query"]}},
     {"name": "pc_git_log", "description": "특정 파일의 상세 Git 수정 이력 조회.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "limit": {"type": "integer", "description": "최대 로그 수", "default": 5}}, "required": ["file_path"]}},
-    {"name": "pc_session_sync", "description": "작업 종료 시, Git 상태와 브랜치명 등을 파싱하여 Jira 이슈 및 수정 파일 관계를 자동으로 DB에 저장합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "지금까지 한 작업 요약"}}, "required": ["task_desc"]}},
+    {"name": "pc_session_sync", "description": "작업 종료 시 수정 파일 관계를 저장하고, auto_release_agent 제공 시 자동으로 락을 해제합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "지금까지 한 작업 요약"}, "auto_release_agent": {"type": "string", "description": "락 해제를 수행할 에이전트명 (예: Antigravity)"}}, "required": ["task_desc"]}},
 
     # === 영구 지식 / 스킬 관리 ===
     {"name": "pc_memory_write", "description": "ADR, 아키텍처 결정, 프로토콜 등 영구 지식 저장.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["key", "category", "content"]}},
@@ -475,7 +483,7 @@ def handle_request(req):
             elif name == "pc_git_log": res = pc_git_log(args["file_path"], args.get("limit", 5))
             elif name == "pc_run_pipeline": res = pc_run_pipeline(args["query"], context=args.get("context"), category=args.get("category"))
             elif name == "pc_auto_explore": res = pc_auto_explore(args["query"], context=args.get("context"), category=args.get("category"))
-            elif name == "pc_session_sync": res = pc_session_sync(args["task_desc"])
+            elif name == "pc_session_sync": res = pc_session_sync(args["task_desc"], args.get("auto_release_agent"))
             elif name == "pc_skeleton": res = pc_skeleton(args["file_path"], args.get("detail", "standard"))
             elif name == "pc_memory_write": res = pc_memory_write(args["key"], args["category"], args["content"], args.get("tags"), args.get("relationships"))
             elif name == "pc_memory_consolidate": res = pc_memory_consolidate(args["new_key"], args["category"], args["content"], args["old_keys"], args.get("tags"), args.get("relationships"))
