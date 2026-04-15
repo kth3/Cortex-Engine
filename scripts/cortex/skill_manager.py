@@ -293,9 +293,10 @@ class SkillManager:
             try:
                 query_vec = ve.get_embeddings([query])[0]
                 vec_rows = conn.execute(
-                    "SELECT m.key, m.content, m.tags FROM vec_memories v "
+                    "SELECT m.key, m.content, m.tags "
+                    "FROM vec_memories v "
                     "JOIN memories m ON m.rowid = v.rowid "
-                    "WHERE v.embedding MATCH ? LIMIT ?", 
+                    "WHERE v.embedding MATCH ? AND k = ?",
                     (query_vec.tobytes(), limit * 2)
                 ).fetchall()
                 
