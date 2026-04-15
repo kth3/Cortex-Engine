@@ -62,18 +62,18 @@ try:
     from cortex import db as pc_db
     import cortex.indexer as pc_indexer
     from cortex import capsule as pc_capsule_mod
-    from cortex import impact as pc_impact_mod
+    from cortex import graph_db as pc_graph_db
     from cortex import skeleton as pc_skeleton_mod
     from cortex import git_analyzer as pc_git_mod
     from cortex import memory as pc_mem_mod
     from cortex.persistent_memory import PersistentMemoryManager
     from cortex.skill_manager import SkillManager
-    except ImportError:
+except ImportError:
     # 패키지 구조에 따른 폴백
     import cortex.db as pc_db # type: ignore
     import cortex.indexer as pc_indexer # type: ignore
     import cortex.capsule as pc_capsule_mod # type: ignore
-    import cortex.impact as pc_impact_mod # type: ignore
+    import cortex.graph_db as pc_graph_db # type: ignore
     import cortex.skeleton as pc_skeleton_mod # type: ignore
     import cortex.git_analyzer as pc_git_mod # type: ignore
     import cortex.memory as pc_mem_mod # type: ignore
@@ -141,10 +141,14 @@ def pc_capsule(query, context=None, category=None):
         return json.dumps({"error": str(e)})
 
 def pc_logic_flow(from_fqn, to_fqn):
-    conn = pc_db.get_connection(WORKSPACE)
-    flow_data = pc_impact_mod.find_logic_flow(conn, from_fqn, to_fqn)
-    conn.close()
-    return json.dumps(flow_data, ensure_ascii=False)
+    try:
+        gdb = pc_graph_db.GraphDB(WORKSPACE)
+        res = gdb.execute(f"MATCH (a {{fqn: '{from_fqn}'}})-[r:Calls*1..3]->(b {{fqn: '{to_fqn}'}}) RETURN a.fqn, b.fqn LIMIT 1")
+        if res.has_next():
+            return json.dumps({"flow": True, "details": str(res.get_next())}, ensure_ascii=False)
+        return json.dumps({"flow": False}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 
@@ -288,9 +292,16 @@ def pc_run_pipeline(query, context=None, category=None):
         # 2. 관련 기호 임팩트 분석 (가장 첫번째 Pivot 기준)
         conn = pc_db.get_connection(WORKSPACE)
         first_match = pc_db.search_nodes_fts(conn, search_query, category=category, limit=1)
-        impact = {}
+        impact_summary = []
         if first_match:
-            impact = pc_impact_mod.get_impact_tree(conn, first_match[0]["id"], max_depth=2)
+            try:
+                gdb = pc_graph_db.GraphDB(WORKSPACE)
+                fqn = first_match[0]["fqn"]
+                res = gdb.execute(f"MATCH (n {{fqn: '{fqn}'}})-[r:Calls]->(m) RETURN m.fqn LIMIT 10")
+                while res.has_next():
+                    impact_summary.append(res.get_next()[0])
+            except Exception:
+                pass
         conn.close()
         
         # 3. 과거 메모리 검색
@@ -298,7 +309,7 @@ def pc_run_pipeline(query, context=None, category=None):
         
         return json.dumps({
             "capsule": capsule,
-            "impact_summary": [n["fqn"] for n in impact.get("nodes", {}).values()][:10],
+            "impact_summary": impact_summary,
             "related_memories": mem
         }, ensure_ascii=False)
     except Exception as e:
@@ -316,13 +327,20 @@ def pc_auto_explore(query, context=None, category=None):
             result["reasoning"] = f"Generated capsule was relatively short ({len(capsule)} chars). Autonomously chaining impact graph and memories..."
             conn = pc_db.get_connection(WORKSPACE)
             first_match = pc_db.search_nodes_fts(conn, search_query, category=category, limit=1)
-            impact = {}
+            impact_summary = []
             if first_match:
-                impact = pc_impact_mod.get_impact_tree(conn, first_match[0]["id"], max_depth=2)
+                try:
+                    gdb = pc_graph_db.GraphDB(WORKSPACE)
+                    fqn = first_match[0]["fqn"]
+                    res = gdb.execute(f"MATCH (n {{fqn: '{fqn}'}})-[r:Calls]->(m) RETURN m.fqn LIMIT 10")
+                    while res.has_next():
+                        impact_summary.append(res.get_next()[0])
+                except Exception:
+                    pass
             conn.close()
             
             mem = pc_mem_mod.search_memory(WORKSPACE, search_query, limit=3)
-            result["chained_impact"] = [n["fqn"] for n in impact.get("nodes", {}).values()][:10]
+            result["chained_impact"] = impact_summary
             result["chained_memories"] = mem
         else:
             result["reasoning"] = f"Generated capsule is robust ({len(capsule)} chars). No further chaining required."
@@ -415,7 +433,7 @@ TOOLS = [
     {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색. 복잡한 분석이 필요할 때 3순위로 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
     {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
 
-    # === 코드 구조 분석 === "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
+    # === 코드 구조 분석 ===
     {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
 
@@ -430,7 +448,16 @@ TOOLS = [
     {"name": "pc_memory_consolidate", "description": "과거 임시 기록들(old_keys)을 깔끔하게 지우고 하나의 새로운 지식(new_key)으로 묶어 DB 파편화를 막습니다.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "특정 key의 영구 지식 조회.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_memory_sync_skills", "description": "스킬 디렉터리(skills/**/*.md)를 탐색하여 memories DB에 인덱싱.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}}, "serverInfo": {"name": "Cortex-MCP", "version": "3.1.0"}}}
+    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}}
+]
+
+def handle_request(req):
+    method = req.get("method")
+    params = req.get("params", {})
+    rid = req.get("id")
+    
+    if method == "initialize":
+        return {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": params.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "Cortex-MCP", "version": "3.1.0"}}}
     
     if method == "tools/list":
         sys.stderr.write(f"[cortex] Listing tools (ID: {rid})...\n")

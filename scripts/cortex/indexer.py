@@ -580,30 +580,17 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             for i in range(0, len(items), batch_size):
                 batch = items[i:i + batch_size]
                 sys.stderr.write(f"[indexer] Indexing file vectors [{prefix}]: {i}/{len(items)}...\n")
-                ve.index_texts(workspace, batch, prefix=prefix)
+                texts = [item["text"] for item in batch]
+                embeddings = ve.get_embeddings(texts)
+                for item, emb in zip(batch, embeddings):
+                    rowid_cur = conn.execute("SELECT rowid FROM nodes WHERE id = ?", (item["id"],)).fetchone()
+                    if rowid_cur:
+                        conn.execute("INSERT OR REPLACE INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
+            conn.commit()
         ve.release_gpu()
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
     try:
-        # ── memories FAISS 정합성 검사 ───────────────────────────────────
-        # memories.index 파일이 없는데 embedding=1 플래그가 남아 있으면
-        # 재인덱싱 대상에서 누락되므로 플래그를 초기화합니다.
-        try:
-            from cortex.db import get_db_path
-            _db_dir = os.path.dirname(get_db_path(workspace))
-            if not os.path.exists(os.path.join(_db_dir, "memories.index")):
-                _reset_count = conn.execute(
-                    "UPDATE memories SET embedding = NULL WHERE embedding IS NOT NULL"
-                ).rowcount
-                if _reset_count > 0:
-                    conn.commit()
-                    sys.stderr.write(
-                        f"[indexer] memories.index not found. "
-                        f"Reset {_reset_count} embedding flags for re-indexing.\n"
-                    )
-        except Exception as _e:
-            sys.stderr.write(f"[indexer] Warning - memories consistency check failed: {_e}\n")
-
         # 아직 인덱싱되지 않은(embedding IS NULL) 메모리만 조회
         memory_rows = conn.execute("SELECT key, category, content FROM memories WHERE embedding IS NULL").fetchall()
         if memory_rows:
@@ -627,10 +614,15 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                     batch_keys = [item["id"] for item in batch]
                     
                     sys.stderr.write(f"[indexer] Indexing memories: {i}/{len(memory_vector_items)}...\n")
-                    res = ve.index_texts(workspace, batch, prefix="memories")
+                    texts = [item["text"] for item in batch]
+                    embeddings = ve.get_embeddings(texts)
+                    for item, emb in zip(batch, embeddings):
+                        rowid_cur = conn.execute("SELECT rowid FROM memories WHERE key = ?", (item["id"],)).fetchone()
+                        if rowid_cur:
+                            conn.execute("INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
                     
-                    indexed_in_batch = res.get("indexed", 0)
-                    skipped_in_batch = res.get("skipped", 0)
+                    indexed_in_batch = len(batch)
+                    skipped_in_batch = 0
                     total_indexed += indexed_in_batch
                     total_skipped += skipped_in_batch
                     
