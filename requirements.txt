@@ -9,5 +9,5 @@ sentence-transformers>=2.2.0
 
 # 벡터 검색 엔진 (하이브리드 검색)
 faiss-cpu>=1.7.4
-torch>=2.0.0
+torch==2.5.1
 openai>=1.0.0
