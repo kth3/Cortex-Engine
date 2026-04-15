@@ -40,7 +40,15 @@ def _get_data_dir(workspace: str) -> str:
 
 
 def _load_model(device: str = "cpu"):
-    """Qwen3 모델 지연 로딩 (device: 'cpu' 또는 'cuda', FP16 최적화)"""
+    """Qwen3 모델 지연 로딩
+    
+    정밀도 선택 우선순위:
+      1. CUDA + bf16 하드웨어 + flash-attn 설치됨  → bfloat16 + FlashAttention2 (최대 성능)
+      2. CUDA + bf16 하드웨어 + flash-attn 미설치   → float16 (32배치 속도 유지, 안정적 Fallback)
+      3. CUDA + 구형 GPU (Compute < 8.0)            → float16
+      4. Apple Silicon (MPS)                         → bfloat16 (지원 시) / float16 (미지원 시)
+      5. CPU                                         → float32
+    """
     global _model, _model_device
     if _model is not None and _model_device == device:
         return _model
@@ -49,12 +57,12 @@ def _load_model(device: str = "cpu"):
         from sentence_transformers import SentenceTransformer
         import torch
         import sys
-        
+
         # 허깅페이스 토큰 로드 확인 (빈 값은 None으로 처리 → Bearer 헤더 오류 방지)
         hf_token = os.getenv("HF_TOKEN", "").strip() or None
-        
+
         sys.stderr.write(f"[cortex-vector] Loading Qwen3 on {device}...\n")
-        
+
         # Apple Silicon(macOS arm64) 환경의 크래시 및 메모리 충돌 방지를 위한 설정
         if sys.platform == "darwin":
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
@@ -62,54 +70,80 @@ def _load_model(device: str = "cpu"):
                 torch.set_num_threads(1)
             except Exception:
                 pass
-        
-        # GPU 아키텍처 판별
+
+        # ── 1. 하드웨어 bf16 지원 여부 판별 ──────────────────────────────
         dtype_choice = torch.float32
+        is_bf16_supported = False
+
         if device == "cuda":
-            # AMD ROCm(HIP) 환경과 NVIDIA 환경 분리 판별
-            is_bf16_supported = False
             try:
-                import torch
                 if torch.version.hip is not None:
-                    # AMD 기기: 동적으로 할당 테스트하여 지원 여부 판별
+                    # AMD ROCm: 직접 할당 테스트로 지원 여부 판별
                     torch.zeros(1, device="cuda", dtype=torch.bfloat16)
                     is_bf16_supported = True
                 else:
-                    # NVIDIA: Ampere(3000번대, Compute Capability 8.x) 이상 검사
+                    # NVIDIA: Ampere(3000번대, Compute Capability 8.x) 이상
                     if torch.cuda.get_device_capability()[0] >= 8:
                         is_bf16_supported = True
             except Exception:
                 pass
-                
-            dtype_choice = torch.bfloat16 if is_bf16_supported else torch.float16
         elif device == "mps":
-            # Apple Silicon (macOS) - bfloat16 지원 여부 동적 테스트
             try:
-                # 간단한 텐서를 mps에 bfloat16으로 할당해보고 성공하면 채택
                 torch.zeros(1, device="mps", dtype=torch.bfloat16)
-                dtype_choice = torch.bfloat16
+                is_bf16_supported = True
             except Exception:
-                dtype_choice = torch.float16 # 미지원 시 float16으로 Fallback
+                pass
 
-        # 모델 로딩 옵션 (동적 Type 적용)
-        model_kwargs = {
+        # ── 2. flash-attn 가용 여부 확인 ─────────────────────────────────
+        # bf16은 flash-attn 없이 사용하면 파이토치가 소프트 에뮬레이션으로 처리,
+        # VRAM 폭발 + 예상 수십 배 속도 저하 유발 → 미설치 시 fp16으로 전환 필수
+        flash_attn_available = False
+        if is_bf16_supported and device == "cuda":
+            try:
+                import flash_attn  # noqa: F401
+                flash_attn_available = True
+            except ImportError:
+                sys.stderr.write(
+                    "[cortex-vector] WARNING: flash-attn not installed. "
+                    "bfloat16 without FlashAttention causes severe slowdown. "
+                    "Falling back to float16 for stable batch-32 performance.\n"
+                )
+
+        # ── 3. 최종 dtype 결정 ────────────────────────────────────────────
+        if device == "cuda":
+            if flash_attn_available:
+                dtype_choice = torch.bfloat16   # 최대 성능: bf16 + FlashAttn2
+            else:
+                dtype_choice = torch.float16    # 안정 폴백: fp16 (배치 32 속도 사수)
+        elif device == "mps":
+            dtype_choice = torch.bfloat16 if is_bf16_supported else torch.float16
+
+        # ── 4. 모델 로딩 옵션 구성 ───────────────────────────────────────
+        model_kwargs: dict = {
             "trust_remote_code": True,
             "torch_dtype": dtype_choice,
         }
-        
+        if flash_attn_available:
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+
+        precision_label = (
+            "bf16+FlashAttn2" if flash_attn_available
+            else ("bf16" if dtype_choice == torch.bfloat16 else "fp16")
+        )
+        sys.stderr.write(f"[cortex-vector] Precision mode: {precision_label}\n")
+
         _model = SentenceTransformer(
-            MODEL_ID, 
-            device=device, 
+            MODEL_ID,
+            device=device,
             model_kwargs=model_kwargs,
             token=hf_token
         )
-        
+
         # 확실하게 데이터타입 캐스팅 (CPU 이외의 가속기인 경우)
         if device in ["cuda", "mps"]:
             _model.to(dtype_choice)
 
         _model_device = device
-        # 실제 장치 확인 로그
         actual_dev = next(_model.parameters()).device
         sys.stderr.write(f"[cortex-vector] Qwen3 successfully loaded on {actual_dev}.\n")
     except Exception as e:
@@ -118,6 +152,7 @@ def _load_model(device: str = "cpu"):
         raise RuntimeError(f"Qwen3 모델 로딩 실패: {e}")
 
     return _model
+
 
 
 def _release_gpu():
