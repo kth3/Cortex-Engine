@@ -225,34 +225,31 @@ class SkillManager:
             if vector_items:
                 try:
                     import torch
-                    use_gpu = torch.cuda.is_available()
+                    use_gpu = len(vector_items) >= 128 and torch.cuda.is_available()
                 except ImportError:
                     use_gpu = False
 
                 sys.stderr.write(f"[skill_manager] Vectorizing {len(vector_items)} skills (GPU={use_gpu})...\n")
-                v_result = ve.index_texts(self.workspace, vector_items, use_gpu=use_gpu, prefix="skills")
-                if use_gpu:
-                    ve._release_gpu()
-                sys.stderr.write(f"[skill_manager] Vector indexing done: {v_result}\n")
-                embed_done = v_result.get("indexed", 0)
-                embed_skipped = v_result.get("skipped", 0)
+                texts = [item["text"] for item in vector_items]
+                embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
 
-                # Set embedding = 1 for ALL items (indexed + skipped)
-                # Skipped means they already exist in FAISS (e.g. pre-seeded index file)
-                if (embed_done + embed_skipped) > 0:
-                    conn = get_connection(self.workspace)
-                    try:
-                        skill_ids_to_update = [item["id"] for item in vector_items]
-                        chunk_size = 900
-                        for i in range(0, len(skill_ids_to_update), chunk_size):
-                            chunk = skill_ids_to_update[i:i + chunk_size]
-                            placeholders = ",".join(["?"] * len(chunk))
-                            conn.execute(f"UPDATE memories SET embedding = 1 WHERE key IN ({placeholders})", chunk)
-                        conn.commit()
-                    except Exception as meta_e:
-                        sys.stderr.write(f"[skill_manager] Failed to update embedding flag: {meta_e}\n")
-                    finally:
-                        conn.close()
+                from cortex.db import get_connection as _gc
+                vec_conn = _gc(self.workspace)
+                try:
+                    for item, emb in zip(vector_items, embeddings):
+                        rowid_cur = vec_conn.execute(
+                            "SELECT rowid FROM memories WHERE key = ?", (item["id"],)
+                        ).fetchone()
+                        if rowid_cur:
+                            vec_conn.execute(
+                                "INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)",
+                                (rowid_cur[0], emb.tobytes())
+                            )
+                    vec_conn.commit()
+                    embed_done = len(vector_items)
+                    sys.stderr.write(f"[skill_manager] Vector indexing done: {embed_done} skills embedded.\n")
+                finally:
+                    vec_conn.close()
 
             else:
                 embed_done = 0
