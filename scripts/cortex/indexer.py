@@ -579,13 +579,17 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
     conn.commit()
 
-    # [NEW] SQLite nodes/edges → Kuzu 그래프 DB 동기화
+    # SQLite nodes/edges → Kuzu 그래프 DB 동기화 (force=True 시 전체 재빌드)
     try:
         from cortex.graph_db import GraphDB
-        sys.stderr.write("[indexer] Building Kuzu graph from SQLite edges...\n")
         gdb = GraphDB(workspace)
-        g_stats = gdb.build_from_sqlite(conn)
-        sys.stderr.write(f"[indexer] Kuzu graph built: {g_stats['nodes']} nodes, {g_stats['edges']} edges, {g_stats['errors']} errors\n")
+        if force:
+            sys.stderr.write("[indexer] Building Kuzu graph from SQLite edges...\n")
+            g_stats = gdb.build_from_sqlite(conn)
+            sys.stderr.write(f"[indexer] Kuzu graph built: {g_stats['nodes']} nodes, {g_stats['edges']} edges, {g_stats['errors']} errors\n")
+        else:
+            # 증분 인덱싱 시엔 변경된 노드만 반영 (현재는 전체 재빌드 생략)
+            sys.stderr.write("[indexer] Kuzu graph sync skipped (incremental mode). Run with force=True to rebuild.\n")
     except Exception as e:
         sys.stderr.write(f"[indexer] Warning - Kuzu graph build failed: {e}\n")
 
