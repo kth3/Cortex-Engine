@@ -9,12 +9,26 @@ from cortex.skeleton import get_node_skeleton
 def generate_context_capsule(workspace_path, query, token_budget=6000, category=None):
     conn = get_connection(workspace_path)
     
-    # 1. 하이브리드 검색 (벡터 검색 + FTS)
+    # category=SKILL이면 memories 테이블(스킬 DB)에서 검색
+    if category and category.upper() == "SKILL":
+        from cortex.persistent_memory import PersistentMemoryManager
+        pm = PersistentMemoryManager(workspace_path)
+        skill_results = pm.search_knowledge(query, category="skill", limit=5)
+        if not skill_results:
+            conn.close()
+            return "No relevant context found."
+        lines = ["=== SKILL CAPSULE ==="]
+        for s in skill_results:
+            lines.append(f"[{s['key']}] {s.get('content', '')[:300]}")
+        conn.close()
+        return "\n".join(lines) + "\n=== END OF CAPSULE ==="
+
+    # 1. 소스코드 하이브리드 검색 (vec_nodes + FTS)
     vec_rowids = []
     try:
         from cortex import vector_engine as ve
         query_vec = ve.get_embeddings([query])[0]
-        vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? LIMIT 10"
+        vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? AND k = 10"
         vec_rows = conn.execute(vec_query, (query_vec.tobytes(),)).fetchall()
         vec_rowids = [r[0] for r in vec_rows]
     except Exception as e:
@@ -29,7 +43,6 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
         query_nodes = conn.execute(f"SELECT * FROM nodes WHERE rowid IN ({ph})", tuple(vec_rowids)).fetchall()
         for r in query_nodes:
             d = dict(r)
-            if category and d.get("category") != category: continue
             results[d["id"]] = d
         
     pivots = list(results.values())[:3]
