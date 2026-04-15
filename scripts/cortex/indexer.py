@@ -86,8 +86,8 @@ def should_ignore(path: str, ignore_patterns: list, workspace: str) -> bool:
 
 
 def load_settings(workspace: str) -> dict:
-    """.agents/settings.yaml 파일 로드"""
-    settings_path = os.path.join(workspace, ".agents", "settings.yaml")
+    """.cortex/settings.yaml 파일 로드"""
+    settings_path = os.path.join(workspace, ".cortex", "settings.yaml")
     if os.path.exists(settings_path):
         try:
             import yaml
@@ -279,14 +279,6 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
 
         conn.commit()
 
-        # 인덱싱 성공 시 history/inbox.md 자동 갱신
-        try:
-            from cortex.extract_inbox import extract_to_inbox
-            extract_to_inbox()
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"[indexer] Failed to sync inbox.md: {e}\n")
-
         result = {"status": "success", "nodes": len(nodes_data)}
         if not vectorize:
             # 배치 모드: 호출자가 일괄 처리하도록 vector_items 반환
@@ -321,8 +313,8 @@ def scan_files(workspace: str) -> list:
                     if should_include(full_path, workspace, settings):
                         files.append(os.path.relpath(full_path, workspace))
                         
-    # 2. .agents 내부 규칙 및 프로토콜 강제 포함
-    agent_docs = [".agents/rules", ".agents/protocols"]
+    # 2. .cortex 내부 규칙 및 프로토콜 강제 포함
+    agent_docs = [".cortex/rules", ".cortex/protocols"]
     for doc_dir in agent_docs:
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):
@@ -345,8 +337,8 @@ def _sync_rules_to_memories(workspace: str, conn):
     import json
     
     rule_dirs = {
-        "rule": os.path.join(workspace, ".agents", "rules"),
-        "protocol": os.path.join(workspace, ".agents", "protocols"),
+        "rule": os.path.join(workspace, ".cortex", "rules"),
+        "protocol": os.path.join(workspace, ".cortex", "protocols"),
     }
     
     synced = 0
@@ -463,80 +455,16 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         conn.commit()
         sys.stderr.write(f"[indexer] Cleanup complete for {len(deleted_files)} files.\n")
 
-    # [NEW] 고스트 인덱스 파일 정리 (폴더 삭제 대응)
-    # .agents/cortex_data/ 내의 *.index 파일 중 실제 폴더가 없는 것을 삭제합니다.
-    try:
-        from cortex.db import get_db_path
-        db_dir = os.path.dirname(get_db_path(workspace))
-        all_indices = [f for f in os.listdir(db_dir) if f.endswith(".index")]
-        
-        # 보존해야 할 시스템 인덱스 및 현재 존재하는 폴더 목록
-        preserved_prefixes = {"root", "memories", "skills", "default"}
-        for d in os.listdir(workspace):
-            if os.path.isdir(os.path.join(workspace, d)) and not d.startswith("."):
-                preserved_prefixes.add(d)
-        
-        for idx_file in all_indices:
-            prefix = idx_file.replace(".index", "")
-            if prefix not in preserved_prefixes:
-                # 폴더가 사라진 고스트 인덱스 발견
-                sys.stderr.write(f"[indexer] Removing orphaned index: {prefix}\n")
-                os.remove(os.path.join(db_dir, idx_file))
-                meta_file = os.path.join(db_dir, f"{prefix}_meta.json")
-                if os.path.exists(meta_file):
-                    os.remove(meta_file)
-    except Exception as e:
-        sys.stderr.write(f"[indexer] Warning - Failed to cleanup orphaned indices: {e}\n")
 
     stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
+    from pathlib import Path
+    all_vector_items_by_prefix = {}  # 경로 기반으로 프로젝트 분류
 
     # N+1 최적화: file_cache 일괄 로드
     cache_dict = {}
     if not force:
         cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
         cache_dict = {row[0]: row[1] for row in cached_rows}
-
-    # ── FAISS ↔ file_cache 정합성 검사 ──────────────────────────────────
-    # FAISS .index 파일이 없는 prefix의 캐시를 무효화하여 강제 재임베딩을 유도합니다.
-    # (e.g. 벡터 데이터만 수동 삭제했을 때 인덱서가 이를 감지하지 못하고 스킵하는 문제 방지)
-    try:
-        from cortex.db import get_db_path
-        from pathlib import Path as _Path
-        _db_dir = os.path.dirname(get_db_path(workspace))
-
-        # 현재 cache_dict에 등록된 파일들의 FAISS prefix 추출
-        cached_prefixes = set()
-        for _k in cache_dict:
-            _parts = _Path(_k).parts
-            if len(_parts) > 1 and not _parts[0].startswith('.'):
-                cached_prefixes.add(_parts[0])
-            else:
-                cached_prefixes.add("root")
-
-        for _prefix in cached_prefixes:
-            _idx_path = os.path.join(_db_dir, f"{_prefix}.index")
-            if not os.path.exists(_idx_path):
-                sys.stderr.write(
-                    f"[indexer] FAISS index missing for '{_prefix}'. "
-                    "Invalidating cache to trigger re-embedding.\n"
-                )
-                # 해당 prefix 파일들의 file_cache 해시 무효화 → 재처리 대상으로 전환
-                _keys_to_invalidate = [
-                    _k for _k in list(cache_dict)
-                    if (
-                        (_Path(_k).parts[0]
-                         if len(_Path(_k).parts) > 1 and not _Path(_k).parts[0].startswith('.')
-                         else "root")
-                        == _prefix
-                    )
-                ]
-                for _k in _keys_to_invalidate:
-                    del cache_dict[_k]
-    except Exception as _e:
-        sys.stderr.write(f"[indexer] Warning - FAISS consistency check failed: {_e}\n")
-
-    from pathlib import Path
-    all_vector_items_by_prefix = {}  # 경로 기반으로 프로젝트 분류
 
     for rel_path in files:
         full_path = os.path.join(workspace, rel_path)

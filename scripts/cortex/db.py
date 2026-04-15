@@ -171,12 +171,12 @@ def _create_memory_tables(conn: sqlite3.Connection):
 
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
         rowid INTEGER PRIMARY KEY,
-        embedding float[768]
+        embedding float[1024]
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
         rowid INTEGER PRIMARY KEY,
-        embedding float[768]
+        embedding float[1024]
     );
 
     CREATE TABLE IF NOT EXISTS search_misses (
