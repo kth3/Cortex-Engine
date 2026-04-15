@@ -579,6 +579,16 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
     conn.commit()
 
+    # [NEW] SQLite nodes/edges → Kuzu 그래프 DB 동기화
+    try:
+        from cortex.graph_db import GraphDB
+        sys.stderr.write("[indexer] Building Kuzu graph from SQLite edges...\n")
+        gdb = GraphDB(workspace)
+        g_stats = gdb.build_from_sqlite(conn)
+        sys.stderr.write(f"[indexer] Kuzu graph built: {g_stats['nodes']} nodes, {g_stats['edges']} edges, {g_stats['errors']} errors\n")
+    except Exception as e:
+        sys.stderr.write(f"[indexer] Warning - Kuzu graph build failed: {e}\n")
+
     conn.close()
     return stats
 
