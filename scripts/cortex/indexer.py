@@ -383,11 +383,11 @@ def _sync_rules_to_memories(workspace: str, conn):
             # memories 테이블에 upsert
             prefixed_content = f"[{category.upper()}] {title}\n{content_clean}"
             conn.execute(
-                """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at, embedding)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(key) DO UPDATE SET
                    content=excluded.content, category=excluded.category,
-                   tags=excluded.tags, updated_at=excluded.updated_at, embedding=NULL""",
+                   tags=excluded.tags, updated_at=excluded.updated_at""",
                 (key, ".", category, prefixed_content, tags_json, rel_json, now, now)
             )
             synced += 1
@@ -522,14 +522,18 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
     try:
-        # 아직 인덱싱되지 않은(embedding IS NULL) 메모리만 조회
-        memory_rows = conn.execute("SELECT key, category, content FROM memories WHERE embedding IS NULL").fetchall()
+        # vec_memories에 아직 없는(LEFT JOIN IS NULL) 메모리만 조회
+        memory_rows = conn.execute(
+            "SELECT m.rowid, m.key, m.category, m.content FROM memories m "
+            "LEFT JOIN vec_memories v ON m.rowid = v.rowid WHERE v.rowid IS NULL"
+        ).fetchall()
         if memory_rows:
             memory_vector_items = []
             for row in memory_rows:
-                key, category, content = row
+                rowid, key, category, content = row
                 memory_vector_items.append({
                     "id": key,
+                    "rowid": rowid,
                     "text": f"category: {category}\n{content}",
                     "meta": {"category": category, "type": "memory", "source": "sqlite"}
                 })
@@ -538,34 +542,20 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 from cortex import vector_engine as ve
                 batch_size = 500
                 total_indexed = 0
-                total_skipped = 0
-                
+
                 for i in range(0, len(memory_vector_items), batch_size):
                     batch = memory_vector_items[i:i + batch_size]
-                    batch_keys = [item["id"] for item in batch]
-                    
+
                     sys.stderr.write(f"[indexer] Indexing memories: {i}/{len(memory_vector_items)}...\n")
                     texts = [item["text"] for item in batch]
                     embeddings = ve.get_embeddings(texts)
                     for item, emb in zip(batch, embeddings):
-                        rowid_cur = conn.execute("SELECT rowid FROM memories WHERE key = ?", (item["id"],)).fetchone()
-                        if rowid_cur:
-                            conn.execute("INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
-                    
-                    indexed_in_batch = len(batch)
-                    skipped_in_batch = 0
-                    total_indexed += indexed_in_batch
-                    total_skipped += skipped_in_batch
-                    
-                    # 배치 단위로 DB 플래그 업데이트
-                    if (indexed_in_batch + skipped_in_batch) > 0:
-                        conn.executemany(
-                            "UPDATE memories SET embedding = 1 WHERE key = ?",
-                            [(k,) for k in batch_keys]
-                        )
-                        conn.commit()
+                        conn.execute("DELETE FROM vec_memories WHERE rowid = ?", (item["rowid"],))
+                        conn.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", (item["rowid"], emb.tobytes()))
+                    conn.commit()
+                    total_indexed += len(batch)
 
-                sys.stderr.write(f"[indexer] Synced {total_indexed + total_skipped} memories (New: {total_indexed}, Existing: {total_skipped}).\n")
+                sys.stderr.write(f"[indexer] Synced {total_indexed} memories to vec_memories.\n")
     except Exception as e:
         sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
 
