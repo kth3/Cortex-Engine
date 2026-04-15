@@ -18,6 +18,48 @@ sudo apt-get install -y python3-venv python3-dev build-essential \
 
 ---
 
+## 0-1. GPU 풀 가속 설정 (선택, NVIDIA 전용)
+
+기본 설치만으로도 정상 동작하지만, **NVIDIA Ampere 이상(RTX 3000/4000번대)** GPU를 사용하는 경우 아래 단계를 추가로 수행하면 `bfloat16 + FlashAttention2` 모드가 활성화되어 인덱싱 속도가 획기적으로 향상됩니다.
+
+> [!NOTE]
+> 이 단계를 건너뛰어도 `flash-attn` 미설치를 감지하여 `float16`으로 자동 전환되므로 **인덱싱은 정상 동작**합니다.  
+> 로그에 `Precision mode: fp16`이 출력되면 현재 이 모드로 동작 중인 것입니다.
+
+### Step 1. CUDA Toolkit 설치 (nvcc 확보)
+
+`flash-attn`은 설치 시 C++ GPU 코드를 컴파일(`nvcc`)하므로, CUDA Toolkit이 먼저 필요합니다.
+
+```bash
+# Ubuntu / WSL2 환경
+sudo apt-get update && sudo apt-get install -y nvidia-cuda-toolkit
+```
+
+> [!TIP]
+> 설치 후 `nvcc --version`으로 정상 인식 여부를 확인하십시오.
+
+### Step 2. flash-attn 설치
+
+```bash
+# 반드시 venv 가상환경 내에서 실행
+.agents/venv/bin/pip install flash-attn --no-build-isolation
+```
+
+> [!CAUTION]
+> `--no-build-isolation` 플래그가 필수입니다. 이 없이 설치하면 빌드 환경이 분리되어 `nvcc`를 찾지 못합니다.  
+> 컴파일 시간이 10~30분 소요될 수 있습니다.
+
+### Step 3. 활성화 확인
+
+인덱싱 실행 후 터미널 출력에서 아래 줄을 확인하십시오.
+
+```
+[cortex-vector] Precision mode: bf16+FlashAttn2
+```
+
+---
+
+
 ## 1. 초기 환경 구축 (선택)
 
 ### [방법 A] 자동화 스크립트 사용 (권장)
