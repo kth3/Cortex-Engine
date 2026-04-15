@@ -232,16 +232,14 @@ class PersistentMemoryManager:
         Returns:
             정렬된 결과 리스트 (key, category, content 200자, score)
         """
+        # category 대소문자 정규화 ('SKILL' → 'skill')
+        if category:
+            category = category.lower()
+
         # 1. FTS5 기반 지식 검색
         fts_results = self.search("default", query, category, limit)
 
-        # 2. [Invisible Guardrail] 보안/규칙 자동 포함
-        if not category or category not in ["rule", "security"]:
-            auto_rules = self.search("default", "security policy rule convention", limit=2)
-            seen_keys = {r["key"] for r in fts_results}
-            for rule in auto_rules:
-                if rule["key"] not in seen_keys:
-                    fts_results.append(rule)
+        # 2. 벡터 검색은 self.search에서 이미 FTS와 통합 처리됨
 
         # 휴리스틱 가중치 계산
         def _heuristic_boost(item_key, item_category, q):
