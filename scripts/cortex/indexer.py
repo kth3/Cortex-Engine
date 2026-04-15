@@ -459,6 +459,45 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
         cache_dict = {row[0]: row[1] for row in cached_rows}
 
+    # ── FAISS ↔ file_cache 정합성 검사 ──────────────────────────────────
+    # FAISS .index 파일이 없는 prefix의 캐시를 무효화하여 강제 재임베딩을 유도합니다.
+    # (e.g. 벡터 데이터만 수동 삭제했을 때 인덱서가 이를 감지하지 못하고 스킵하는 문제 방지)
+    try:
+        from cortex.db import get_db_path
+        from pathlib import Path as _Path
+        _db_dir = os.path.dirname(get_db_path(workspace))
+
+        # 현재 cache_dict에 등록된 파일들의 FAISS prefix 추출
+        cached_prefixes = set()
+        for _k in cache_dict:
+            _parts = _Path(_k).parts
+            if len(_parts) > 1 and not _parts[0].startswith('.'):
+                cached_prefixes.add(_parts[0])
+            else:
+                cached_prefixes.add("root")
+
+        for _prefix in cached_prefixes:
+            _idx_path = os.path.join(_db_dir, f"{_prefix}.index")
+            if not os.path.exists(_idx_path):
+                sys.stderr.write(
+                    f"[indexer] FAISS index missing for '{_prefix}'. "
+                    "Invalidating cache to trigger re-embedding.\n"
+                )
+                # 해당 prefix 파일들의 file_cache 해시 무효화 → 재처리 대상으로 전환
+                _keys_to_invalidate = [
+                    _k for _k in list(cache_dict)
+                    if (
+                        (_Path(_k).parts[0]
+                         if len(_Path(_k).parts) > 1 and not _Path(_k).parts[0].startswith('.')
+                         else "root")
+                        == _prefix
+                    )
+                ]
+                for _k in _keys_to_invalidate:
+                    del cache_dict[_k]
+    except Exception as _e:
+        sys.stderr.write(f"[indexer] Warning - FAISS consistency check failed: {_e}\n")
+
     from pathlib import Path
     all_vector_items_by_prefix = {}  # 경로 기반으로 프로젝트 분류
 
@@ -509,6 +548,25 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
     try:
+        # ── memories FAISS 정합성 검사 ───────────────────────────────────
+        # memories.index 파일이 없는데 embedding=1 플래그가 남아 있으면
+        # 재인덱싱 대상에서 누락되므로 플래그를 초기화합니다.
+        try:
+            from cortex.db import get_db_path
+            _db_dir = os.path.dirname(get_db_path(workspace))
+            if not os.path.exists(os.path.join(_db_dir, "memories.index")):
+                _reset_count = conn.execute(
+                    "UPDATE memories SET embedding = NULL WHERE embedding IS NOT NULL"
+                ).rowcount
+                if _reset_count > 0:
+                    conn.commit()
+                    sys.stderr.write(
+                        f"[indexer] memories.index not found. "
+                        f"Reset {_reset_count} embedding flags for re-indexing.\n"
+                    )
+        except Exception as _e:
+            sys.stderr.write(f"[indexer] Warning - memories consistency check failed: {_e}\n")
+
         # 아직 인덱싱되지 않은(embedding IS NULL) 메모리만 조회
         memory_rows = conn.execute("SELECT key, category, content FROM memories WHERE embedding IS NULL").fetchall()
         if memory_rows:
