@@ -499,25 +499,37 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 all_vector_items_by_prefix[prefix] = []
             all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
 
-    # 전체 파일 파싱 완료 후 벡터 임베딩 배치 처리 (구역별 그룹화)
+    # 전체 파일 파싱 완료 후 벡터 임베딩 배치 처리
     if all_vector_items_by_prefix:
         from cortex import vector_engine as ve
+
+        # 전체 아이템 수 기준으로 GPU/CPU 한 번만 결정
+        total_items = sum(len(v) for v in all_vector_items_by_prefix.values())
+        try:
+            import torch
+            use_gpu = total_items >= 128 and torch.cuda.is_available()
+        except ImportError:
+            use_gpu = False
+
+        sys.stderr.write(f"[indexer] Total vector items: {total_items}, device: {'cuda' if use_gpu else 'cpu'}\n")
+
+        batch_size = 500
         for prefix, items in all_vector_items_by_prefix.items():
             if not items: continue
             # 동일 FQN 노드 중복 제거 (마지막 항목 우선)
             deduped = list({item["id"]: item for item in items}.values())
-            batch_size = 500
             for i in range(0, len(deduped), batch_size):
                 batch = deduped[i:i + batch_size]
                 sys.stderr.write(f"[indexer] Indexing file vectors [{prefix}]: {i}/{len(deduped)}...\n")
                 texts = [item["text"] for item in batch]
-                embeddings = ve.get_embeddings(texts)
+                embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
                 for item, emb in zip(batch, embeddings):
                     rowid_cur = conn.execute("SELECT rowid FROM nodes WHERE id = ?", (item["id"],)).fetchone()
                     if rowid_cur:
                         conn.execute("DELETE FROM vec_nodes WHERE rowid = ?", (rowid_cur[0],))
                         conn.execute("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
             conn.commit()
+
         ve.release_gpu()
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
