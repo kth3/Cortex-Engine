@@ -140,12 +140,12 @@ class SkillManager:
                 for i in range(0, len(keys), chunk_size):
                     chunk = keys[i:i + chunk_size]
                     placeholders = ",".join(["?"] * len(chunk))
-                    rows = conn.execute(f"SELECT key, embedding FROM memories WHERE key IN ({placeholders})", chunk).fetchall()
+                    rows = conn.execute(f"SELECT key FROM memories WHERE key IN ({placeholders})", chunk).fetchall()
                     for r in rows:
                         row_dict = dict(r)
                         k = row_dict.get("key")
                         if k:
-                            existing_map[k] = row_dict.get("embedding")
+                            existing_map[k] = True
 
                 to_insert = []
                 to_update = []
@@ -200,23 +200,19 @@ class SkillManager:
                     # info_raw 타입 체크 (dict vs tuple)
                     if isinstance(info_raw, dict):
                         i_name = info_raw.get("name", skill_path.parent.name)
+                        i_desc = info_raw.get("description", "")
                         i_tags = info_raw.get("tags", [])
-                        i_full = info_raw.get("full_content", info_raw.get("content_preview", ""))
                     else:
                         i_name = info_raw[0] if len(info_raw) > 0 else skill_path.parent.name
+                        i_desc = info_raw[1] if len(info_raw) > 1 else ""
                         i_tags = info_raw[3] if len(info_raw) > 3 else []
-                        i_full = info_raw[5] if len(info_raw) > 5 else (info_raw[4] if len(info_raw) > 4 else "")
 
                     skill_key = f"skill::{skill_path.parent.name}"
-                    # 제목 + 태그 + 전체 본문을 합쳐 청킹
-                    full_text = (
-                        f"[SKILL] {i_name}\n"
-                        f"Tags: {', '.join(i_tags)}\n\n"
-                        f"{i_full}"
-                    )
+                    # V1 로직 복구: OOM 방지 및 명중률 복구 (단문 요약본을 벡터로, 본문은 FTS로 하이브리드 RAG 분리)
+                    summary_text = f"{i_name} {i_desc}"
                     vector_items.append({
                         "id": skill_key,
-                        "text": full_text,
+                        "text": summary_text,
                         "meta": {"name": i_name, "tags": i_tags},
                     })
                 except Exception:
@@ -241,8 +237,15 @@ class SkillManager:
                             "SELECT rowid FROM memories WHERE key = ?", (item["id"],)
                         ).fetchone()
                         if rowid_cur:
+                            try:
+                                vec_conn.execute(
+                                    "DELETE FROM vec_memories WHERE rowid = ?",
+                                    (rowid_cur[0],)
+                                )
+                            except Exception:
+                                pass
                             vec_conn.execute(
-                                "INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)",
+                                "INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)",
                                 (rowid_cur[0], emb.tobytes())
                             )
                     vec_conn.commit()
