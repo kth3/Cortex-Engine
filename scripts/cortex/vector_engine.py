@@ -63,10 +63,38 @@ def _load_model(device: str = "cpu"):
             except Exception:
                 pass
         
-        # 모델 로딩 옵션 (VRAM 최적화: CUDA는 FP16, CPU/MPS는 FP32 강제)
+        # GPU 아키텍처 판별
+        dtype_choice = torch.float32
+        if device == "cuda":
+            # AMD ROCm(HIP) 환경과 NVIDIA 환경 분리 판별
+            is_bf16_supported = False
+            try:
+                import torch
+                if torch.version.hip is not None:
+                    # AMD 기기: 동적으로 할당 테스트하여 지원 여부 판별
+                    torch.zeros(1, device="cuda", dtype=torch.bfloat16)
+                    is_bf16_supported = True
+                else:
+                    # NVIDIA: Ampere(3000번대, Compute Capability 8.x) 이상 검사
+                    if torch.cuda.get_device_capability()[0] >= 8:
+                        is_bf16_supported = True
+            except Exception:
+                pass
+                
+            dtype_choice = torch.bfloat16 if is_bf16_supported else torch.float16
+        elif device == "mps":
+            # Apple Silicon (macOS) - bfloat16 지원 여부 동적 테스트
+            try:
+                # 간단한 텐서를 mps에 bfloat16으로 할당해보고 성공하면 채택
+                torch.zeros(1, device="mps", dtype=torch.bfloat16)
+                dtype_choice = torch.bfloat16
+            except Exception:
+                dtype_choice = torch.float16 # 미지원 시 float16으로 Fallback
+
+        # 모델 로딩 옵션 (동적 Type 적용)
         model_kwargs = {
             "trust_remote_code": True,
-            "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+            "torch_dtype": dtype_choice,
         }
         
         _model = SentenceTransformer(
@@ -76,9 +104,9 @@ def _load_model(device: str = "cpu"):
             token=hf_token
         )
         
-        # 확실하게 FP16으로 변환 (CUDA인 경우)
-        if device == "cuda":
-            _model.half()
+        # 확실하게 데이터타입 캐스팅 (CPU 이외의 가속기인 경우)
+        if device in ["cuda", "mps"]:
+            _model.to(dtype_choice)
 
         _model_device = device
         # 실제 장치 확인 로그
