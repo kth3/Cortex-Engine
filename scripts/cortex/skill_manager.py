@@ -89,7 +89,7 @@ class SkillManager:
 
         
         skill_files = list(Path(skills_root).rglob("SKILL.md"))
-        synced, skipped, errors, pending_embed = 0, 0, [], []
+        synced, skipped, errors, pending_embed, embed_done = 0, 0, [], [], 0
 
         try:
             now = int(time.time())
