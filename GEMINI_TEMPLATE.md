@@ -29,6 +29,7 @@
 - **Pre-flight Check**: 작업을 시작하기 전 반드시 `.agents/scripts/relay.py status`로 이전 에이전트의 Handoff Message를 확인하고 `acquire` 명령어로 권한을 획득하라.
 - **Atomic Handoff**: 작업 완료 시 `release` 명령어로 권한을 반납하고, 다음 에이전트에게 필요한 구체적인 맥락(Handoff Message)을 남겨라.
 - **Collision Prevention**: 다른 에이전트가 `BUSY` 상태일 경우 즉시 대기하거나 사용자에게 알리고, Race Condition을 방지하기 위해 파일 쓰기 권한을 엄격히 준수하라.
+- **Shared Whiteboard (Observation)**: 코드 수정이나 중요한 구조적 결정을 내린 직후에는 반드시 `pc_save_observation(content="...", file_paths=["..."])`를 호출하여 실시간 메모를 남겨라. 이를 통해 다음 에이전트가 과거 템플릿으로 파일을 덮어쓰거나 컨텍스트를 오판(환각)하는 대참사를 원천 차단한다.
 
 ## 5. Environment-First Troubleshooting & MD Backup
 - **환경 오염 점검 우선**: 코드 수정 후 동일한 오류가 반복되거나 변경 사항이 반영되지 않을 경우, 내부 로직을 다시 의심하기 전에 **반드시 백그라운드 프로세스의 옛날 코드 캐싱, 가상환경 충돌 등 시스템의 물리적 환경 오염 여부부터 최우선으로 점검**한다.

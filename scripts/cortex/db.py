@@ -6,17 +6,15 @@ import sqlite3
 import os
 from pathlib import Path
 
-# DB 파일 경로: 프로젝트 내 .agents/cortex_data/index.db
+# DB 파일 경로: 프로젝트 내 .cortex/memories.db
 def get_db_path(workspace: str) -> str:
-    # workspace가 이미 .agents를 포함하고 있다면 중복 결합 방지
-    if workspace.endswith(".agents"):
+    if workspace.endswith(".cortex"):
         base_dir = workspace
     else:
-        base_dir = os.path.join(workspace, ".agents")
+        base_dir = os.path.join(workspace, ".cortex")
         
-    db_dir = os.path.join(base_dir, "cortex_data")
-    os.makedirs(db_dir, exist_ok=True)
-    return os.path.join(db_dir, "index.db")
+    os.makedirs(base_dir, exist_ok=True)
+    return os.path.join(base_dir, "memories.db")
 
 def to_rel_path(full_path: str, workspace: str) -> str:
     """절대 경로를 워크스페이스 기준 상대 경로(ROOT/...)로 변환"""
@@ -41,6 +39,17 @@ def get_connection(workspace: str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
+    
+    # [NEW] V2 핵심: sqlite-vec 벡터 확장 모듈 직접 로드
+    try:
+        import sqlite_vec
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"[Cortex DB] Failed to load sqlite-vec extension: {e}\n")
+        
     return conn
 
 def _create_core_tables(conn: sqlite3.Connection):
@@ -157,8 +166,17 @@ def _create_memory_tables(conn: sqlite3.Connection):
         relationships TEXT,
         access_count INTEGER DEFAULT 0,
         created_at  INTEGER NOT NULL,
-        updated_at  INTEGER NOT NULL,
-        embedding   BLOB
+        updated_at  INTEGER NOT NULL
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[768]
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[768]
     );
 
     CREATE TABLE IF NOT EXISTS search_misses (
@@ -251,11 +269,6 @@ def _apply_migrations(conn: sqlite3.Connection):
     if 'workspace_id' not in cache_columns:
         conn.execute("ALTER TABLE file_cache ADD COLUMN workspace_id TEXT DEFAULT 'default'")
 
-    # memories 테이블 마이그레이션
-    mem_cols_info = conn.execute("PRAGMA table_info(memories)").fetchall()
-    existing_cols = [row[1] for row in mem_cols_info]
-    if "embedding" not in existing_cols:
-        conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
     conn.commit()
 
 def init_schema(conn: sqlite3.Connection):

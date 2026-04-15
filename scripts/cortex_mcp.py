@@ -68,8 +68,7 @@ try:
     from cortex import memory as pc_mem_mod
     from cortex.persistent_memory import PersistentMemoryManager
     from cortex.skill_manager import SkillManager
-    from cortex.visualizer import generate_graph_viz as pc_viz_mod
-except ImportError:
+    except ImportError:
     # 패키지 구조에 따른 폴백
     import cortex.db as pc_db # type: ignore
     import cortex.indexer as pc_indexer # type: ignore
@@ -80,8 +79,7 @@ except ImportError:
     import cortex.memory as pc_mem_mod # type: ignore
     from cortex.persistent_memory import PersistentMemoryManager # type: ignore
     from cortex.skill_manager import SkillManager # type: ignore
-    from cortex.visualizer import generate_graph_viz as pc_viz_mod # type: ignore
-
+    
 # ------------------------------------------------------------------------------
 # Cortex Tools Logic
 # ------------------------------------------------------------------------------
@@ -141,16 +139,6 @@ def pc_capsule(query, context=None, category=None):
         return json.dumps({"capsule": capsule_text}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
-
-def pc_impact_graph(fqn, direction='both', max_depth=3):
-    conn = pc_db.get_connection(WORKSPACE)
-    node = pc_db.get_node_by_fqn(conn, fqn)
-    if not node:
-         conn.close()
-         return json.dumps({"error": f"Symbol not found: {fqn}"})
-    impact_data = pc_impact_mod.get_impact_tree(conn, node["id"], direction, max_depth)
-    conn.close()
-    return json.dumps(impact_data, ensure_ascii=False)
 
 def pc_logic_flow(from_fqn, to_fqn):
     conn = pc_db.get_connection(WORKSPACE)
@@ -344,13 +332,6 @@ def pc_auto_explore(query, context=None, category=None):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def pc_viz():
-    """지식 그래프 시규얼라이저 호출"""
-    path, err = pc_viz_mod(WORKSPACE)
-    if err:
-        return json.dumps({"error": err})
-    return json.dumps({"status": "success", "viz_path": path, "message": "Knowledge graph visualization generated."}, ensure_ascii=False)
-
 def pc_session_sync(task_desc, auto_release_agent=None):
     """자율 관계 추출기를 통한 세션 메모리 자동 동기화 및 자동 락 해제"""
     try:
@@ -434,8 +415,7 @@ TOOLS = [
     {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색. 복잡한 분석이 필요할 때 3순위로 사용.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
     {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "context": {"type": "string", "description": "현재 작업 중인 파일명이나 기술 키워드 (선택 사항)"}, "category": {"type": "string", "description": "필터링 카테고리"}}, "required": ["query"]}},
 
-    # === 코드 구조 분석 ===
-    {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
+    # === 코드 구조 분석 === "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
     {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
 
@@ -450,19 +430,7 @@ TOOLS = [
     {"name": "pc_memory_consolidate", "description": "과거 임시 기록들(old_keys)을 깔끔하게 지우고 하나의 새로운 지식(new_key)으로 묶어 DB 파편화를 막습니다.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "특정 key의 영구 지식 조회.", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_memory_sync_skills", "description": "스킬 디렉터리(skills/**/*.md)를 탐색하여 memories DB에 인덱싱.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pc_viz", "description": "지식 그래프 시각화 HTML 생성.", "inputSchema": {"type": "object", "properties": {}}}
-]
-
-
-def handle_request(req):
-    method = req.get("method")
-    params = req.get("params", {})
-    rid = req.get("id")
-    
-    if method == "initialize":
-        sys.stderr.write(f"[cortex] Handshaking initialize (ID: {rid})...\n")
-        return {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "Cortex-MCP", "version": "3.1.0"}}}
+    {"name": "pc_memory_stats", "description": "영구 지식 저장소 통계.", "inputSchema": {"type": "object", "properties": {}}}, "serverInfo": {"name": "Cortex-MCP", "version": "3.1.0"}}}
     
     if method == "tools/list":
         sys.stderr.write(f"[cortex] Listing tools (ID: {rid})...\n")
@@ -476,7 +444,6 @@ def handle_request(req):
             if name == "pc_reindex": res = pc_reindex(args.get("force", False))
             elif name == "pc_index_status": res = pc_index_status()
             elif name == "pc_capsule": res = pc_capsule(args["query"], context=args.get("context"), category=args.get("category"))
-            elif name == "pc_impact_graph": res = pc_impact_graph(args["fqn"], args.get("direction", "both"), args.get("max_depth", 3))
             elif name == "pc_logic_flow": res = pc_logic_flow(args["from_fqn"], args["to_fqn"])
             elif name == "pc_save_observation": res = pc_save_observation(args["content"], args.get("obs_type", "insight"), args.get("file_paths"))
             elif name == "pc_search_memory": res = pc_search_memory(args["query"], args.get("limit", 10))
@@ -491,7 +458,6 @@ def handle_request(req):
             elif name == "pc_memory_search_knowledge": res = pc_memory_search_knowledge(args["query"], context=args.get("context"), category=args.get("category"), limit=args.get("limit", 10))
             elif name == "pc_memory_sync_skills": res = pc_memory_sync_skills()
             elif name == "pc_memory_stats": res = pc_memory_stats()
-            elif name == "pc_viz": res = pc_viz()
             else: return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "Method not found"}}
             
             return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": str(res)}]}}

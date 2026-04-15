@@ -8,6 +8,7 @@ python-dotenv>=1.0.0
 sentence-transformers>=2.2.0
 
 # 벡터 검색 엔진 (하이브리드 검색)
-faiss-cpu>=1.7.4
+sqlite-vec>=0.1.2
+kuzu>=0.11.3
 torch==2.5.1
 openai>=1.0.0

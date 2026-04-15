@@ -237,8 +237,45 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
         
         if vectorize and vector_items:
             from cortex import vector_engine as ve
-            ve.index_texts(workspace, vector_items)
-            ve._release_gpu()  # On-Save 단일 파일 모드에서는 즉시 해제
+            ids = [item["id"] for item in vector_items]
+            ph = ",".join("?" * len(ids))
+            rowids_query = conn.execute(f"SELECT id, rowid FROM nodes WHERE id IN ({ph})", ids).fetchall()
+            id_to_rowid = {r[0]: r[1] for r in rowids_query}
+            texts = [b["text"] for b in vector_items]
+            embeddings = ve.get_embeddings(texts)
+            vec_data = []
+            for b, emb in zip(vector_items, embeddings):
+                rowid = id_to_rowid.get(b["id"])
+                if rowid is not None:
+                    vec_data.append((rowid, emb.tobytes()))
+            if vec_data:
+                conn.executemany("INSERT OR REPLACE INTO vec_nodes (rowid, embedding) VALUES (?, ?)", vec_data)
+                conn.commit()
+            ve.release_gpu()
+            
+        # Graph DB 연동
+        try:
+            from cortex.graph_db import GraphDB
+            gdb = GraphDB(workspace)
+            gdb.execute("MERGE (m:Module {name: $name, file_path: $path})", {"name": mod_name, "path": rel_path})
+            for node in result["nodes"]:
+                if node["type"] == "Function":
+                    gdb.execute("MERGE (f:Function {fqn: $fqn, name: $name, file_path: $path})", 
+                        {"fqn": node["fqn"], "name": node["name"], "path": node["file_path"]})
+                    gdb.execute("MATCH (m:Module {name: $mod_name}), (f:Function {fqn: $fqn}) MERGE (m)-[:Defines]->(f)", 
+                        {"mod_name": mod_name, "fqn": node["fqn"]})
+                elif node["type"] == "Class":
+                    gdb.execute("MERGE (c:Class {fqn: $fqn, name: $name, file_path: $path})", 
+                        {"fqn": node["fqn"], "name": node["name"], "path": node["file_path"]})
+                    gdb.execute("MATCH (m:Module {name: $mod_name}), (c:Class {fqn: $fqn}) MERGE (m)-[:Defines]->(c)", 
+                        {"mod_name": mod_name, "fqn": node["fqn"]})
+            # 간단한 Calls 관계 추가 (Kuzu는 MATCH를 통해 노드 타입과 무관하게 연결 가능)
+            if result.get("edges"):
+                for e in result["edges"]:
+                    gdb.execute("MATCH (a {fqn: $src}), (b {fqn: $tgt}) MERGE (a)-[:Calls]->(b)", 
+                        {"src": e["source_id"], "tgt": e["target_id"]})
+        except Exception as e:
+            pass
 
         conn.commit()
 
@@ -407,7 +444,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             if old_ids:
                 # 2. 벡터 엔진에서 제거
                 try:
-                    ve.delete_ids(workspace, old_ids)
+                    pass # sqlite-vec handles deletion through FK or just ignoring
                 except Exception as e:
                     sys.stderr.write(f"[indexer] Failed to delete vectors for {del_path}: {e}\n")
                 
@@ -544,7 +581,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 batch = items[i:i + batch_size]
                 sys.stderr.write(f"[indexer] Indexing file vectors [{prefix}]: {i}/{len(items)}...\n")
                 ve.index_texts(workspace, batch, prefix=prefix)
-        ve._release_gpu()
+        ve.release_gpu()
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
     try:

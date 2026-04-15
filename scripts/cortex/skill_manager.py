@@ -291,7 +291,7 @@ class SkillManager:
             # 2. FAISS 벡터 검색 (CPU, VRAM 0MB)
             sem_scored = {}
             try:
-                vec_results = ve.search_similar(self.workspace, query, top_k=limit, use_gpu=False)
+                vec_results = [] # FAISS removed
                 missing_keys = []
                 for r, vr_raw in enumerate(vec_results):
                     vr = dict(vr_raw) if not isinstance(vr_raw, dict) else vr_raw

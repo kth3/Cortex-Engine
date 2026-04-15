@@ -1,7 +1,9 @@
-"""
+import os
+
+code = """\"\"\"
 AI 응답에 최적화된 코드 캡슐(Pivot + Skeleton)을 생성하는 모듈.
 하이브리드 검색(FTS + sqlite-vec + Graph-RAG) 및 토큰 예산 관리 기능을 포함합니다.
-"""
+\"\"\"
 
 from cortex.db import get_connection, search_nodes_fts
 from cortex.skeleton import get_node_skeleton
@@ -19,7 +21,7 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
         vec_rowids = [r[0] for r in vec_rows]
     except Exception as e:
         import sys
-        sys.stderr.write(f"[capsule] vector search err: {e}\n")
+        sys.stderr.write(f"[capsule] vector search err: {e}\\n")
 
     fts_results = search_nodes_fts(conn, query, category=category, limit=5)
     
@@ -37,7 +39,7 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
         conn.close()
         return "No relevant context found."
 
-    capsule_text = "=== CONTEXT CAPSULE (Graph-RAG) ===\n\n"
+    capsule_text = "=== CONTEXT CAPSULE (Graph-RAG) ===\\n\\n"
     current_tokens = 0
     
     try:
@@ -51,12 +53,12 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
         file_path = node["file_path"]
         body = node.get("raw_body") or "Code not available."
         
-        node_header = f"--- PIVOT: {fqn} ({file_path}) ---\n"
+        node_header = f"--- PIVOT: {fqn} ({file_path}) ---\\n"
         if current_tokens + len(body) / 4 > token_budget * 0.7:
              body = get_node_skeleton(node, detail="standard")
-             node_header = f"--- SUPPORTING (Budget Limit): {fqn} ({file_path}) ---\n"
+             node_header = f"--- SUPPORTING (Budget Limit): {fqn} ({file_path}) ---\\n"
         
-        content = f"{node_header}{body}\n\n"
+        content = f"{node_header}{body}\\n\\n"
         capsule_text += content
         current_tokens += len(content) / 4
         
@@ -76,13 +78,17 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
                     if snode:
                         snode = dict(snode)
                         skel = get_node_skeleton(snode, detail="minimal")
-                        s_content = f"  - Related (Graph-RAG): {sfqn} (Skeleton: {skel})\n"
+                        s_content = f"  - Related (Graph-RAG): {sfqn} (Skeleton: {skel})\\n"
                         capsule_text += s_content
                         current_tokens += len(s_content) / 4
             except Exception as e:
                 import sys
-                sys.stderr.write(f"[capsule] kuzu graph err: {e}\n")
+                sys.stderr.write(f"[capsule] kuzu graph err: {e}\\n")
 
     conn.close()
-    capsule_text += "\n=== END OF CAPSULE ==="
+    capsule_text += "\\n=== END OF CAPSULE ==="
     return capsule_text
+"""
+with open("/home/developer/.gemini/tmp/my-project/cortex-temp/scripts/cortex/capsule.py", "w") as f:
+    f.write(code)
+
