@@ -48,15 +48,25 @@ sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 sudo apt-get install -y cuda-toolkit-13-0
 
-# 2. 강제로 새 CUDA 버전을 바라보도록 환경변수 세팅 후 pip 빌드
+# 2. 컴파일용 임시 16GB 가상 메모리(Swap) 생성 ★ (RAM 부족 방지용)
+sudo fallocate -l 16G /swapfile_build
+sudo chmod 600 /swapfile_build
+sudo mkswap /swapfile_build
+sudo swapon /swapfile_build
+
+# 3. 강제로 새 CUDA 버전을 바라보도록 환경변수 세팅 후 pip 빌드
 # (MAX_JOBS=1 은 필수입니다. 다중 코어 빌드 시 RAM 한계를 초과하여 서버가 멈출 수 있습니다.)
 CUDA_HOME=/usr/local/cuda-13.0 PATH=/usr/local/cuda-13.0/bin:$PATH \
 MAX_JOBS=1 .agents/venv/bin/pip install flash-attn --no-build-isolation
+
+# 4. 완료 후 임시 가상 메모리 삭제
+sudo swapoff /swapfile_build
+sudo rm /swapfile_build
 ```
 
 > [!CAUTION]
 > `--no-build-isolation` 플래그와 `MAX_JOBS=1` 설정이 필수입니다. 
-> 특히 `MAX_JOBS=1` 없이 설치할 경우, 엄청난 양의 병렬 쓰레드가 실행되면서 메모리(RAM) 부족 현상으로 **운영체제(OS) 전체가 멈추거나 재부팅되는 치명적인 문제**가 발생합니다. C++ 소스 컴파일이므로 코어로 제한해서 안전하게 진행해야 하며, 소요 시간은 10~30분입니다.
+> `flash-attn`의 C++ 컴파일은 극도의 메모리를 요구하므로, **램 16GB 이하 환경에서는 MAX_JOBS=1과 더불어 16GB 가상 메모리(Swap) 설정을 하지 않으면 운영체제(OS) 전체가 멈추거나 재부팅되는 치명적인 문제**가 발생합니다. 위의 스크립트를 그대로 복사하여 진행하시고, 소요 시간은 10~30분입니다.
 
 ### Step 3. 활성화 확인
 
