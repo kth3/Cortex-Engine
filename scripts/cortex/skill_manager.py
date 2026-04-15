@@ -285,10 +285,25 @@ class SkillManager:
                 fts_scored[d["key"]] = 1.0 / (r + 60)  # RRF 점수
                 fts_data[d["key"]] = d
 
-            # 2. FAISS 벡터 검색 (CPU, VRAM 0MB)
+            # 2. 벡터 검색 (sqlite-vec 기반)
             sem_scored = {}
             try:
-                vec_results = [] # FAISS removed
+                query_vec = ve.get_embeddings([query])[0]
+                vec_rows = conn.execute(
+                    "SELECT m.key, m.content, m.tags FROM vec_memories v "
+                    "JOIN memories m ON m.rowid = v.rowid "
+                    "WHERE v.embedding MATCH ? AND k = ?", 
+                    (query_vec.tobytes(), limit * 2)
+                ).fetchall()
+                
+                vec_results = []
+                for r in vec_rows:
+                    row_dict = dict(r)
+                    vec_results.append({
+                        "id": row_dict["key"],
+                        "text": row_dict["content"],
+                        "meta": {"tags": json.loads(row_dict["tags"] or "[]")}
+                    })
                 missing_keys = []
                 for r, vr_raw in enumerate(vec_results):
                     vr = dict(vr_raw) if not isinstance(vr_raw, dict) else vr_raw

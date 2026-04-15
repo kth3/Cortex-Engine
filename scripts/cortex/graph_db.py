@@ -53,41 +53,42 @@ class GraphDB:
                     pass
 
             # 2. nodes → Kuzu 노드 삽입
-            rows = sqlite_conn.execute(
-                "SELECT fqn, name, file_path, type FROM nodes WHERE fqn IS NOT NULL AND fqn != ''"
-            ).fetchall()
-
-            for row in rows:
-                fqn, name, file_path, ntype = row[0], row[1], row[2], row[3]
-                ntype_upper = (ntype or "").upper()
-                try:
-                    if ntype_upper in ("FUNCTION", "METHOD"):
-                        self.conn.execute(
-                            "MERGE (n:Function {fqn: $fqn}) SET n.name = $name, n.file_path = $fp",
-                            {"fqn": fqn, "name": name, "fp": file_path or ""}
-                        )
-                    elif ntype_upper == "CLASS":
-                        self.conn.execute(
-                            "MERGE (n:Class {fqn: $fqn}) SET n.name = $name, n.file_path = $fp",
-                            {"fqn": fqn, "name": name, "fp": file_path or ""}
-                        )
-                    elif ntype_upper in ("MODULE", "FILE"):
-                        self.conn.execute(
-                            "MERGE (n:Module {name: $fqn}) SET n.file_path = $fp",
-                            {"fqn": fqn, "fp": file_path or ""}
-                        )
-                    stats["nodes"] += 1
-                except Exception as e:
-                    stats["errors"] += 1
+            cursor = sqlite_conn.execute("SELECT fqn, name, file_path, type FROM nodes WHERE fqn IS NOT NULL AND fqn != ''")
+            while True:
+                rows = cursor.fetchmany(1000)
+                if not rows:
+                    break
+                for row in rows:
+                    fqn, name, file_path, ntype = row[0], row[1], row[2], row[3]
+                    ntype_upper = (ntype or "").upper()
+                    try:
+                        if ntype_upper in ("FUNCTION", "METHOD"):
+                            self.conn.execute(
+                                "MERGE (n:Function {fqn: $fqn}) SET n.name = $name, n.file_path = $fp",
+                                {"fqn": fqn, "name": name, "fp": file_path or ""}
+                            )
+                        elif ntype_upper == "CLASS":
+                            self.conn.execute(
+                                "MERGE (n:Class {fqn: $fqn}) SET n.name = $name, n.file_path = $fp",
+                                {"fqn": fqn, "name": name, "fp": file_path or ""}
+                            )
+                        elif ntype_upper in ("MODULE", "FILE"):
+                            self.conn.execute(
+                                "MERGE (n:Module {name: $fqn}) SET n.file_path = $fp",
+                                {"fqn": fqn, "fp": file_path or ""}
+                            )
+                        stats["nodes"] += 1
+                    except Exception as e:
+                        stats["errors"] += 1
 
             # 3. edges → Kuzu 엣지 삽입
-            edge_rows = sqlite_conn.execute(
+            edge_cursor = sqlite_conn.execute(
                 """SELECT n1.fqn, n1.type, n2.fqn, n2.type, e.type as etype
                    FROM edges e
                    JOIN nodes n1 ON n1.id = e.source_id
                    JOIN nodes n2 ON n2.id = e.target_id
                    WHERE n1.fqn IS NOT NULL AND n2.fqn IS NOT NULL"""
-            ).fetchall()
+            )
 
             def _kuzu_table(ntype: str) -> Optional[str]:
                 t = (ntype or "").upper()
@@ -96,26 +97,30 @@ class GraphDB:
                 if t in ("MODULE", "FILE"): return "Module"
                 return None
 
-            for row in edge_rows:
-                src_fqn, src_type, tgt_fqn, tgt_type, etype = row
-                src_tbl = _kuzu_table(src_type)
-                tgt_tbl = _kuzu_table(tgt_type)
-                if not src_tbl or not tgt_tbl:
-                    continue
-                try:
-                    if etype == "CALLS":
-                        self.conn.execute(
-                            f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Calls]->(b)",
-                            {"s": src_fqn, "t": tgt_fqn}
-                        )
-                    elif etype == "IMPORTS":
-                        self.conn.execute(
-                            f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Imports]->(b)",
-                            {"s": src_fqn, "t": tgt_fqn}
-                        )
-                    stats["edges"] += 1
-                except Exception:
-                    stats["errors"] += 1
+            while True:
+                edge_rows = edge_cursor.fetchmany(1000)
+                if not edge_rows:
+                    break
+                for row in edge_rows:
+                    src_fqn, src_type, tgt_fqn, tgt_type, etype = row
+                    src_tbl = _kuzu_table(src_type)
+                    tgt_tbl = _kuzu_table(tgt_type)
+                    if not src_tbl or not tgt_tbl:
+                        continue
+                    try:
+                        if etype == "CALLS":
+                            self.conn.execute(
+                                f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Calls]->(b)",
+                                {"s": src_fqn, "t": tgt_fqn}
+                            )
+                        elif etype == "IMPORTS":
+                            self.conn.execute(
+                                f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Imports]->(b)",
+                                {"s": src_fqn, "t": tgt_fqn}
+                            )
+                        stats["edges"] += 1
+                    except Exception:
+                        stats["errors"] += 1
 
         except Exception as e:
             sys.stderr.write(f"[graph_db] build_from_sqlite error: {e}\n")

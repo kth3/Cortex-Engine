@@ -532,6 +532,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
         ve.release_gpu()
 
+    # [NEW] .agents 내부 규칙/프로토콜 문서를 memories 테이블에 동기화
+    # → 에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록 보장
+    _sync_rules_to_memories(workspace, conn)
+
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
     try:
         # vec_memories에 아직 없는(LEFT JOIN IS NULL) 메모리만 조회
@@ -570,10 +574,6 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 sys.stderr.write(f"[indexer] Synced {total_indexed} memories to vec_memories.\n")
     except Exception as e:
         sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
-
-    # [NEW] .agents 내부 규칙/프로토콜 문서를 memories 테이블에 동기화
-    # → 에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록 보장
-    _sync_rules_to_memories(workspace, conn)
 
     # [NEW] 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))

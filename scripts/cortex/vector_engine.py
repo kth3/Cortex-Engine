@@ -1,7 +1,7 @@
 """
 Cortex 벡터 추출 엔진 (Vector Inference Engine)
 - 모델: Qwen/Qwen3-Embedding-0.6B (최신 SOTA, 다국어 지원)
-- 목적: FAISS를 제거하고 순수하게 텍스트를 임베딩 벡터(float[768])로 변환하는 역할만 수행
+- 목적: FAISS를 제거하고 순수하게 텍스트를 임베딩 벡터(float[1024])로 변환하는 역할만 수행
 """
 import os
 import sys
