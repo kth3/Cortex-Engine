@@ -26,15 +26,17 @@ sudo apt-get install -y python3-venv python3-dev build-essential \
 > 이 단계를 건너뛰어도 `flash-attn` 미설치를 감지하여 `float16`으로 자동 전환되므로 **인덱싱은 정상 동작**합니다.  
 > 로그에 `Precision mode: fp16`이 출력되면 현재 이 모드로 동작 중인 것입니다.
 
-### Step 1. CUDA Toolkit 설치 (nvcc 확보)
+### Step 1. 사전 빌드(Wheel) 기반 3초 컷 설치 (적극 권장)
 
-### Step 1. 사전 빌드(Wheel) 기반 설치 시도 (권장)
-
-소스 빌드는 사용 중인 PyTorch가 컴파일된 CUDA 버전(예: 13.0)과 시스템에 설치된 CUDA 버전(예: Ubuntu 기본 패키지인 12.0)이 다를 경우 에러가 발생합니다. 사전 빌드된 바이너리를 사용하는 것을 적극 권장합니다.
+소스 빌드는 메모리 요구량이 극심하여 쉽게 실패합니다. GitHub Releases에 미리 준비된 완성 파일(`.whl`)을 직접 다운받아 설치하는 것이 압도적으로 빠르고 안전합니다. (에러 방지를 위해 호환성 검증이 끝난 파이토치 `2.5.1` 버전을 고정하여 설치합니다.)
 
 ```bash
-# 반드시 venv 가상환경 내에서 실행
-.agents/venv/bin/pip install flash-attn --find-links https://github.com/Dao-AILab/flash-attention/releases --no-build-isolation
+# 1. 휠(Wheel) 파일과 호환되도록 가장 안정적인 파이토치 버전(2.5.1) 강제 설치
+.agents/venv/bin/pip uninstall -y torch torchvision torchaudio
+.agents/venv/bin/pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# 2. Flash-Attention 3초 설치 (직접 링크)
+.agents/venv/bin/pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
 ```
 
 ### Step 2. 소스 빌드 설치 (Wheel이 없거나 실패할 경우)
