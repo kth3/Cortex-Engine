@@ -188,7 +188,7 @@ class SkillManager:
                     )
                 conn.commit()
 
-            # 2단계: FAISS 벡터 인덱싱 (전체 본문 청킹 방식)
+            # 2단계: sqlite-vec 벡터 인덱싱 (전체 본문 청킹 방식)
             import sys
             vector_items = []
             for skill_path in skill_files:
@@ -292,7 +292,7 @@ class SkillManager:
                 vec_rows = conn.execute(
                     "SELECT m.key, m.content, m.tags FROM vec_memories v "
                     "JOIN memories m ON m.rowid = v.rowid "
-                    "WHERE v.embedding MATCH ? AND k = ?", 
+                    "WHERE v.embedding MATCH ? LIMIT ?", 
                     (query_vec.tobytes(), limit * 2)
                 ).fetchall()
                 

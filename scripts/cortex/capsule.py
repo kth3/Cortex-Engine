@@ -14,7 +14,7 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
     try:
         from cortex import vector_engine as ve
         query_vec = ve.get_embeddings([query])[0]
-        vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? AND k = 10"
+        vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? LIMIT 10"
         vec_rows = conn.execute(vec_query, (query_vec.tobytes(),)).fetchall()
         vec_rowids = [r[0] for r in vec_rows]
     except Exception as e:
@@ -26,7 +26,7 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
     results = {r["id"]: dict(r) for r in fts_results}
     if vec_rowids:
         ph = ",".join(["?"] * len(vec_rowids))
-        query_nodes = conn.execute(f"SELECT * FROM nodes WHERE rowid IN ({ph})").fetchall()
+        query_nodes = conn.execute(f"SELECT * FROM nodes WHERE rowid IN ({ph})", tuple(vec_rowids)).fetchall()
         for r in query_nodes:
             d = dict(r)
             if category and d.get("category") != category: continue
@@ -63,9 +63,7 @@ def generate_context_capsule(workspace_path, query, token_budget=6000, category=
         if gdb:
             try:
                 # Kuzu 1 Depth
-                while gdb.conn.has_active_transaction():
-                    pass # Ensure safe if needed, Kuzu auto commits usually
-                res = gdb.execute("MATCH (a {fqn: $fqn})-[:Calls]-(b) RETURN b.fqn AS fqn", {"fqn": fqn})
+                res = gdb.execute("MATCH (a {fqn: $fqn})-[:Calls|Contains]-(b) RETURN b.fqn AS fqn", {"fqn": fqn})
                 related_fqns = []
                 while res.has_next():
                     related_fqns.append(res.get_next()[0])
