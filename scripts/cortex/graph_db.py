@@ -11,7 +11,7 @@ def get_graph_db_path(workspace: str) -> str:
         base_dir = os.path.join(workspace, ".cortex")
     
     db_dir = os.path.join(base_dir, "graph.kuzu")
-    os.makedirs(db_dir, exist_ok=True)
+    os.makedirs(base_dir, exist_ok=True)
     return db_dir
 
 class GraphDB:

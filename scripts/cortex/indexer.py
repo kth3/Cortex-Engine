@@ -564,7 +564,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
                     sys.stderr.write(f"[indexer] Indexing memories: {i}/{len(memory_vector_items)}...\n")
                     texts = [item["text"] for item in batch]
-                    embeddings = ve.get_embeddings(texts)
+                    embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
                     for item, emb in zip(batch, embeddings):
                         conn.execute("DELETE FROM vec_memories WHERE rowid = ?", (item["rowid"],))
                         conn.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", (item["rowid"], emb.tobytes()))
