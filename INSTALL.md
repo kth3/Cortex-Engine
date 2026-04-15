@@ -28,24 +28,33 @@ sudo apt-get install -y python3-venv python3-dev build-essential \
 
 ### Step 1. CUDA Toolkit 설치 (nvcc 확보)
 
-`flash-attn`은 설치 시 C++ GPU 코드를 컴파일(`nvcc`)하므로, CUDA Toolkit이 먼저 필요합니다.
+### Step 1. 사전 빌드(Wheel) 기반 설치 시도 (권장)
 
-```bash
-# Ubuntu / WSL2 환경
-sudo apt-get update && sudo apt-get install -y nvidia-cuda-toolkit
-```
-
-> [!TIP]
-> 설치 후 `nvcc --version`으로 정상 인식 여부를 확인하십시오.
-
-### Step 2. flash-attn 설치
+소스 빌드는 사용 중인 PyTorch가 컴파일된 CUDA 버전(예: 13.0)과 시스템에 설치된 CUDA 버전(예: Ubuntu 기본 패키지인 12.0)이 다를 경우 에러가 발생합니다. 사전 빌드된 바이너리를 사용하는 것을 적극 권장합니다.
 
 ```bash
 # 반드시 venv 가상환경 내에서 실행
+.agents/venv/bin/pip install flash-attn --find-links https://github.com/Dao-AILab/flash-attention/releases --no-build-isolation
+```
+
+### Step 2. 소스 빌드 설치 (Wheel이 없거나 실패할 경우)
+
+만약 앞선 단계가 실패한다면, 시스템의 `nvcc` 버전과 Python 패키지 내 `torch`의 CUDA 버전 간 불일치 때문입니다. 우분투 기본 패키지(`nvidia-cuda-toolkit`)를 설치하지 말고, **가상환경에 설치된 PyTorch 버전에 맞는 공식 NVIDIA CUDA Toolkit을 직접 설치**해야 합니다. (현재 기본 권장: CUDA 13.0)
+
+```bash
+# 1. NVIDIA 공식 레포 추가 및 CUDA 13.0 설치 (Ubuntu 24.04 예시)
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt-get update
+sudo apt-get install -y cuda-toolkit-13-0
+
+# 2. 강제로 새 CUDA 버전을 바라보도록 환경변수 세팅 후 pip 빌드
+CUDA_HOME=/usr/local/cuda-13.0 PATH=/usr/local/cuda-13.0/bin:$PATH \
 .agents/venv/bin/pip install flash-attn --no-build-isolation
 ```
 
 > [!CAUTION]
+> `--no-build-isolation` 플래그가 필수입니다. 이 없이 설치하면 빌드 환경이 분리되어 `nvcc`를 제대로 찾지 못합니다. 소스 컴파일 시 10~30분 소요될 수 있습니다.
 > `--no-build-isolation` 플래그가 필수입니다. 이 없이 설치하면 빌드 환경이 분리되어 `nvcc`를 찾지 못합니다.  
 > 컴파일 시간이 10~30분 소요될 수 있습니다.
 
