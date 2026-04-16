@@ -1,4 +1,4 @@
-# 🌌 Cortex Agent Infrastructure (`.agents`)
+# 🌌 Cortex Agent Infrastructure (`.cortex`)
 
 **본 프로젝트는 아직 미완성입니다.**
 
@@ -10,7 +10,7 @@
 
 ## 📂 디렉토리 구조 (Directory Structure)
 
-```text
+```
 .cortex/
 ├── rules/          # 에이전트 행동 규칙 (rule.md, governance.md 등)
 ├── workflows/      # 슬래시 커맨드 워크플로 (/진행, /지식화, /작성 등)
@@ -44,7 +44,7 @@
 | 모드 | 환경 변수 | 조건 |
 |------|----------|------|
 | **로컬 (기본값)** | `CORTEX_EMBEDDING_MODE=local` | GPU 또는 CPU로 Qwen3 실행 (RAM 4GB+) |
-| **API (폴백)** | `CORTEX_EMBEDDING_MODE=api` | GPU/RAM 부족 환경, 외부 API 사용 |
+| **API (폴백)** | `CORTEX_EMBEDDING_MODE=api` | GPU/RAM 부족 환경, 외부 API 사용 | **미완**
 
 ### 2. rclone (백업/로드)
 Google Drive 등 원격 저장소를 통한 지식 동기화를 위해 설정이 필요합니다.
