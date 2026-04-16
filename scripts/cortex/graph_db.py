@@ -27,11 +27,13 @@ class GraphDB:
             self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Module (name STRING, file_path STRING, PRIMARY KEY (name))")
             self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Function (fqn STRING, name STRING, file_path STRING, PRIMARY KEY (fqn))")
             self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Class (fqn STRING, name STRING, file_path STRING, PRIMARY KEY (fqn))")
+            self.conn.execute("CREATE NODE TABLE IF NOT EXISTS External (fqn STRING, name STRING, PRIMARY KEY (fqn))")
             
             # Edge Tables
-            self.conn.execute("CREATE REL TABLE IF NOT EXISTS Imports (FROM Module TO Module)")
-            self.conn.execute("CREATE REL TABLE IF NOT EXISTS Calls (FROM Function TO Function, FROM Function TO Class, FROM Class TO Function, FROM Class TO Class)")
+            self.conn.execute("CREATE REL TABLE IF NOT EXISTS Imports (FROM Module TO Module, FROM Module TO External)")
+            self.conn.execute("CREATE REL TABLE IF NOT EXISTS Calls (FROM Function TO Function, FROM Function TO Class, FROM Class TO Function, FROM Class TO Class, FROM Function TO External, FROM Class TO External, FROM Module TO External, FROM Module TO Function, FROM Module TO Class)")
             self.conn.execute("CREATE REL TABLE IF NOT EXISTS Defines (FROM Module TO Function, FROM Module TO Class)")
+            self.conn.execute("CREATE REL TABLE IF NOT EXISTS Contains (FROM Class TO Function, FROM Class TO Class)")
         except Exception:
             pass
 
@@ -41,12 +43,12 @@ class GraphDB:
 
         try:
             # 1. 기존 데이터 전체 삭제 (재빌드)
-            for tbl in ["Calls", "Imports", "Defines"]:
+            for tbl in ["Calls", "Imports", "Defines", "Contains"]:
                 try:
                     self.conn.execute(f"MATCH ()-[r:{tbl}]->() DELETE r")
                 except Exception:
                     pass
-            for tbl in ["Function", "Class", "Module"]:
+            for tbl in ["Function", "Class", "Module", "External"]:
                 try:
                     self.conn.execute(f"MATCH (n:{tbl}) DELETE n")
                 except Exception:
@@ -83,11 +85,11 @@ class GraphDB:
 
             # 3. edges → Kuzu 엣지 삽입
             edge_cursor = sqlite_conn.execute(
-                """SELECT n1.fqn, n1.type, n2.fqn, n2.type, e.type as etype
+                """SELECT n1.fqn, n1.type, COALESCE(n2.fqn, e.target_id), COALESCE(n2.type, 'EXTERNAL'), e.type as etype
                    FROM edges e
                    JOIN nodes n1 ON n1.id = e.source_id
-                   JOIN nodes n2 ON n2.id = e.target_id
-                   WHERE n1.fqn IS NOT NULL AND n2.fqn IS NOT NULL"""
+                   LEFT JOIN nodes n2 ON n2.id = e.target_id
+                   WHERE n1.fqn IS NOT NULL AND (n2.fqn IS NOT NULL OR e.target_id LIKE '__unresolved__%')"""
             )
 
             def _kuzu_table(ntype: str) -> Optional[str]:
@@ -95,6 +97,7 @@ class GraphDB:
                 if t in ("FUNCTION", "METHOD"): return "Function"
                 if t == "CLASS": return "Class"
                 if t in ("MODULE", "FILE"): return "Module"
+                if t == "EXTERNAL": return "External"
                 return None
 
             while True:
@@ -107,6 +110,12 @@ class GraphDB:
                     tgt_tbl = _kuzu_table(tgt_type)
                     if not src_tbl or not tgt_tbl:
                         continue
+                    if tgt_tbl == "External":
+                        clean_name = tgt_fqn.split("::")[-1] if "::" in tgt_fqn else tgt_fqn
+                        self.conn.execute(
+                            "MERGE (n:External {fqn: $fqn}) SET n.name = $name",
+                            {"fqn": tgt_fqn, "name": clean_name}
+                        )
                     try:
                         if etype == "CALLS":
                             self.conn.execute(
@@ -116,6 +125,11 @@ class GraphDB:
                         elif etype == "IMPORTS":
                             self.conn.execute(
                                 f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Imports]->(b)",
+                                {"s": src_fqn, "t": tgt_fqn}
+                            )
+                        elif etype == "CONTAINS":
+                            self.conn.execute(
+                                f"MATCH (a:{src_tbl} {{fqn: $s}}), (b:{tgt_tbl} {{fqn: $t}}) MERGE (a)-[:Contains]->(b)",
                                 {"s": src_fqn, "t": tgt_fqn}
                             )
                         stats["edges"] += 1
