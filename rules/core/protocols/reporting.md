@@ -1,3 +1,8 @@
+---
+trigger: model_decision
+description: 작업 보고 핵심 규정 (Reporting Core)
+---
+
 # 작업 보고 핵심 규정 (Reporting Core)
 
 > [!IMPORTANT]

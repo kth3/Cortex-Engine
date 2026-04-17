@@ -1,5 +1,6 @@
 ---
 trigger: model_decision
+description: 자율 탐색 및 인지 우선순위 (Cognitive Priorities)
 ---
 
 # 자율 탐색 및 인지 우선순위 (Cognitive Priorities)

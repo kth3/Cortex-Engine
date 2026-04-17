@@ -1,5 +1,6 @@
 ---
 trigger: model_decision
+description: 규칙 승격 및 거버넌스 지침 (Rule Promotion & Governance)
 ---
 
 # 규칙 승격 및 거버넌스 지침 (Rule Promotion & Governance)

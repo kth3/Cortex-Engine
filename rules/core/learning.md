@@ -1,5 +1,6 @@
 ---
 trigger: model_decision
+description: Success Case Library (SCL) 기록 규칙
 ---
 
 # Success Case Library (SCL) 기록 규칙

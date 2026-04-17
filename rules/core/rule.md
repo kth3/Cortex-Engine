@@ -1,5 +1,6 @@
 ---
 trigger: model_decision
+description: Agent Core Rules (rule.md)
 ---
 
 # Agent Core Rules (rule.md)
