@@ -1,5 +1,6 @@
 ---
 trigger: model_decision
+description: 계층형 디버깅 프로토콜 (Layered Diagnostics Protocol)
 ---
 
 # 계층형 디버깅 프로토콜 (Layered Diagnostics Protocol)
@@ -15,7 +16,7 @@ trigger: model_decision
 
 ### Phase 0: Proactive Environment Check (선제적 환경 점검)
 테스트 코드 실행 또는 시스템 명령어 수행 전 반드시 다음을 확인하여 가상환경 오염 및 의존성 충돌을 방지합니다.
-- **활성 환경 검증**: 명령어 실행 전 `which python` 또는 `pip list`를 실행하여 현재 환경이 에이전트 전용(`.agents/venv`)이 아닌, 대상 프로젝트(예: `S14P21B205/AI/venv`)의 환경인지 선제적으로 점검합니다.
+- **활성 환경 검증**: 명령어 실행 전 `which python` 또는 `pip list`를 실행하여 현재 환경이 에이전트 전용(`.agents/venv`)이 아닌, 대상 프로젝트(예: `src/backend/venv` 등)의 환경인지 선제적으로 점검합니다.
 - **명시적 격리 실행**: 모노레포 구조에서 명령어 실행 시 `source <모듈경로>/venv/bin/activate && <명령어>` 형태로 실행하여, 프로젝트별 의존성이 섞이지 않도록 차단합니다.
 
 ### Phase 1: Artifact & Cache (물리적 레이어)
