@@ -1,9 +1,16 @@
 """
-Pure-Context Python 파서
+Cortex Python Parser
 표준 라이브러리 ast 모듈을 사용하여 Python 소스를 노드로 변환
 """
 import ast
 import uuid
+
+# ==============================================================================
+# 지원 확장자 메타데이터
+# ==============================================================================
+SUPPORTED_EXTENSIONS = {
+    ".py": ("python", lambda file_path, source: parse_python_file(file_path, source))
+}
 
 def parse_python_file(file_path: str, source: str) -> dict:
     """Python 파일을 파싱하여 노드와 엣지를 추출합니다."""
