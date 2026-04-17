@@ -18,5 +18,5 @@
 - **Anti-Hallucination**: `pc_memory_write` 시 `category: skill` 사용을 절대 금지합니다. (`insight`, `architecture` 등 사용)
 
 ## 3. 복잡도 기반 프로시저 (Pointers)
-- **작업 계획 및 추적**: 복잡한 다단계 작업이나 터미널 간 전환 시, 임의로 진행하지 말고 `protocol::ultrawork` 및 `protocol::progress-tracking`을 검색하여 해당 절차를 따르십시오.
-- **아키텍처 변경**: 엔진 코어나 파서 추가 시 `rule::architecture`를 참조하여 Strategy Pattern과 훅(Hooks) 규칙을 준수하십시오.
+- **작업 계획 및 추적**: 복잡한 다단계 작업이나 터미널 간 전환 시, 임의로 진행하지 말고 **MCP 도구(`pc_memory_search_knowledge`)**로 `protocol::ultrawork` 및 `protocol::progress-tracking`을 검색하여 해당 절차를 따르십시오.
+- **아키텍처 변경**: 엔진 코어나 파서 추가 시 **MCP 도구**로 `rule::architecture`를 검색하여 Strategy Pattern과 훅(Hooks) 규칙을 준수하십시오.
