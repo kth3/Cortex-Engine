@@ -1,42 +1,25 @@
-# Python
+# Python & Runtime
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Cortex Agent Data
-cortex_data/
-history/
 venv/
 .env
 
-# MCP
-.vscode/
-.idea/
+# Dynamic Data (Protected)
+data/
+history/
+!history/inbox.md
 
-# 프로젝트 특화 데이터 (배포 제외)
-scripts/gitlab_mcp_proxy.py
-reports/
-pjt-settings/
-docs/
-adr/
-목차.md
-# Visualization
-history/viz/
+# Project-Specific Assets (Isolated)
+rules/*/
+!rules/core/
+docs/*/
+
+# Metadata
+PROGRESS.md
+
+# Legacy Cleanup (Files that might move to data/)
+*.db*
+memories.db-wal
+memories.db-shm
