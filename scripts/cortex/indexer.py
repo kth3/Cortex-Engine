@@ -12,36 +12,18 @@ import fnmatch
 # 패키지 내부 임포트
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cortex import db
-from cortex.parsers.python_parser import parse_python_file
-from cortex.parsers.java_parser import parse_java_file
-from cortex.parsers.typescript_parser import parse_typescript_file
-from cortex.parsers.markdown_parser import parse_markdown_file
-from cortex.parsers.c_parser import parse_c_file
+from cortex.parsers import registry as parser_registry
 
 # ==============================================================================
-# 설정 및 지원 확장자
+# 설정 및 지원 확장자 (동적 레지스트리 활용)
 # ==============================================================================
 
-SUPPORTED_EXTENSIONS = {
-    ".py": ("python", parse_python_file),
-    ".java": ("java", parse_java_file),
-    ".ts": ("typescript", parse_typescript_file),
-    ".tsx": ("typescript", parse_typescript_file),
-    ".js": ("javascript", parse_typescript_file),
-    ".jsx": ("javascript", parse_typescript_file),
-    ".md": ("markdown", parse_markdown_file),
-    ".c": ("c", parse_c_file),
-    ".cpp": ("cpp", parse_c_file),
-    ".h": ("c", parse_c_file),
-    ".hpp": ("cpp", parse_c_file),
-    ".html": ("html", parse_markdown_file),
-    ".css": ("css", parse_markdown_file),
-}
+SUPPORTED_EXTENSIONS = parser_registry.parsers
 
 DEFAULT_IGNORES = [
     "node_modules", "__pycache__", ".git", ".venv", "venv",
     "dist", "build", ".gradle", ".idea", ".vscode",
-    ".cortex", "target", ".next", "*.min.js", "*.min.css",
+    ".agents", "target", ".next", "*.min.js", "*.min.css",
     "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out", 
     "skills", "skills/**",
 ]
@@ -86,8 +68,8 @@ def should_ignore(path: str, ignore_patterns: list, workspace: str) -> bool:
 
 
 def load_settings(workspace: str) -> dict:
-    """.cortex/settings.yaml 파일 로드"""
-    settings_path = os.path.join(workspace, ".cortex", "settings.yaml")
+    """.agents/settings.yaml 파일 로드"""
+    settings_path = os.path.join(workspace, ".agents", "settings.yaml")
     if os.path.exists(settings_path):
         try:
             import yaml
@@ -313,8 +295,8 @@ def scan_files(workspace: str) -> list:
                     if should_include(full_path, workspace, settings):
                         files.append(os.path.relpath(full_path, workspace))
                         
-    # 2. .cortex 내부 규칙 및 프로토콜 강제 포함
-    agent_docs = [".cortex/rules", ".cortex/protocols"]
+    # 2. .agents 내부 규칙 및 프로토콜 강제 포함
+    agent_docs = [".agents/rules"]
     for doc_dir in agent_docs:
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):
@@ -337,8 +319,8 @@ def _sync_rules_to_memories(workspace: str, conn):
     import json
     
     rule_dirs = {
-        "rule": os.path.join(workspace, ".cortex", "rules"),
-        "protocol": os.path.join(workspace, ".cortex", "protocols"),
+        "rule": os.path.join(workspace, ".agents", "rules"),
+        "protocol": os.path.join(workspace, ".agents", "rules", "protocols"),
     }
     
     synced = 0
