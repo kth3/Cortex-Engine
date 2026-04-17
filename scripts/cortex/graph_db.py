@@ -5,13 +5,14 @@ from typing import Optional
 
 def get_graph_db_path(workspace: str) -> str:
     """kuzu DB 경로 반환"""
-    if workspace.endswith(".cortex"):
+    if workspace.endswith(".agents"):
         base_dir = workspace
     else:
-        base_dir = os.path.join(workspace, ".cortex")
+        base_dir = os.path.join(workspace, ".agents")
     
-    db_dir = os.path.join(base_dir, "graph.kuzu")
-    os.makedirs(base_dir, exist_ok=True)
+    data_dir = os.path.join(base_dir, "data")
+    db_dir = os.path.join(data_dir, "graph.kuzu")
+    os.makedirs(data_dir, exist_ok=True)
     return db_dir
 
 class GraphDB:

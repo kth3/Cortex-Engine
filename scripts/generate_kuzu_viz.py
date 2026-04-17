@@ -2,8 +2,9 @@ import kuzu, json, os
 
 # 현재 스크립트 위치를 기준으로 경로 설정
 base_dir = os.path.dirname(os.path.abspath(__file__))
-db_path = os.path.join(base_dir, 'graph.kuzu')
-html_path = os.path.join(base_dir, 'kuzu_viewer.html')
+# scripts/ 폴더에 있으므로 한 단계 위로 올라가서 data/ 폴더 탐색
+db_path = os.path.join(base_dir, '..', 'data', 'graph.kuzu')
+html_path = os.path.join(base_dir, '..', 'data', 'kuzu_viewer.html')
 
 db = kuzu.Database(db_path)
 conn = kuzu.Connection(db)

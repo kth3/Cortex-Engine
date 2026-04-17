@@ -16,17 +16,17 @@ GDRIVE_LATEST="gdrive:AgentBackups/${PROJECT_NAME}/latest/${PROJECT_NAME}_backup
 TEMP_BACKUP_FILE="${PROJECT_NAME}_backup_${TIMESTAMP}.tar.gz"
 
 echo "=========================================="
-echo "[INFO] 고속 15MB 타겟 극한 압축 백업을 시작합니다. (v7)"
+echo "[INFO] 고속 15MB 타겟 극한 압축 백업을 시작합니다. (v7.1)"
 echo "[INFO] 프로젝트: ${PROJECT_NAME}"
 echo "[INFO] 대상: ${AGENT_DIR}, ${SKILLS_DIR}"
 echo "=========================================="
 
-# 1. 압축 실행 (119MB index.db를 15MB로 수축 - v7)
+# 1. 압축 실행 (15MB 지향 - v7.1)
 echo "[PROGRESS] 극한의 다이어트 중 (Goal: 15~25MB)..."
 # venv뿐만 아니라 불필요한 캐시, 히스토리 중 유실 가능한 것들을 제외
 tar --exclude=".agents/venv" \
-    --exclude=".agents/cortex_data/index.db-wal" \
-    --exclude=".agents/cortex_data/index.db-shm" \
+    --exclude=".agents/memories.db-wal" \
+    --exclude=".agents/memories.db-shm" \
     --exclude="__pycache__" \
     --exclude="*.pyc" \
     -c "${AGENT_DIR}" "${SKILLS_DIR}" | gzip -9 > "${TEMP_BACKUP_FILE}"
