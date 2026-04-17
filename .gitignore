@@ -14,7 +14,7 @@ history/
 # Project-Specific Assets (Isolated)
 rules/*/
 !rules/core/
-docs/*/
+docs/
 
 # Metadata
 PROGRESS.md
