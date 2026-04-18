@@ -1,0 +1,16 @@
+# .aiderignore
+# Ignore .agents directory to prevent context bloat in Aider
+.agents/data/
+.agents/history/
+.agents/knowledge/
+.agents/venv/
+.agents/docs/
+.agents/.env
+.agents/PROGRESS.md
+.agents/AGENTS.md
+.agents/INSTALL.md
+.agents/DEPENDENCIES.md
+.agents/LICENSE
+.agents/README.md
+.agents/requirements.txt
+
