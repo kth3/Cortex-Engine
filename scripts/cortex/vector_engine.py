@@ -76,16 +76,23 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
         return np.array([])
 
+    global _model_device
     device = "cpu"
     try:
         import torch
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
-        else:
-            if use_gpu is None:
-                use_gpu = len(texts) >= 128
-            if use_gpu and torch.cuda.is_available():
+        elif torch.cuda.is_available():
+            # 이미 VRAM(GPU)에 모델이 로드되어 있다면, 텍스트 개수(단위)에 상관없이 무조건 GPU 사용
+            if _model_device == "cuda":
                 device = "cuda"
+            else:
+                # 명시적으로 CPU를 요청한 게 아니라면, GPU 환경에서는 기본적으로 GPU 사용을 우선함
+                # (VRAM이 약 2GB만 필요하므로, 사양이 되는 사용자는 항상 GPU 상주가 유리함)
+                if use_gpu is False:
+                    device = "cpu"
+                else:
+                    device = "cuda"
     except ImportError:
         pass
 

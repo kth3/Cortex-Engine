@@ -233,7 +233,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
             if vec_data:
                 conn.executemany("INSERT OR REPLACE INTO vec_nodes (rowid, embedding) VALUES (?, ?)", vec_data)
                 conn.commit()
-            ve.release_gpu()
+            # ve.release_gpu() # VRAM 상주를 위해 주석 처리
             
         # Graph DB 연동
         try:
@@ -311,7 +311,7 @@ def scan_files(workspace: str) -> list:
 def _sync_rules_to_memories(workspace: str, conn):
     """규칙/프로토콜 .md 문서를 memories 테이블에 동기화.
     
-    에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록
+    에이전트가 pc_capsule로 규칙을 발견할 수 있도록
     .agents/rules/*.md → category='rule'
     .agents/protocols/*.md → category='protocol'
     형태로 memories 테이블에 저장한다.
@@ -512,10 +512,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                         conn.execute("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
             conn.commit()
 
-        ve.release_gpu()
+        # ve.release_gpu() # VRAM 상주를 위해 주석 처리
 
     # [NEW] .agents 내부 규칙/프로토콜 문서를 memories 테이블에 동기화
-    # → 에이전트가 pc_memory_search_knowledge로 규칙을 발견할 수 있도록 보장
+    # → 에이전트가 pc_capsule로 규칙을 발견할 수 있도록 보장
     _sync_rules_to_memories(workspace, conn)
 
     # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱

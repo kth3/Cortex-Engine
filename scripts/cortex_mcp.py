@@ -123,7 +123,7 @@ def handle_request(req):
             # [Lifecycle Hook] Before Tool Call (Preventive Guard)
             # 위험한 도구 호출 전 자율 검증 및 키워드 기반 정보 제공
             hook_msg = ""
-            if n in ["pc_strict_replace", "pc_create_contract", "pc_todo_manager", "pc_capsule", "pc_memory_search_knowledge"]:
+            if n in ["pc_strict_replace", "pc_create_contract", "pc_todo_manager", "pc_capsule"]:
                 guard_res = pc_hooks.dispatch(WORKSPACE, "before_tool_call", n, json.dumps(a))
                 if guard_res:
                     if guard_res.startswith("Error:"):
