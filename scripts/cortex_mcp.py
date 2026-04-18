@@ -109,7 +109,7 @@ TOOLS = [
     {"name": "pc_memory_write", "description": "지식 저장", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}}, "required": ["key", "category", "content"]}},
     {"name": "pc_memory_read", "description": "지식 조회", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_save_observation", "description": "인사이트 저장", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}},
-    {"name": "pc_session_sync", "description": "세션 동기화", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string"}}, "required": ["task_desc"]}},
+    {"name": "pc_memory_search_knowledge", "description": "영구 지식, 규칙 및 스킬 하이브리드 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}, "required": ["query"]}},
     {"name": "pc_run_background_task", "description": "백그라운드 태스크 실행", "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "lane_id": {"type": "string"}, "task_name": {"type": "string"}}, "required": ["command", "lane_id", "task_name"]}}
 ]
 
@@ -131,11 +131,20 @@ def handle_request(req):
                     elif guard_res.startswith("Info:"):
                         hook_msg = f"[{guard_res}]\n"
 
+            # [Opportunistic Indexing] 검색 도구 호출 전 변경된 핵심 파일 자동 반영 (CPU, 60초 디바운스)
+            if n in ["pc_capsule", "pc_auto_explore", "pc_memory_search_knowledge"]:
+                try:
+                    _inc = pc_indexer.incremental_index_changed(WORKSPACE)
+                    if _inc.get("indexed", 0) > 0:
+                        hook_msg += f"[Auto-indexed {_inc['indexed']} changed files (CPU)] "
+                except Exception:
+                    pass
+
             if n == "pc_reindex": r = pc_indexer.index_workspace(WORKSPACE, force=a.get("force", False))
             elif n == "pc_index_status": 
                 conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
-            elif n == "pc_capsule": _auto_sync(); r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
-            elif n == "pc_auto_explore": _auto_sync(); r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
+            elif n == "pc_capsule": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
+            elif n == "pc_auto_explore": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
             elif n == "pc_read_with_hash": r = read_with_hash(WORKSPACE, a["file_path"])
             elif n == "pc_strict_replace": r = call_strict_replace(a)
             elif n == "pc_create_contract": r = call_create_contract(a)
@@ -143,7 +152,10 @@ def handle_request(req):
             elif n == "pc_memory_write": r = get_storage().write("default", {"key": a["key"], "category": a["category"], "content": a["content"]})
             elif n == "pc_memory_read": r = get_storage().read("default", a["key"])
             elif n == "pc_save_observation": r = call_save_observation(a)
-            elif n == "pc_session_sync": r = pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "decision", a["task_desc"], [])
+            elif n == "pc_memory_search_knowledge":
+                from cortex import vector_engine as ve
+                raw_res = get_storage().search_knowledge(a["query"], category=a.get("category"), limit=5, ve_module=ve)
+                r = json.dumps(raw_res, ensure_ascii=False, indent=2)
             elif n == "pc_run_background_task":
                 cmd = a["command"]
                 lid = a["lane_id"]

@@ -1,6 +1,6 @@
 """
 Cortex 벡터 추출 엔진 (Vector Inference Engine)
-- 모델: Qwen/Qwen3-Embedding-0.6B (최신 SOTA, 다국어 지원)
+- 모델: Qwen/Qwen3-Embedding-0.6B (영한 다국어 특화, 1024차원)
 - 목적: FAISS를 제거하고 순수하게 텍스트를 임베딩 벡터(float[1024])로 변환하는 역할만 수행
 """
 import os
@@ -20,6 +20,14 @@ def _load_model(device: str = "cpu"):
     global _model, _model_device
     if _model is not None and _model_device == device:
         return _model
+
+    # 디바이스 전환 시 기존 모델 안전 해제 (GPU→CPU 전환 시 VRAM 반환)
+    if _model is not None and _model_device != device:
+        if _model_device == "cuda":
+            release_gpu()  # VRAM 해제 + _model=None 초기화
+        else:
+            _model = None
+            _model_device = None
 
     try:
         from sentence_transformers import SentenceTransformer
@@ -49,6 +57,7 @@ def _load_model(device: str = "cpu"):
         }
 
         _model = SentenceTransformer(MODEL_ID, device=device, model_kwargs=model_kwargs, token=hf_token)
+        _model.max_seq_length = 4096  # Qwen3 컨텍스트 윈도우 — 모델 토크나이저가 안전하게 truncate
         if device in ["cuda", "mps"]:
             _model.to(dtype_choice)
 
@@ -76,9 +85,7 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
         return np.array([])
 
-    # [Safety] VRAM OOM 방지를 위해 모든 입력 텍스트를 최대 1,200자로 제한
-    # (6GB 이하 저사양 GPU 환경에서도 긴 문서로 인한 폭주를 방지함)
-    texts = [t[:1200] for t in texts]
+    # [NOTE] 텍스트 길이 제한 해제 — max_seq_length=4096 에서 모델 토크나이저가 자동 truncate 처리
 
     global _model_device
     device = "cpu"
@@ -87,21 +94,18 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
-            # 이미 VRAM(GPU)에 모델이 로드되어 있다면, 텍스트 개수(단위)에 상관없이 무조건 GPU 사용
-            if _model_device == "cuda":
-                device = "cuda"
+            if use_gpu is True:
+                device = "cuda"  # 명시적 GPU 요청 (대량 인덱싱)
+            elif use_gpu is False:
+                device = "cpu"   # 명시적 CPU 강제 (소량 증분/기회적 인덱싱)
             else:
-                # 명시적으로 CPU를 요청한 게 아니라면, GPU 환경에서는 기본적으로 GPU 사용을 우선함
-                # (VRAM이 약 2GB만 필요하므로, 사양이 되는 사용자는 항상 GPU 상주가 유리함)
-                if use_gpu is False:
-                    device = "cpu"
-                else:
-                    device = "cuda"
+                # None: 이미 로드된 디바이스 유지, 미로드 시 CPU 기본
+                device = _model_device if _model_device else "cpu"
     except ImportError:
         pass
 
     model = _load_model(device)
-    batch_size = 32 if device == "cuda" else (4 if device == "mps" else 8)
+    batch_size = 16 if device == "cuda" else 8
 
     embeddings = model.encode(
         texts,

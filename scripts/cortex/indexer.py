@@ -1,19 +1,32 @@
 """
-Cortex 인덱싱 엔진 (v2.2)
+Cortex 인덱싱 엔진 (v3.1 — Modularized + Logging)
 파일 스캔 → 지능형 필터링 → 파서 호출 → DB 저장 → 벡터 임베딩 → 증분 인덱싱
+
+유틸리티: indexer_utils.py
+벡터 배치: vectorizer.py
 """
+import gc
 import os
 import sys
 import time
 import datetime
 import hashlib
-import fnmatch
 from pathlib import Path
+from cortex.logger import get_logger
+
+log = get_logger("indexer")
 
 # 패키지 내부 임포트
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cortex import db
 from cortex.parsers import registry as parser_registry
+from cortex.indexer_utils import (
+    strip_frontmatter, compute_hash, load_settings,
+    get_module_name, scan_files,
+)
+from cortex.vectorizer import (
+    batch_vectorize_nodes, batch_vectorize_memories, detect_gpu,
+)
 
 # ==============================================================================
 # 설정 및 지원 확장자 (동적 레지스트리 활용)
@@ -21,106 +34,6 @@ from cortex.parsers import registry as parser_registry
 
 SUPPORTED_EXTENSIONS = parser_registry.parsers
 
-DEFAULT_IGNORES = [
-    "node_modules", "__pycache__", ".git", ".venv", "venv",
-    "dist", "build", ".gradle", ".idea", ".vscode",
-    ".agents", "target", ".next", "*.min.js", "*.min.css",
-    "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out", 
-    "skills", "skills/**",
-]
-
-# ==============================================================================
-# 파일 필터링 및 유틸리티
-# ==============================================================================
-
-def strip_frontmatter(content: str) -> str:
-    """YAML Frontmatter (--- ... ---) 제거"""
-    import re
-    return re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
-
-def load_gitignore(workspace: str) -> list:
-    """프로젝트의 .gitignore 패턴 로드"""
-    patterns = list(DEFAULT_IGNORES)
-    gitignore_path = os.path.join(workspace, ".gitignore")
-    if os.path.exists(gitignore_path):
-        try:
-            with open(gitignore_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        patterns.append(line.strip("/"))
-        except Exception:
-            pass
-    return patterns
-
-
-def should_ignore(path: str, ignore_patterns: list, workspace: str) -> bool:
-    """파일/디렉토리가 무시 대상인지 확인"""
-    rel = os.path.relpath(path, workspace)
-    parts = rel.split(os.sep)
-    for part in parts:
-        for pattern in ignore_patterns:
-            if fnmatch.fnmatch(part, pattern):
-                return True
-    for pattern in ignore_patterns:
-        if fnmatch.fnmatch(rel, pattern):
-            return True
-    return False
-
-
-def load_settings(workspace: str) -> dict:
-    """.agents/settings.yaml 파일 로드"""
-    settings_path = os.path.join(workspace, ".agents", "settings.yaml")
-    if os.path.exists(settings_path):
-        try:
-            import yaml
-            with open(settings_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except Exception:
-            pass
-    return {}
-
-
-def should_include(path: str, workspace: str, settings: dict) -> bool:
-    """파일이 인덱싱 범위에 포함되는지 확인 (Whitelist 우선)"""
-    rules = settings.get("indexing_rules", {})
-    rel = os.path.relpath(path, workspace)
-    
-    # 1. 화이트리스트 파일 체크
-    whitelist = rules.get("config_whitelist", [])
-    for pattern in whitelist:
-        if fnmatch.fnmatch(os.path.basename(rel), pattern) or fnmatch.fnmatch(rel, pattern):
-            return True
-            
-    # 2. 포함 경로 체크
-    includes = rules.get("include_paths", ["**/src/**", "**/*.py"])
-    for pattern in includes:
-        if fnmatch.fnmatch(rel, pattern):
-            return True
-            
-    # 3. 모듈별 경로 체크
-    modules = rules.get("modules", {})
-    for mod_name, mod_paths in modules.items():
-        for m_path in mod_paths:
-            if rel.startswith(m_path) or fnmatch.fnmatch(rel, m_path):
-                return True
-                
-    return False
-
-
-def get_module_name(rel_path: str, settings: dict) -> str:
-    """경로 기반 모듈명 판단"""
-    modules = settings.get("indexing_rules", {}).get("modules", {})
-    for mod_name, mod_paths in modules.items():
-        for m_path in mod_paths:
-            if f"{m_path}{os.sep}" in f"{rel_path}{os.sep}" or rel_path.endswith(m_path):
-                return mod_name
-    parts = rel_path.split(os.sep)
-    return parts[0] if len(parts) > 1 else "root"
-
-
-def compute_hash(content: str) -> str:
-    return hashlib.blake2b(content.encode("utf-8"), digest_size=16).hexdigest()
 
 # ==============================================================================
 # 핵심 인덱싱 로직
@@ -234,7 +147,6 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
             if vec_data:
                 conn.executemany("INSERT OR REPLACE INTO vec_nodes (rowid, embedding) VALUES (?, ?)", vec_data)
                 conn.commit()
-            # ve.release_gpu() # VRAM 상주를 위해 주석 처리
             
         # Graph DB 연동
         try:
@@ -252,7 +164,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
                         {"fqn": node["fqn"], "name": node["name"], "path": node["file_path"]})
                     gdb.execute("MATCH (m:Module {name: $mod_name}), (c:Class {fqn: $fqn}) MERGE (m)-[:Defines]->(c)", 
                         {"mod_name": mod_name, "fqn": node["fqn"]})
-            # 간단한 Calls 관계 추가 (Kuzu는 MATCH를 통해 노드 타입과 무관하게 연결 가능)
+            # 간단한 Calls 관계 추가
             if result.get("edges"):
                 for e in result["edges"]:
                     gdb.execute("MATCH (a {fqn: $src}), (b {fqn: $tgt}) MERGE (a)-[:Calls]->(b)", 
@@ -270,41 +182,6 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
     finally:
         if close_conn:
             conn.close()
-
-
-def scan_files(workspace: str) -> list:
-    """지능형 필터링을 적용하여 인덱싱할 파일 목록 확보"""
-    settings = load_settings(workspace)
-    ignore_patterns = load_gitignore(workspace)
-    
-    # [배포 대응] .agents/settings.yaml의 exclude_paths를 ignore_patterns에 추가
-    rules = settings.get("indexing_rules", {})
-    extra_excludes = rules.get("exclude_paths", [])
-    if extra_excludes:
-        ignore_patterns.extend([p.strip("/") for p in extra_excludes if p.strip()])
-    
-    files = []
-    
-    # 1. 기본 소스 코드 스캔
-    for root, dirs, filenames in os.walk(workspace):
-        dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), ignore_patterns, workspace)]
-        for fname in filenames:
-            full_path = os.path.join(root, fname)
-            ext = os.path.splitext(fname)[1]
-            if ext in SUPPORTED_EXTENSIONS:
-                if not should_ignore(full_path, ignore_patterns, workspace):
-                    if should_include(full_path, workspace, settings):
-                        files.append(os.path.relpath(full_path, workspace))
-                        
-    # 2. .agents 내부 규칙 및 프로토콜 강제 포함
-    agent_docs = [".agents/rules", ".agents/knowledge/resources", ".agents/knowledge/examples"]
-    for doc_dir in agent_docs:
-        abs_doc_dir = os.path.join(workspace, doc_dir)
-        if os.path.exists(abs_doc_dir):
-            for path in Path(abs_doc_dir).rglob("*.md"):
-                files.append(os.path.relpath(str(path), workspace))
-                        
-    return sorted(list(set(files)))
 
 
 def _sync_rules_to_memories(workspace: str, conn):
@@ -325,7 +202,6 @@ def _sync_rules_to_memories(workspace: str, conn):
     }
     
     synced = 0
-    from pathlib import Path
     from tqdm import tqdm
     for category, dir_path in rule_dirs.items():
         if not os.path.isdir(dir_path):
@@ -379,8 +255,120 @@ def _sync_rules_to_memories(workspace: str, conn):
     
     if synced > 0:
         conn.commit()
-        sys.stderr.write(f"[indexer] Synced {synced} rule/protocol docs to memories table.\n")
+        log.info("Synced %d rule/protocol docs to memories table.", synced)
 
+
+def _cleanup_deleted_files(workspace: str, conn, current_files: list):
+    """DB에는 등록되어 있으나 현재 디스크에는 없는 파일을 찾아 제거"""
+    cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()
+    db_file_list = [row[0] for row in cached_files]
+    current_file_set = set(current_files)
+    
+    deleted_files = [f for f in db_file_list if f not in current_file_set]
+    if not deleted_files:
+        return
+    
+    log.info("Found %d deleted files. Cleaning up DB...", len(deleted_files))
+    
+    for del_path in deleted_files:
+        old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (del_path,)).fetchall()
+        old_ids = [r[0] for r in old_nodes]
+        
+        if old_ids:
+            chunk_size = 900
+            for i in range(0, len(old_ids), chunk_size):
+                chunk = old_ids[i:i + chunk_size]
+                ph = ",".join("?" * len(chunk))
+                conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
+                conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
+            conn.execute("DELETE FROM nodes WHERE file_path = ?", (del_path,))
+        
+        conn.execute("DELETE FROM file_cache WHERE file_path = ?", (del_path,))
+    
+    conn.commit()
+    log.info("Cleanup complete for %d files.", len(deleted_files))
+
+
+# ==============================================================================
+# 기회적 증분 인덱싱 (Opportunistic Incremental Indexing)
+# ==============================================================================
+
+_last_opportunistic_check = 0.0  # 디바운스용 타임스탬프 (모듈 레벨)
+OPPORTUNISTIC_COOLDOWN = 60      # 최소 60초 간격으로만 체크
+
+def incremental_index_changed(workspace: str) -> dict:
+    """경량 증분 인덱싱: 마지막 인덱싱 이후 변경된 파일(전체 코드 포함)만 CPU로 즉석 처리.
+    
+    데몬 없이 다른 MCP 도구(pc_capsule 등) 호출 시 기회적으로 실행.
+    전체 문서를 파싱하지 않고, scan_files 결과 전체에 대해 mtime만 확인하여
+    변경된 파일만 빠르게 반영. (60초 디바운스로 연속 스캔 방지)
+    """
+    global _last_opportunistic_check
+    
+    now = time.time()
+    if now - _last_opportunistic_check < OPPORTUNISTIC_COOLDOWN:
+        return {"status": "cooldown"}
+    _last_opportunistic_check = now
+    
+    conn = db.get_connection(workspace)
+    
+    # 마지막 인덱싱 시각 조회
+    row = conn.execute("SELECT value FROM meta WHERE key = 'last_indexed_at'").fetchone()
+    if not row:
+        conn.close()
+        return {"status": "skip", "reason": "no previous index"}
+    
+    last_indexed = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").timestamp()
+    
+    # 프로젝트 전체 파일을 스캔하여 포함 대상 리스트업
+    from cortex.indexer_utils import scan_files
+    all_files = scan_files(workspace, SUPPORTED_EXTENSIONS)
+    
+    changed_files = []
+    for rel_path in all_files:
+        fpath = os.path.join(workspace, rel_path)
+        try:
+            # mtime만 빠르게 체크
+            if os.path.exists(fpath) and os.path.getmtime(fpath) > last_indexed:
+                changed_files.append(rel_path)
+        except OSError:
+            continue
+    
+    if not changed_files:
+        conn.close()
+        return {"status": "clean", "checked_files": len(all_files)}
+    
+    # CPU 전용 증분 인덱싱 (GPU 시동 비용 없이 즉시)
+    log.info("Opportunistic indexing: %d changed files detected (out of %d).", len(changed_files), len(all_files))
+    indexed = 0
+    vector_items = []
+    for rel_path in changed_files:
+        res = index_file(workspace, rel_path, conn=conn, vectorize=False)
+        if "error" not in res:
+            indexed += 1
+            vector_items.extend(res.get("_vector_items", []))
+    
+    # 규칙/프로토콜 동기화 (memories 테이블 갱신)
+    _sync_rules_to_memories(workspace, conn)
+    
+    # CPU 전용 벡터 임베딩 (소량이므로 GPU 불필요)
+    if vector_items:
+        from cortex.vectorizer import batch_vectorize_nodes
+        batch_vectorize_nodes(conn, {"opportunistic": vector_items}, use_gpu=False, workspace=workspace)
+    
+    from cortex.vectorizer import batch_vectorize_memories
+    try:
+        batch_vectorize_memories(conn, use_gpu=False, workspace=workspace)
+    except Exception:
+        pass
+    
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)",
+                 (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.commit()
+    conn.close()
+    
+    log.info("Opportunistic indexing complete: %d files indexed (CPU).", indexed)
+    return {"status": "indexed", "changed": len(changed_files), "indexed": indexed}
 
 def index_workspace(workspace: str, force: bool = False) -> dict:
     """전체 워크스페이스 하이브리드 인덱싱.
@@ -389,61 +377,24 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     - 파싱/DB 저장은 파일별로 수행하되, 벡터 임베딩은 전체 완료 후 1회 배치 처리.
     - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / GPU 해제 1회.
     """
-    # 0. 사전에 Skills 폴더 자동 동기화 (사용자가 수동으로 돌릴 필요 없도록 통합)
+    # 0. 사전에 Skills 폴더 자동 동기화
     from cortex.skill_manager import SkillManager
-    sys.stderr.write("[indexer] Auto-syncing skills to memories DB...\n")
+    log.info("Auto-syncing skills to memories DB...")
     try:
         sm = SkillManager(workspace)
         sm.sync_skills(workspace)
     except Exception as e:
-        sys.stderr.write(f"[indexer] Warning - Skill sync failed: {e}\n")
+        log.warning("Skill sync failed: %s", e)
 
-    files = scan_files(workspace)
+    files = scan_files(workspace, SUPPORTED_EXTENSIONS)
     conn = db.get_connection(workspace)
     db.init_schema(conn)
 
-    # [NEW] 삭제된 파일 감지 및 정리 로직
-    # DB에는 등록되어 있으나 현재 디스크에는 없는 파일을 찾아 제거합니다.
-    cached_files = conn.execute("SELECT file_path FROM file_cache").fetchall()
-    db_file_list = [row[0] for row in cached_files]
-    current_file_set = set(files)
-    
-    deleted_files = [f for f in db_file_list if f not in current_file_set]
-    if deleted_files:
-        sys.stderr.write(f"[indexer] Found {len(deleted_files)} deleted files. Cleaning up DB...\n")
-        from cortex import vector_engine as ve
-        
-        for del_path in deleted_files:
-            # 1. 해당 파일의 모든 노드 ID 조회 (벡터 엔진 삭제용)
-            old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (del_path,)).fetchall()
-            old_ids = [r[0] for r in old_nodes]
-            
-            if old_ids:
-                # 2. 벡터 엔진에서 제거
-                try:
-                    pass # sqlite-vec handles deletion through FK or just ignoring
-                except Exception as e:
-                    sys.stderr.write(f"[indexer] Failed to delete vectors for {del_path}: {e}\n")
-                
-                # 3. DB에서 노드/엣지 삭제
-                chunk_size = 900
-                for i in range(0, len(old_ids), chunk_size):
-                    chunk = old_ids[i:i + chunk_size]
-                    ph = ",".join("?" * len(chunk))
-                    conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
-                    conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
-                conn.execute("DELETE FROM nodes WHERE file_path = ?", (del_path,))
-            
-            # 4. 파일 캐시 제거
-            conn.execute("DELETE FROM file_cache WHERE file_path = ?", (del_path,))
-        
-        conn.commit()
-        sys.stderr.write(f"[indexer] Cleanup complete for {len(deleted_files)} files.\n")
-
+    # 삭제된 파일 정리
+    _cleanup_deleted_files(workspace, conn, files)
 
     stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
-    from pathlib import Path
-    all_vector_items_by_prefix = {}  # 경로 기반으로 프로젝트 분류
+    all_vector_items_by_prefix = {}
 
     # N+1 최적화: file_cache 일괄 로드
     cache_dict = {}
@@ -484,105 +435,42 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 all_vector_items_by_prefix[prefix] = []
             all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
 
-    # 전체 파일 파싱 완료 후 벡터 임베딩 배치 처리
+    # 벡터 임베딩 배치 처리 (vectorizer.py 위임)
+    use_gpu = detect_gpu()
     if all_vector_items_by_prefix:
-        from cortex import vector_engine as ve
-        from tqdm import tqdm
+        batch_vectorize_nodes(conn, all_vector_items_by_prefix, use_gpu, workspace=workspace)
 
-        # 전체 아이템 수 기준으로 GPU/CPU 한 번만 결정
-        total_items = sum(len(v) for v in all_vector_items_by_prefix.values())
-        try:
-            import torch
-            use_gpu = torch.cuda.is_available()
-        except ImportError:
-            use_gpu = False
-
-        sys.stderr.write(f"[indexer] Total vector items: {total_items}, device: {'cuda' if use_gpu else 'cpu'}\n")
-
-        batch_size = 50
-        for prefix, items in all_vector_items_by_prefix.items():
-            if not items: continue
-            # 동일 FQN 노드 중복 제거 (마지막 항목 우선)
-            deduped = list({item["id"]: item for item in items}.values())
-            for i in tqdm(range(0, len(deduped), batch_size), desc=f"Nodes Vectorizing [{prefix}]", unit="batch"):
-                batch = deduped[i:i + batch_size]
-                texts = [item["text"] for item in batch]
-                embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-                for item, emb in zip(batch, embeddings):
-                    rowid_cur = conn.execute("SELECT rowid FROM nodes WHERE id = ?", (item["id"],)).fetchone()
-                    if rowid_cur:
-                        conn.execute("DELETE FROM vec_nodes WHERE rowid = ?", (rowid_cur[0],))
-                        conn.execute("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
-                conn.commit()
-                if use_gpu:
-                    import torch
-                    torch.cuda.empty_cache()
-
-        # ve.release_gpu() # VRAM 상주를 위해 주석 처리
-
-    # [NEW] .agents 내부 규칙/프로토콜 문서를 memories 테이블에 동기화
-    # → 에이전트가 pc_capsule로 규칙을 발견할 수 있도록 보장
+    # 규칙/프로토콜 동기화
     _sync_rules_to_memories(workspace, conn)
 
-    # [ADD] SQLite 'memories' 테이블 데이터 증분 벡터 인덱싱
+    # memories 벡터 인덱싱 (vectorizer.py 위임)
     try:
-        # vec_memories에 아직 없는(LEFT JOIN IS NULL) 메모리만 조회
-        memory_rows = conn.execute(
-            "SELECT m.rowid, m.key, m.category, m.content FROM memories m "
-            "LEFT JOIN vec_memories v ON m.rowid = v.rowid WHERE v.rowid IS NULL"
-        ).fetchall()
-        if memory_rows:
-            memory_vector_items = []
-            for row in memory_rows:
-                rowid, key, category, content = row
-                memory_vector_items.append({
-                    "id": key,
-                    "rowid": rowid,
-                    "text": f"category: {category}\n{content}",
-                    "meta": {"category": category, "type": "memory", "source": "sqlite"}
-                })
-
-            if memory_vector_items:
-                from cortex import vector_engine as ve
-                from tqdm import tqdm
-                batch_size = 20
-                total_indexed = 0
-
-                for i in tqdm(range(0, len(memory_vector_items), batch_size), desc="Memories Vectorizing", unit="batch"):
-                    batch = memory_vector_items[i:i + batch_size]
-                    # OOM 방지를 위해 텍스트 길이를 1200자로 제한 (기존 노드 인덱싱과 동일)
-                    texts = [item["text"][:1200] for item in batch]
-                    embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-                    for item, emb in zip(batch, embeddings):
-                        conn.execute("DELETE FROM vec_memories WHERE rowid = ?", (item["rowid"],))
-                        conn.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", (item["rowid"], emb.tobytes()))
-                    conn.commit()
-                    total_indexed += len(batch)
-                    if use_gpu:
-                        import torch
-                        torch.cuda.empty_cache()
-
-                sys.stderr.write(f"[indexer] Synced {total_indexed} memories to vec_memories.\n")
+        batch_vectorize_memories(conn, use_gpu, workspace=workspace)
     except Exception as e:
-        sys.stderr.write(f"[indexer] Failed to index memories table: {e}\n")
+        log.error("Failed to index memories table: %s", e)
 
-    # [NEW] 전체 인덱싱 완료 시각 기록
+    # GPU VRAM 해제 (팬 소음 방지 — 다음 소량 인덱싱은 CPU로 즉시 처리)
+    if use_gpu:
+        try:
+            from cortex.vector_engine import release_gpu
+            release_gpu()
+            log.info("GPU VRAM released after full indexing.")
+        except Exception:
+            pass
+
+    # 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
     conn.commit()
 
-    # SQLite nodes/edges → Kuzu 그래프 DB 동기화 (force=True 시 전체 재빌드)
+    # SQLite nodes/edges → Kuzu 그래프 DB 동기화
     try:
         from cortex.graph_db import GraphDB
         gdb = GraphDB(workspace)
-        if force:
-            sys.stderr.write("[indexer] Building Kuzu graph from SQLite edges...\n")
-            g_stats = gdb.build_from_sqlite(conn)
-            sys.stderr.write(f"[indexer] Kuzu graph built: {g_stats['nodes']} nodes, {g_stats['edges']} edges, {g_stats['errors']} errors\n")
-        else:
-            # 증분 인덱싱 시엔 변경된 노드만 반영 (현재는 전체 재빌드 생략)
-            sys.stderr.write("[indexer] Kuzu graph sync skipped (incremental mode). Run with force=True to rebuild.\n")
+        log.info("Building Kuzu graph from SQLite edges...")
+        g_stats = gdb.build_from_sqlite(conn)
+        log.info("Kuzu graph built: %d nodes, %d edges, %d errors", g_stats['nodes'], g_stats['edges'], g_stats['errors'])
     except Exception as e:
-        sys.stderr.write(f"[indexer] Warning - Kuzu graph build failed: {e}\n")
+        log.warning("Kuzu graph build failed: %s", e)
 
     conn.close()
     return stats
