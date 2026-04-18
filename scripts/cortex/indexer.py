@@ -296,7 +296,7 @@ def scan_files(workspace: str) -> list:
                         files.append(os.path.relpath(full_path, workspace))
                         
     # 2. .agents 내부 규칙 및 프로토콜 강제 포함
-    agent_docs = [".agents/rules"]
+    agent_docs = [".agents/rules", ".agents/knowledge"]
     for doc_dir in agent_docs:
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):

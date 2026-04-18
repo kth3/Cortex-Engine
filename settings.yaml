@@ -13,13 +13,12 @@ agent_behavior:
   language: "ko"
   language_rule: "Strictly enforce Korean for all outputs."
   tone: "professional"
-  silent_shortcuts: ["@진행", "@백업", "@로드"]
+  silent_shortcuts: [ "@백업", "@로드" ]
   auto_planning: false
 
 project_preferences:
-  preferred_frameworks: ["React", "Spring Boot", "Docker"]
-  coding_standards_path: ".agents/rules/rule.md"
-  protocols_path: ".agents/protocols/"
+  preferred_frameworks: [ "React", "Spring Boot", "Docker" ]
+  protocols_path: ".agents/rules/core/protocols/"
 
 # ==============================================================================
 # 인덱싱 및 하이브리드 검색 설정 (Indexing Rules)
@@ -27,24 +26,30 @@ project_preferences:
 indexing_rules:
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
-  
-  # 인덱싱 범위: 지식 DB로 활용할 규칙(rules) 및 스킬(skills) 폴더만 포함
-  include_paths: 
-    - ".agents/rules/**"
-    - ".agents/skills/**"
-  exclude_paths: ["**"] # include 외의 모든 경로는 제외
-  
+
+  # 인덱싱 범위: 기본적으로 프로젝트 전체를 포함 (블랙리스트 방식)
+  # 참고: .gitignore에 등록된 항목은 자동으로 제외됩니다.
+  include_paths:
+    - "**"
+
+  # 인덱싱에서 명시적으로 제외할 범주
+  # 개인적인 메모나 캐시, 로그 폴더 등을 이곳에 작성하세요.
+  exclude_paths:
+    - "tmp/**"
+    - "logs/**"
+    - "personal_notes/**"
+
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
-  config_whitelist: 
-    - "*.xml"          # pom.xml 등
-    - "*.yml"          # application.yml 등
-    - "*.json"         # package.json 등
+  config_whitelist:
+    - "*.xml" # pom.xml 등
+    - "*.yml" # application.yml 등
+    - "*.json" # package.json 등
     - "Dockerfile"
     - "README.md"
     - ".env.example"
-  
+
   # 모노레포 모듈 정의 (src가 아닌 경우 경로 직접 지정 가능)
   modules:
-    backend: ["BE/src/main/java"]
-    frontend: ["FE/src", "FE/public"]
-    ai: ["AI/apps", "AI/jobs", "AI/scripts"]
+    backend: [ "BE/src/main/java" ]
+    frontend: [ "FE/src", "FE/public" ]
+    ai: [ "AI/apps", "AI/jobs", "AI/scripts" ]
