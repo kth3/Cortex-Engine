@@ -49,10 +49,10 @@ PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/index
 ### [B] MCP 서버 등록 (CLI 명령어 추천)
 에이전트별 MCP 등록 명령어를 사용하여 간편하게 추가할 수 있습니다. (전체 경로는 `pwd` 명령어로 확인하십시오)
 
-**Gemini CLI (`/mcp` 명령어 사용):**
-채팅창에서 다음 명령어를 입력하십시오:
+**Gemini CLI (`gemini mcp add` 명령어 사용):**
+터미널에서 다음 명령어를 실행하십시오:
 ```bash
-/mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" --env PYTHONPATH="/절대/경로/.agents/scripts"
+gemini mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" -e PYTHONPATH="/절대/경로/.agents/scripts"
 ```
 
 **Claude Code (CLI 사용):**
