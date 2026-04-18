@@ -10,6 +10,7 @@ venv/
 data/
 history/
 !history/inbox.md
+state/
 
 # Project-Specific Assets (Isolated)
 rules/*/
@@ -19,7 +20,5 @@ docs/
 # Metadata
 PROGRESS.md
 
-# Legacy Cleanup (Files that might move to data/)
-*.db*
-memories.db-wal
-memories.db-shm
+# Allow .gitkeep in all ignored directories
+!**/.gitkeep

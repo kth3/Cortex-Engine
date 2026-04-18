@@ -28,8 +28,10 @@ indexing_rules:
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
   
-  # 인덱싱 범위: 지식 DB로 활용할 규칙(rules) 폴더만 포함하여 환각 방지 및 효율 극대화
-  include_paths: [".agents/rules/**"]
+  # 인덱싱 범위: 지식 DB로 활용할 규칙(rules) 및 스킬(skills) 폴더만 포함
+  include_paths: 
+    - ".agents/rules/**"
+    - ".agents/skills/**"
   exclude_paths: ["**"] # include 외의 모든 경로는 제외
   
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
