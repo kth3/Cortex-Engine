@@ -1,171 +1,67 @@
 # Cortex Agent — 설치 가이드 (V2)
 
 ## 🚀 빠른 시작 (Quick Start)
-새로운 프로젝트에서 이 인프라 캡슐을 사용하려면 프로젝트 루트에서 다음 명령을 실행하십시오:
+
+본 인프라 캡슐을 사용하려는 프로젝트(또는 모노레포의 특정 하위 프로젝트)의 최상위 경로에서 다음을 실행하십시오.
+
 ```bash
+# 1. 에이전트 캡슐 클론 (프로젝트 루트에 .agents 폴더로 배치)
 git clone <저장소_URL> .agents
-```
 
-> **V2 아키텍처**: FAISS를 제거하고 `sqlite-vec` + `kuzu` 기반의 완전 내장형 Polystore + Graph-RAG 엔진으로 전환되었습니다. 외부 서버나 별도 데몬이 일절 필요 없습니다.
-
-### 데이터 저장 구조
-
-```
-your-project/
-└── .agents/              ← 에이전트 툴 + 런타임 데이터 통합 폴더
-    ├── venv/             ← Python 가상환경
-    ├── scripts/          ← Cortex 엔진 소스
-    ├── requirements.txt
-    ├── memories.db       ← SQLite-vec 벡터/메모리 DB (단일 파일)
-    └── graph.kuzu/       ← Kuzu 그래프 DB (폴더 형태로 저장)
-```
-
-> [!NOTE]
-> `memories.db`와 `graph.kuzu/`는 첫 인덱싱 시 자동으로 생성됩니다. `.gitignore`에 `.agents/memories.db`와 `.agents/graph.kuzu/`를 추가하는 것을 권장합니다.
-
----
-
-## 0. 필수 시스템 패키지 설치 (Ubuntu)
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3-venv python3-dev build-essential git
-```
-
----
-
-## 0-1. GPU 가속 설정 (선택, NVIDIA 전용)
-
-기본 설치만으로도 CPU 모드로 정상 동작합니다. NVIDIA GPU가 있다면 아래를 추가 수행하면 인덱싱 속도가 대폭 향상됩니다.
-
-> [!NOTE]
-> 이 단계를 건너뛰면 CPU 모드로 자동 동작합니다.
-
-```bash
-# 가상환경 내 torch를 CUDA 빌드로 교체
-.agents/venv/bin/pip uninstall -y torch torchvision torchaudio
-.agents/venv/bin/pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-# Flash-Attention 설치 (Ampere 이상 GPU에서 bf16 활성화)
-.agents/venv/bin/pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
-```
-
-> [!CAUTION]
-> Flash-Attention 소스 빌드 시 RAM 16GB 이하 환경에서는 OS가 멈출 수 있습니다. 반드시 위 Wheel 방식을 사용하십시오.
-
----
-
-## 1. 설치
-
-### 1) 저장소 배치
-
-내려받은 폴더를 프로젝트 루트에 **`.agents`** 이름으로 배치합니다.
-
-```bash
-# 클론 직접 지정
-git clone https://github.com/yourname/cortex-temp.git .agents
-
-# 또는 수동 이동
-mv cortex-temp .agents
-```
-
-### 2) 가상환경 생성
-
-```bash
+# 2. 가상환경 생성 및 업그레이드
 python3 -m venv .agents/venv
+.agents/venv/bin/pip install --upgrade pip
 ```
 
-### 3) 의존성 설치
+---
 
+## 1. 의존성 설치 (중요)
+
+사용 중인 컴퓨팅 환경에 맞춰 아래 방식 중 하나를 선택하여 설치하십시오.
+
+### [A] 표준 설치 (CPU 전용 또는 범용)
 ```bash
-.agents/venv/bin/pip install --upgrade pip
 .agents/venv/bin/pip install -r .agents/requirements.txt
 ```
 
-> [!IMPORTANT]
-> `requirements.txt`에 `sqlite-vec>=0.1.2`와 `kuzu>=0.11.3`이 포함되어 있습니다. 이 두 패키지가 V2 핵심 엔진입니다.
+### [B] 고성능 GPU 가속 설치 (NVIDIA Ampere 이상)
+NVIDIA GPU를 활용하여 임베딩 및 검색 속도를 높이려면 이 방식을 선택하십시오.
+- **상세 가이드**: [DEPENDENCIES.md](./DEPENDENCIES.md)
 
 ---
 
-## 2. 스킬(Skills) 세팅 (선택)
+## 2. 프로젝트 통합 설정 (Lean Context Setup)
 
-Cortex는 `skills/` 디렉토리를 탐색하여 추가 지식으로 인덱싱합니다.
+AI 에이전트가 `.agents` 내부의 수천 개 파일을 직접 스캔하여 토큰을 낭비하지 않도록, **`.agents/templates/ignores/`** 내의 설정들을 워크스페이스 루트로 복사하십시오.
 
-```bash
-mkdir -p skills && cd skills
-wget -qO- https://api.github.com/repos/sickn33/antigravity-awesome-skills/tarball/main | tar xz --strip-components=2 "*/skills"
-cd ..
-```
+- **방법**: `.geminiignore`, `.claudesignore` 등과 `.vscode/` 폴더를 루트로 이동/복사합니다.
+- **효과**: 에이전트의 시야에서는 숨겨지지만, 백그라운드 MCP 엔진은 정상적으로 이를 읽어 DB를 구축합니다.
 
 ---
 
-## 3. 초기 인덱싱
+## 3. 초기 인덱싱 및 실행
 
-### [A] 처음 인덱싱 (신규 설치 / 전체 재인덱싱)
-
+### [A] 처음 인덱싱
 ```bash
 PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force
 ```
 
-### [B] 증분 업데이트 (코드 변경 후)
+### [B] MCP 서버 등록 (CLI 명령어 추천)
+에이전트별 MCP 등록 명령어를 사용하여 간편하게 추가할 수 있습니다. (전체 경로는 `pwd` 명령어로 확인하십시오)
 
+**Gemini CLI (`/mcp` 명령어 사용):**
+채팅창에서 다음 명령어를 입력하십시오:
 ```bash
-PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py .
+/mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" --env PYTHONPATH="/절대/경로/.agents/scripts"
 ```
 
-### [C] 인덱스 완전 초기화
-
+**Claude Code (CLI 사용):**
+터미널에서 다음을 실행하십시오:
 ```bash
-# SQLite DB 및 Kuzu 그래프 DB 모두 삭제
-rm -f .agents/memories.db
-rm -rf .agents/graph.kuzu/
-
-# 전체 재인덱싱
-PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/indexer.py . --force
-```
-
-> [!TIP]
-> MCP 툴로 인덱싱을 실행하려면 에이전트 클라이언트에서 `pc_reindex` 툴을 호출하면 됩니다.
-
----
-
-## 4. MCP 서버 등록
-
-### 클라이언트별 설정 파일 위치
-
-| 클라이언트 | 탐색 명령 |
-|---|---|
-| Gemini CLI | `find ~ -name "settings.json" \| grep .gemini` |
-| Claude Desktop | `ls ~/Library/Application\ Support/Claude/claude_desktop_config.json` |
-| Windsurf / Cursor | 각 도구 설정(Settings) → MCP 검색 |
-
-### JSON 설정값
-
-```json
-"cortex-mcp": {
-  "command": "/절대/경로/to/project/.agents/venv/bin/python3",
-  "args": ["/절대/경로/to/project/.agents/scripts/cortex_mcp.py"],
-  "env": {
-    "PYTHONPATH": "/절대/경로/to/project/.agents/scripts"
-  }
-}
-```
-
-현재 경로 기준으로 자동 출력:
-
-```bash
-echo "{\"cortex-mcp\": {\"command\": \"$(pwd)/.agents/venv/bin/python3\", \"args\": [\"$(pwd)/.agents/scripts/cortex_mcp.py\"], \"env\": {\"PYTHONPATH\": \"$(pwd)/.agents/scripts\"}}}"
+claude mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" --env PYTHONPATH="/절대/경로/.agents/scripts"
 ```
 
 ---
 
-## 5. 트러블슈팅
-
-**Q: `sqlite3.OperationalError: database is locked`**  
-→ WAL 모드가 활성화되어 있어 대부분 자동 해소됩니다. 지속된다면 다른 에이전트 프로세스를 종료 후 재시도하십시오.
-
-**Q: `ModuleNotFoundError: No module named 'kuzu'` 또는 `'sqlite_vec'`**  
-→ MCP 설정의 `command` 경로가 `.agents/venv/bin/python3`인지 확인하십시오. 시스템 Python으로 실행 시 발생합니다.
-
-**Q: 임베딩 모델 다운로드 타임아웃**  
-→ 처음 실행 시 `Qwen/Qwen3-Embedding-0.6B` 모델을 Hugging Face에서 자동 다운로드합니다. `.agents/.env`에 `HF_TOKEN=your_token`을 설정하면 안정적인 다운로드가 가능합니다.
+## ⚖️ 라이선스 (License)
+- **Skills**: 스킬 가이드의 원본은 [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills)이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 라이선스를 따릅니다.
