@@ -237,9 +237,10 @@ class SkillManager:
                 # Batch processing to handle large amounts of items efficiently
                 from cortex.db import get_connection as _gc
                 vec_conn = _gc(self.workspace)
+                from tqdm import tqdm
                 try:
                     batch_size = 50
-                    for i in range(0, len(vector_items), batch_size):
+                    for i in tqdm(range(0, len(vector_items), batch_size), desc="Skills Embedding", unit="batch"):
                         batch = vector_items[i:i + batch_size]
                         texts = [item["text"] for item in batch]
                         embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)

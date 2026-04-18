@@ -326,10 +326,13 @@ def _sync_rules_to_memories(workspace: str, conn):
     
     synced = 0
     from pathlib import Path
+    from tqdm import tqdm
     for category, dir_path in rule_dirs.items():
         if not os.path.isdir(dir_path):
             continue
-        for md_path in Path(dir_path).rglob("*.md"):
+        
+        md_files = list(Path(dir_path).rglob("*.md"))
+        for md_path in tqdm(md_files, desc=f"Syncing {category}", unit="file"):
             full_path = str(md_path)
             try:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -484,6 +487,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     # 전체 파일 파싱 완료 후 벡터 임베딩 배치 처리
     if all_vector_items_by_prefix:
         from cortex import vector_engine as ve
+        from tqdm import tqdm
 
         # 전체 아이템 수 기준으로 GPU/CPU 한 번만 결정
         total_items = sum(len(v) for v in all_vector_items_by_prefix.values())
@@ -500,9 +504,8 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             if not items: continue
             # 동일 FQN 노드 중복 제거 (마지막 항목 우선)
             deduped = list({item["id"]: item for item in items}.values())
-            for i in range(0, len(deduped), batch_size):
+            for i in tqdm(range(0, len(deduped), batch_size), desc=f"Nodes Vectorizing [{prefix}]", unit="batch"):
                 batch = deduped[i:i + batch_size]
-                sys.stderr.write(f"[indexer] Indexing file vectors [{prefix}]: {i}/{len(deduped)}...\n")
                 texts = [item["text"] for item in batch]
                 embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
                 for item, emb in zip(batch, embeddings):
@@ -541,13 +544,12 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
             if memory_vector_items:
                 from cortex import vector_engine as ve
+                from tqdm import tqdm
                 batch_size = 50
                 total_indexed = 0
 
-                for i in range(0, len(memory_vector_items), batch_size):
+                for i in tqdm(range(0, len(memory_vector_items), batch_size), desc="Memories Vectorizing", unit="batch"):
                     batch = memory_vector_items[i:i + batch_size]
-
-                    sys.stderr.write(f"[indexer] Indexing memories: {i}/{len(memory_vector_items)}...\n")
                     texts = [item["text"] for item in batch]
                     embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
                     for item, emb in zip(batch, embeddings):
