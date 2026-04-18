@@ -8,6 +8,7 @@ import time
 import datetime
 import hashlib
 import fnmatch
+from pathlib import Path
 
 # 패키지 내부 임포트
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -300,10 +301,8 @@ def scan_files(workspace: str) -> list:
     for doc_dir in agent_docs:
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):
-            for root, _, filenames in os.walk(abs_doc_dir):
-                for fname in filenames:
-                    if fname.endswith(".md"):
-                        files.append(os.path.relpath(os.path.join(root, fname), workspace))
+            for path in Path(abs_doc_dir).rglob("*.md"):
+                files.append(os.path.relpath(str(path), workspace))
                         
     return sorted(list(set(files)))
 
@@ -496,7 +495,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
         sys.stderr.write(f"[indexer] Total vector items: {total_items}, device: {'cuda' if use_gpu else 'cpu'}\n")
 
-        batch_size = 500
+        batch_size = 50
         for prefix, items in all_vector_items_by_prefix.items():
             if not items: continue
             # 동일 FQN 노드 중복 제거 (마지막 항목 우선)
@@ -511,7 +510,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                     if rowid_cur:
                         conn.execute("DELETE FROM vec_nodes WHERE rowid = ?", (rowid_cur[0],))
                         conn.execute("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
-            conn.commit()
+                conn.commit()
+                if use_gpu:
+                    import torch
+                    torch.cuda.empty_cache()
 
         # ve.release_gpu() # VRAM 상주를 위해 주석 처리
 
@@ -539,7 +541,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
             if memory_vector_items:
                 from cortex import vector_engine as ve
-                batch_size = 500
+                batch_size = 50
                 total_indexed = 0
 
                 for i in range(0, len(memory_vector_items), batch_size):
@@ -553,6 +555,9 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                         conn.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", (item["rowid"], emb.tobytes()))
                     conn.commit()
                     total_indexed += len(batch)
+                    if use_gpu:
+                        import torch
+                        torch.cuda.empty_cache()
 
                 sys.stderr.write(f"[indexer] Synced {total_indexed} memories to vec_memories.\n")
     except Exception as e:

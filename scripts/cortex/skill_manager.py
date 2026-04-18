@@ -238,7 +238,7 @@ class SkillManager:
                 from cortex.db import get_connection as _gc
                 vec_conn = _gc(self.workspace)
                 try:
-                    batch_size = 500
+                    batch_size = 50
                     for i in range(0, len(vector_items), batch_size):
                         batch = vector_items[i:i + batch_size]
                         texts = [item["text"] for item in batch]
@@ -262,6 +262,8 @@ class SkillManager:
                                 )
                         vec_conn.commit()
                         embed_done += len(batch)
+                        if use_gpu:
+                            torch.cuda.empty_cache()
                     sys.stderr.write(f"[skill_manager] Vector indexing done: {embed_done} skills embedded.\n")
                 finally:
                     vec_conn.close()
