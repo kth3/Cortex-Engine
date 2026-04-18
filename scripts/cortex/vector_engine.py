@@ -76,6 +76,10 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
         return np.array([])
 
+    # [Safety] VRAM OOM 방지를 위해 모든 입력 텍스트를 최대 1,200자로 제한
+    # (6GB 이하 저사양 GPU 환경에서도 긴 문서로 인한 폭주를 방지함)
+    texts = [t[:1200] for t in texts]
+
     global _model_device
     device = "cpu"
     try:
