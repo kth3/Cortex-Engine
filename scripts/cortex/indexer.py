@@ -545,12 +545,13 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
             if memory_vector_items:
                 from cortex import vector_engine as ve
                 from tqdm import tqdm
-                batch_size = 50
+                batch_size = 20
                 total_indexed = 0
 
                 for i in tqdm(range(0, len(memory_vector_items), batch_size), desc="Memories Vectorizing", unit="batch"):
                     batch = memory_vector_items[i:i + batch_size]
-                    texts = [item["text"] for item in batch]
+                    # OOM 방지를 위해 텍스트 길이를 1200자로 제한 (기존 노드 인덱싱과 동일)
+                    texts = [item["text"][:1200] for item in batch]
                     embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
                     for item, emb in zip(batch, embeddings):
                         conn.execute("DELETE FROM vec_memories WHERE rowid = ?", (item["rowid"],))
