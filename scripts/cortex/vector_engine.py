@@ -33,7 +33,13 @@ def _load_model(device: str = "cpu"):
 
         dtype_choice = torch.float32
         if device == "cuda":
-            dtype_choice = torch.float16
+            # [Optimization] Use bfloat16 if supported (Ampere+), else fallback to float16
+            if torch.cuda.is_bf16_supported():
+                dtype_choice = torch.bfloat16
+                sys.stderr.write("[cortex-vector] Using bfloat16 (bf16) for CUDA acceleration.\n")
+            else:
+                dtype_choice = torch.float16
+                sys.stderr.write("[cortex-vector] Using float16 (fp16) for CUDA acceleration.\n")
         elif device == "mps":
             dtype_choice = torch.float16
 

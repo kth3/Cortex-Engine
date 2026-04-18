@@ -80,7 +80,7 @@ class SkillManager:
             conn.close()
 
     def sync_skills(self, project_id: str) -> dict:
-        skills_root = os.path.join(self.workspace, "skills")
+        skills_root = os.path.join(self.workspace, ".agents", "skills")
         if not os.path.isdir(skills_root):
             return {"error": f"Skills root not found: {skills_root}"}
 
