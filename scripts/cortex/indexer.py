@@ -296,7 +296,7 @@ def scan_files(workspace: str) -> list:
                         files.append(os.path.relpath(full_path, workspace))
                         
     # 2. .agents 내부 규칙 및 프로토콜 강제 포함
-    agent_docs = [".agents/rules", ".agents/knowledge"]
+    agent_docs = [".agents/rules", ".agents/knowledge/resources", ".agents/knowledge/examples"]
     for doc_dir in agent_docs:
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):
@@ -321,23 +321,24 @@ def _sync_rules_to_memories(workspace: str, conn):
     rule_dirs = {
         "rule": os.path.join(workspace, ".agents", "rules"),
         "protocol": os.path.join(workspace, ".agents", "rules", "protocols"),
+        "resource": os.path.join(workspace, ".agents", "knowledge", "resources"),
+        "example": os.path.join(workspace, ".agents", "knowledge", "examples"),
     }
     
     synced = 0
+    from pathlib import Path
     for category, dir_path in rule_dirs.items():
         if not os.path.isdir(dir_path):
             continue
-        for fname in os.listdir(dir_path):
-            if not fname.endswith(".md"):
-                continue
-            full_path = os.path.join(dir_path, fname)
+        for md_path in Path(dir_path).rglob("*.md"):
+            full_path = str(md_path)
             try:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
             except Exception:
                 continue
             
-            key = f"{category}::{os.path.splitext(fname)[0]}"
+            key = f"{category}::{md_path.stem}"
             content_clean = strip_frontmatter(content).strip()
             if not content_clean:
                 continue
@@ -356,7 +357,7 @@ def _sync_rules_to_memories(workspace: str, conn):
             rel_json = json.dumps({}, ensure_ascii=False)
             
             # 제목 추출 (첫 번째 # 헤딩 또는 파일명)
-            title = os.path.splitext(fname)[0]
+            title = md_path.stem
             for line in content_clean.split("\n"):
                 if line.startswith("# "):
                     title = line[2:].strip()
@@ -489,7 +490,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         total_items = sum(len(v) for v in all_vector_items_by_prefix.values())
         try:
             import torch
-            use_gpu = total_items >= 128 and torch.cuda.is_available()
+            use_gpu = torch.cuda.is_available()
         except ImportError:
             use_gpu = False
 
