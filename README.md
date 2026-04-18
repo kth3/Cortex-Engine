@@ -14,34 +14,68 @@
 
 ```mermaid
 graph TD
-    User([User / Agent CLI]) <--> MCP[Cortex Thin MCP Server]
+    %% Layer 1: Concurrency Control
+    subgraph Layer1 [Layer 1 : Concurrency Control]
+        Agent([Multiple Agents])
+        Relay[(Relay : Multi-Lane Lock)]
+    end
+    Agent -->|1. Acquire Lock| Relay
     
-    subgraph Modular Engine Core
-        MCP <--> Orchestrator[Orchestrator & Relay]
-        MCP <--> Indexer[Opportunistic Indexer]
-        Indexer <--> Vectorizer[Hardware-Aware Vectorizer]
-        MCP <--> Search[Hybrid Search Engine]
-        MCP <--> Edit[Fuzzy Edit Engine]
+    %% Layer 2: API Gateway
+    subgraph Layer2 [Layer 2 : API Gateway]
+        MCP[Thin MCP Server]
+    end
+    Relay -->|2. Request| MCP
+    
+    %% Layer 3: Central Orchestration
+    Orchestrator{{"Orchestrator<br>(Task Center)"}}
+    MCP -->|3. Forward Task| Orchestrator
+    
+    %% Layer 4: Cognitive Pipeline
+    subgraph Layer4 [Layer 4 : Cognitive Pipeline]
+        Indexer[Opportunistic Indexer]
+        Vectorizer[Hardware-Aware Vectorizer]
+        Search[Hybrid Search]
+        Edit[Fuzzy Edit]
     end
     
-    Vectorizer <--> VectorEngine[SentenceTransformers]
+    %% Orchestrator sends commands down
+    Orchestrator -->|4a. Auto Sync| Indexer
+    Indexer --- Vectorizer
+    Orchestrator -->|4b. Execute| Search
+    Orchestrator -->|4c. Execute| Edit
     
-    subgraph Polystore
-        DB[(Memories DB - Vector/FTS5)]
-        GDB[(Graph DB - Kuzu)]
+    %% External AI Model
+    V_Model((SentenceTransformers))
+    Vectorizer -.->|Load Weights| V_Model
+    
+    %% Layer 5: Persistence
+    subgraph Layer5 [Layer 5 : Polystore]
+        DB[(Memories DB Vector/FTS5)]
+        GDB[(Graph DB Kuzu)]
     end
     
-    VectorEngine <--> DB
-    Search <--> DB
-    Search <--> GDB
+    %% Writing data
+    Vectorizer --> DB
+    Search --> DB
+    Search --> GDB
+    Edit --> DB
     
-    subgraph Knowledge & Control
-        Rules[Rules - Agent Guardrails]
-        Skills[Skills - Specialized Guides]
-        Orchestrator --> Rules
-        Orchestrator --> Skills
-    end
+    %% ==========================================
+    %% Return Pipeline: Raw Data -> Guardrails -> MCP
+    %% ==========================================
+    %% 5. DB returns raw results back to Orchestrator
+    DB & GDB -.->|5. Return Raw Data| Orchestrator
+    
+    Rules{{"Hardcoded Guardrails<br>(Safety Filter)"}}
+    
+    %% 6. Orchestrator pushes raw data through Guardrails
+    Orchestrator ==>|6. Enforce Policy| Rules
+    
+    %% 7. Cleaned response goes back to MCP
+    Rules ==>|7. Verified Response| MCP
 ```
+
 
 ---
 
