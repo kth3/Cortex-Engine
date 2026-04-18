@@ -2,22 +2,17 @@
 파일 또는 노드의 스켈레톤(시그니처 + 독스트링)을 생성하여 토큰을 절약합니다.
 """
 import os
-import importlib
+from cortex.parsers import registry as parser_registry
 
 # ==============================================================================
-# 인덱서 의존성 제거 및 런타임 수복을 위한 로직 (Inlining)
+# 파서 레지스트리 활용 (하드코딩 및 importlib.reload 병목 제거)
 # ==============================================================================
 def get_parser_internal(file_path: str):
-    """확장자에 맞는 파서 함수 반환 (내부 수복 버전)"""
+    """확장자에 맞는 파서 함수 반환 (레지스트리 활용)"""
     ext = os.path.splitext(file_path)[1]
-    if ext == ".java":
-        try:
-            import cortex.parsers.java_parser as java_parser
-            importlib.reload(java_parser)
-            return java_parser.parse_java_file
-        except ImportError:
-            return None
-    return None
+    # 레지스트리에서 (language_name, parser_func) 튜플 반환, 없으면 (None, None)
+    _, parser_func = parser_registry.parsers.get(ext, (None, None))
+    return parser_func
 
 def get_node_skeleton(node_dict, detail="standard"):
     """

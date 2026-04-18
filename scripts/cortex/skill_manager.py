@@ -4,6 +4,7 @@
 - memories 테이블에 스킬을 카탈로깅하여 FTS5 기반 검색 지원
 - 로컬 Qwen3 모델(1순위)과 외부 API(2순위, 선택사항)를 통한 하이브리드 검색 지원
 """
+import gc
 import os
 import re
 import time
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # 임베딩 모드: local (Qwen3, 기본값) 또는 api (GPU/CPU 부족 환경용 API 폴백)
 # .env의 CORTEX_EMBEDDING_MODE 변수로 재정의 가능
 EMBEDDING_MODE = os.getenv("CORTEX_EMBEDDING_MODE", "local")
-EMBEDDING_BATCH_SIZE = 32 if EMBEDDING_MODE == "local" else 50
+EMBEDDING_BATCH_SIZE = 16 if EMBEDDING_MODE == "local" else 50
 # API 모드 시 호출할 sentence-transformers 호환 API 모델 (선택사항)
 EMBEDDING_API_MODEL = os.getenv("CORTEX_EMBEDDING_API_MODEL", "text-embedding-3-small")
 
@@ -239,7 +240,7 @@ class SkillManager:
                 vec_conn = _gc(self.workspace)
                 from tqdm import tqdm
                 try:
-                    batch_size = 50
+                    batch_size = 16
                     for i in tqdm(range(0, len(vector_items), batch_size), desc="Skills Embedding", unit="batch"):
                         batch = vector_items[i:i + batch_size]
                         texts = [item["text"] for item in batch]
@@ -265,6 +266,7 @@ class SkillManager:
                         embed_done += len(batch)
                         if use_gpu:
                             torch.cuda.empty_cache()
+                        gc.collect()
                     sys.stderr.write(f"[skill_manager] Vector indexing done: {embed_done} skills embedded.\n")
                 finally:
                     vec_conn.close()

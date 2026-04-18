@@ -2,6 +2,7 @@
 영구 지식 저장소 관리자 (PersistentMemoryManager)
 - db.py의 memories 테이블(FTS5 포함)을 사용
 - agent-memory-mcp 흡수 통합 버전
+- 하이브리드 검색 로직은 search_engine.py로 위임
 """
 import time
 import json
@@ -222,7 +223,7 @@ class PersistentMemoryManager:
             conn.close()
 
     def search_knowledge(self, query: str, category: str = None, limit: int = 10, ve_module=None) -> list:
-        """영구 지식 및 전문가 스킬 하이브리드 검색 (FTS5 + FAISS + RRF 스코어링)
+        """영구 지식 및 전문가 스킬 하이브리드 검색 (FTS5 + sqlite-vec + RRF 스코어링)
         
         Args:
             query: 검색 쿼리
@@ -232,74 +233,8 @@ class PersistentMemoryManager:
         Returns:
             정렬된 결과 리스트 (key, category, content 200자, score)
         """
-        # category 대소문자 정규화 ('SKILL' → 'skill')
-        if category:
-            category = category.lower()
-
-        # 1. FTS5 기반 지식 검색
-        fts_results = self.search("default", query, category, limit)
-
-        # 2. 벡터 검색은 self.search에서 이미 FTS와 통합 처리됨
-
-        # 휴리스틱 가중치 계산
-        def _heuristic_boost(item_key, item_category, q):
-            boost = 0.0
-            q_low = q.lower()
-            k_low = item_key.lower()
-            if k_low == q_low: boost += 0.5
-            elif q_low in k_low: boost += 0.1
-            if item_category in ["rule", "skill", "decision", "protocol"]:
-                boost += 0.05
-            return boost
-
-        # 3. 벡터 검색은 self.search에서 이미 통합 처리됨
-        vec_results = []
-
-        # 4. RRF 점수 병합
-        fts_keys = {r["key"] for r in fts_results}
-        vec_map = {vr["id"]: vr for vr in vec_results}
-        fts_rrf = {r["key"]: 1.0 / (i + 60) for i, r in enumerate(fts_results)}
-        vec_rrf = {vr["id"]: 1.0 / (i + 60) for i, vr in enumerate(vec_results)}
-
-        item_info = {}
-        for r in fts_results:
-            item_info[r["key"]] = r.get("category", "unknown")
-        for k, v in vec_map.items():
-            if k not in item_info:
-                item_info[k] = v.get("meta", {}).get("category", "skill")
-
-        all_keys = set(fts_keys) | set(vec_map.keys())
-        combined = sorted(
-            all_keys,
-            key=lambda k: fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0) + _heuristic_boost(k, item_info.get(k, ""), query),
-            reverse=True
-        )[:limit]
-
-        # 5. 결과 생성 (토큰 절약: content 200자 + 필수 필드만)
-        SNIPPET_LEN = 200
-        KEEP_FIELDS = {"key", "category", "tags", "content", "_score_detail", "_total_score"}
-        fts_result_map = {r["key"]: r for r in fts_results}
-        final = []
-        for k in combined:
-            boost_val = _heuristic_boost(k, item_info.get(k, ""), query)
-            rrf_val = fts_rrf.get(k, 0.0) + vec_rrf.get(k, 0.0)
-            if k in fts_result_map:
-                raw = fts_result_map[k]
-                item = {f: raw[f] for f in KEEP_FIELDS if f in raw}
-                if "content" in item:
-                    item["content"] = item["content"][:SNIPPET_LEN]
-                item["_score_detail"] = {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)}
-                item["_total_score"] = round(rrf_val + boost_val, 6)
-                final.append(item)
-            elif k in vec_map:
-                final.append({
-                    "key": k,
-                    "content": vec_map[k].get("text", "")[:SNIPPET_LEN],
-                    "category": item_info.get(k, "skill"),
-                    "_score_detail": {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)},
-                    "_total_score": round(rrf_val + boost_val, 6)
-                })
-        return final
+        from cortex.search_engine import hybrid_search
+        return hybrid_search(self.workspace, query, category, limit, ve_module)
 
 
 # === 유틸리티 (cortex_mcp.py 등에서 공유) ===
@@ -322,4 +257,3 @@ def append_markdown_with_archive(workspace: str, target_filename: str, content: 
     os.makedirs(os.path.dirname(md_path), exist_ok=True)
     with open(md_path, "a", encoding="utf-8") as f:
         f.write(content)
-

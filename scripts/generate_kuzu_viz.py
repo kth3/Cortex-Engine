@@ -3,7 +3,7 @@ import kuzu, json, os
 # 현재 스크립트 위치를 기준으로 경로 설정
 base_dir = os.path.dirname(os.path.abspath(__file__))
 # scripts/ 폴더에 있으므로 한 단계 위로 올라가서 data/ 폴더 탐색
-db_path = os.path.join(base_dir, '..', 'data', 'graph.kuzu')
+db_path = os.path.join(base_dir, '..', 'data', 'graph_db_store')
 html_path = os.path.join(base_dir, '..', 'data', 'kuzu_viewer.html')
 
 db = kuzu.Database(db_path)
@@ -38,13 +38,31 @@ for etype in ["Imports", "Calls", "Defines", "Contains"]:
     except: pass
 
 with open(html_path, "w") as f:
-    f.write(f'''<!DOCTYPE html><html><head><script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    f.write(f'''<!DOCTYPE html><html><head>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>body{{margin:0;background:#1a1a1a;color:#fff}}#nw{{width:100vw;height:100vh}}</style></head>
     <body><div id="nw"></div><script>
     var tk = {{nodes: new vis.DataSet({json.dumps(nodes)}), edges: new vis.DataSet({json.dumps(edges)})}};
     new vis.Network(document.getElementById('nw'), tk, {{
-        nodes:{{font:{{color:'#fff', size:14}}, shadow:true}}, 
-        edges:{{color:'#888', smooth:{{type:'continuous'}}}},
-        physics: {{ forceAtlas2Based: {{ gravitationalConstant: -100, springLength: 200 }}, solver: 'forceAtlas2Based' }}
+        nodes: {{
+            font: {{color:'#fff', size:12}},
+            shadow: true,
+            borderWidth: 2
+        }},
+        edges: {{
+            color: {{color: '#555', highlight: '#88aaff'}},
+            smooth: {{type:'continuous'}}
+        }},
+        groups: {{
+            Module: {{color: {{background: '#2B7CE9', border: '#1A53A0'}}}},
+            Class: {{color: {{background: '#E09F3E', border: '#A67123'}}}},
+            Function: {{color: {{background: '#4CAF50', border: '#2E7D32'}}}},
+            External: {{color: {{background: '#F06292', border: '#C2185B'}}, shape: 'square'}}
+        }},
+        physics: {{
+            forceAtlas2Based: {{ gravitationalConstant: -80, springLength: 150 }},
+            solver: 'forceAtlas2Based',
+            stabilization: {{ iterations: 150 }}
+        }}
     }});
     </script></body></html>''')

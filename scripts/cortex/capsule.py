@@ -6,7 +6,7 @@ AI 응답에 최적화된 코드 캡슐(Pivot + Skeleton)을 생성하는 모듈
 from cortex.db import get_connection, search_nodes_fts
 from cortex.skeleton import get_node_skeleton
 
-def generate_context_capsule(workspace_path, query, token_budget=6000, category=None):
+def generate_context_capsule(workspace_path, query, token_budget=4000, category=None):
     conn = get_connection(workspace_path)
     
     # category=SKILL이면 memories 테이블(스킬 DB)에서 검색

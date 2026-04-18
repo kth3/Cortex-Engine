@@ -235,6 +235,15 @@ def _create_fts_and_triggers(conn: sqlite3.Connection):
         INSERT INTO memories_fts(rowid, key, content, tags, category)
         VALUES (new.rowid, new.key, new.content, new.tags, new.category);
     END;
+
+    -- [NEW] sqlite-vec 고아 벡터 방지용 CASCADE 트리거
+    CREATE TRIGGER IF NOT EXISTS del_node_vec AFTER DELETE ON nodes BEGIN
+        DELETE FROM vec_nodes WHERE rowid = old.rowid;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS del_memory_vec AFTER DELETE ON memories BEGIN
+        DELETE FROM vec_memories WHERE rowid = old.rowid;
+    END;
     """)
 
 def _create_indexes(conn: sqlite3.Connection):
@@ -294,7 +303,7 @@ def init_schema(conn: sqlite3.Connection):
 # 쿼리 헬퍼
 # ==============================================================================
 
-def search_nodes_fts(conn: sqlite3.Connection, query: str, category: str = None, limit: int = 20):
+def search_nodes_fts(conn: sqlite3.Connection, query: str, category: str = None, limit: int = 10):
     """FTS5 전문 검색 - 각 단어를 독립 토큰으로 검색, 카테고리 필터링 지원"""
     import re
     # 영문/한글 단어 토큰만 추출 (2자 이상)

@@ -52,13 +52,13 @@ PYTHONPATH=.agents/scripts .agents/venv/bin/python3 .agents/scripts/cortex/index
 **Gemini CLI (`gemini mcp add` 명령어 사용):**
 터미널에서 다음 명령어를 실행하십시오:
 ```bash
-gemini mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" -e PYTHONPATH="/절대/경로/.agents/scripts"
+gemini mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts cortex-mcp /절대/경로/참조/.agents/venv/bin/python3 /절대/경로/참조/.agents/scripts/cortex_mcp.py
 ```
 
 **Claude Code (CLI 사용):**
-터미널에서 다음을 실행하십시오:
+터미널에서 다음 명령어를 실행하십시오:
 ```bash
-claude mcp add cortex-mcp "/절대/경로/.agents/venv/bin/python3" "/절대/경로/.agents/scripts/cortex_mcp.py" --env PYTHONPATH="/절대/경로/.agents/scripts"
+claude mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts cortex-mcp -- /절대/경로/참조/.agents/venv/bin/python3 /절대/경로/참조/.agents/scripts/cortex_mcp.py
 ```
 
 ---
