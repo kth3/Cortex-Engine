@@ -49,7 +49,7 @@ def _parse_skill_md(skill_md_path: str) -> dict:
 
     if not name:
         h1 = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-        name = h1.group(1).strip() if h1 else Path(skill_md_path).parent.name
+        name = h1.group(1).strip() if h1 else Path(skill_md_path).stem
 
     if not description:
         paragraphs = re.findall(r"(?m)^(?!#|---|```|\s*$)(.+)$", content)
@@ -80,15 +80,19 @@ class SkillManager:
             conn.close()
 
     def sync_skills(self, project_id: str) -> dict:
-        skills_root = os.path.join(self.workspace, ".agents", "skills")
-        if not os.path.isdir(skills_root):
-            return {"error": f"Skills root not found: {skills_root}"}
+        skills_dirs = [
+            os.path.join(self.workspace, ".agents", "skills"),
+            os.path.join(self.workspace, ".agents", "knowledge", "skills")
+        ]
 
         from cortex.db import get_connection
         conn = get_connection(self.workspace)
 
-        
-        skill_files = list(Path(skills_root).rglob("SKILL.md"))
+        skill_files = []
+        for d in skills_dirs:
+            if os.path.isdir(d):
+                skill_files.extend(list(Path(d).rglob("*.md")))
+                
         synced, skipped, errors, pending_embed, embed_done = 0, 0, [], [], 0
 
         try:
@@ -105,18 +109,22 @@ class SkillManager:
 
                     # info가 dict인지 tuple인지에 따라 안전하게 데이터 추출
                     if isinstance(info_raw, dict):
-                        i_name = info_raw.get("name", skill_path.parent.name)
+                        i_name = info_raw.get("name", skill_path.stem)
                         i_desc = info_raw.get("description", "")
                         i_tags = info_raw.get("tags", ["skill"])
                         i_preview = info_raw.get("content_preview", "")
                     else:
-                        # 만약 튜플로 반환된다면 (name, desc, path, tags, preview, full) 순서 가정
-                        i_name = info_raw[0] if len(info_raw) > 0 else skill_path.parent.name
+                        i_name = info_raw[0] if len(info_raw) > 0 else skill_path.stem
                         i_desc = info_raw[1] if len(info_raw) > 1 else ""
                         i_tags = info_raw[3] if len(info_raw) > 3 else ["skill"]
                         i_preview = info_raw[4] if len(info_raw) > 4 else ""
 
-                    skill_key = f"skill::{skill_path.parent.name}"
+                    # skill.md 또는 SKILL.md 등 대소문자 무관하게 처리
+                    if skill_path.name.lower() == "skill.md":
+                        skill_key = f"skill::{skill_path.parent.name}"
+                    else:
+                        skill_key = f"skill::{skill_path.stem}"
+
                     rel_path = to_rel_path(str(skill_path), self.workspace)
                     content = f"[SKILL] {i_name}\n설명: {i_desc}\n경로: {rel_path}\n\n{i_preview}"
                     tags_json = json.dumps(i_tags, ensure_ascii=False)
@@ -150,7 +158,6 @@ class SkillManager:
                 to_insert = []
                 to_update = []
                 for si in skill_info_map.values():
-                    # si 타입 체크 및 안전한 필드 추출
                     if isinstance(si, dict):
                         skill_key = si.get("key")
                         content = si.get("content")
@@ -158,7 +165,6 @@ class SkillManager:
                         s_name = si.get("name", "")
                         s_desc = si.get("description", "")
                     else:
-                        # 튜플 가정 (key, name, desc, content, tags_json, path)
                         skill_key = si[0] if len(si) > 0 else ""
                         content = si[3] if len(si) > 3 else ""
                         tags_json = si[4] if len(si) > 4 else "[]"
@@ -189,7 +195,6 @@ class SkillManager:
                 conn.commit()
 
             # 2단계: sqlite-vec 벡터 인덱싱 (전체 본문 청킹 방식)
-            import sys
             vector_items = []
             for skill_path in skill_files:
                 try:
@@ -197,18 +202,20 @@ class SkillManager:
                     if not info_raw:
                         continue
                     
-                    # info_raw 타입 체크 (dict vs tuple)
                     if isinstance(info_raw, dict):
-                        i_name = info_raw.get("name", skill_path.parent.name)
+                        i_name = info_raw.get("name", skill_path.stem)
                         i_desc = info_raw.get("description", "")
                         i_tags = info_raw.get("tags", [])
                     else:
-                        i_name = info_raw[0] if len(info_raw) > 0 else skill_path.parent.name
+                        i_name = info_raw[0] if len(info_raw) > 0 else skill_path.stem
                         i_desc = info_raw[1] if len(info_raw) > 1 else ""
                         i_tags = info_raw[3] if len(info_raw) > 3 else []
 
-                    skill_key = f"skill::{skill_path.parent.name}"
-                    # V1 로직 복구: OOM 방지 및 명중률 복구 (단문 요약본을 벡터로, 본문은 FTS로 하이브리드 RAG 분리)
+                    if skill_path.name.lower() == "skill.md":
+                        skill_key = f"skill::{skill_path.parent.name}"
+                    else:
+                        skill_key = f"skill::{skill_path.stem}"
+
                     summary_text = f"{i_name} {i_desc}"
                     vector_items.append({
                         "id": skill_key,
@@ -221,35 +228,40 @@ class SkillManager:
             if vector_items:
                 try:
                     import torch
-                    use_gpu = len(vector_items) >= 128 and torch.cuda.is_available()
+                    use_gpu = torch.cuda.is_available()
                 except ImportError:
                     use_gpu = False
 
                 sys.stderr.write(f"[skill_manager] Vectorizing {len(vector_items)} skills (GPU={use_gpu})...\n")
-                texts = [item["text"] for item in vector_items]
-                embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-
+                
+                # Batch processing to handle large amounts of items efficiently
                 from cortex.db import get_connection as _gc
                 vec_conn = _gc(self.workspace)
                 try:
-                    for item, emb in zip(vector_items, embeddings):
-                        rowid_cur = vec_conn.execute(
-                            "SELECT rowid FROM memories WHERE key = ?", (item["id"],)
-                        ).fetchone()
-                        if rowid_cur:
-                            try:
+                    batch_size = 500
+                    for i in range(0, len(vector_items), batch_size):
+                        batch = vector_items[i:i + batch_size]
+                        texts = [item["text"] for item in batch]
+                        embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
+                        
+                        for item, emb in zip(batch, embeddings):
+                            rowid_cur = vec_conn.execute(
+                                "SELECT rowid FROM memories WHERE key = ?", (item["id"],)
+                            ).fetchone()
+                            if rowid_cur:
+                                try:
+                                    vec_conn.execute(
+                                        "DELETE FROM vec_memories WHERE rowid = ?",
+                                        (rowid_cur[0],)
+                                    )
+                                except Exception:
+                                    pass
                                 vec_conn.execute(
-                                    "DELETE FROM vec_memories WHERE rowid = ?",
-                                    (rowid_cur[0],)
+                                    "INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)",
+                                    (rowid_cur[0], emb.tobytes())
                                 )
-                            except Exception:
-                                pass
-                            vec_conn.execute(
-                                "INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)",
-                                (rowid_cur[0], emb.tobytes())
-                            )
-                    vec_conn.commit()
-                    embed_done = len(vector_items)
+                        vec_conn.commit()
+                        embed_done += len(batch)
                     sys.stderr.write(f"[skill_manager] Vector indexing done: {embed_done} skills embedded.\n")
                 finally:
                     vec_conn.close()
@@ -280,12 +292,10 @@ class SkillManager:
             except Exception:
                 fts_rows = []
 
-            col_names = [d[0] for d in conn.execute("SELECT * FROM memories LIMIT 1").description]
             fts_scored, fts_data = {}, {}
             for r, row in enumerate(fts_rows):
-                # sqlite3.Row는 dict()로 직접 변환 가능하며, 이게 zip보다 훨씬 안전함
                 d = dict(row)
-                fts_scored[d["key"]] = 1.0 / (r + 60)  # RRF 점수
+                fts_scored[d["key"]] = 1.0 / (r + 60)  # RRF score
                 fts_data[d["key"]] = d
 
             # 2. 벡터 검색 (sqlite-vec 기반)
@@ -314,14 +324,11 @@ class SkillManager:
                     item_id = vr.get("id")
                     if not item_id: continue
                     
-                    sem_scored[item_id] = 1.0 / (r + 60)  # RRF 점수
-                    # FTS에 없는 항목 추려내기
+                    sem_scored[item_id] = 1.0 / (r + 60)  # RRF score
                     if item_id not in fts_data:
                         missing_keys.append(item_id)
 
-                # FTS에 없는 항목은 DB에서 보완 (N+1 Query 최적화: IN 절 배치 처리)
                 if missing_keys:
-                    # SQLite의 최대 변수 바인딩 제한 방지를 위해 900개씩 청킹
                     chunk_size = 900
                     for i in range(0, len(missing_keys), chunk_size):
                         chunk = missing_keys[i:i + chunk_size]
@@ -332,7 +339,6 @@ class SkillManager:
                             d = dict(db_row)
                             fts_data[d["key"]] = d
             except Exception as ve_err:
-                import sys
                 sys.stderr.write(f"[skill_manager] Vector search skipped: {ve_err}\n")
 
             # 3. RRF 점수 합산 후 정렬
