@@ -1,3 +1,5 @@
+[English Version Available](README.en.md)
+
 # 🌌 Cortex Agent Infrastructure (`.agents`)
 
 **"The Bridge between Human Intent and Agent Intelligence."**
@@ -134,9 +136,27 @@ graph TD
 
 ---
 
+## 🔬 핵심 차별점 (Key Differentiators)
+
+Cortex는 일반 RAG 도구와 달리 로컬 개발 환경의 극한 최적화와 에이전트 간의 신뢰성에 집중합니다.
+
+*   **다차원 하이브리드 RAG (Integrated Polystore)**: 
+    *   Vector(sqlite-vec) + FTS5 + Graph(Kuzu) 시스템을 단일 RRF(Reciprocal Rank Fusion) 스코어링 체계로 통합.
+    *   단순 검색을 넘어 코드 노드와 전문가 스킬 간의 복합 관계 추적.
+*   **지연 시간 우선 하드웨어 전략 (Latency-First HW Optimization)**:
+    *   연산량에 따라 CPU/GPU를 동적으로 스위칭하여 모델 로딩 및 VRAM 전송 오버헤드 최소화.
+    *   6GB 수준의 저사양 VRAM 환경에서의 안정적 구동 및 즉각적인 자원 반환(`release_gpu`).
+*   **원자적 멀티 에이전트 제어 (Atomic Concurrency)**:
+    *   `fcntl` 기반 커널 수준 배타적 락을 통해 TOCTOU(Time-Of-Check-Time-Of-Use) 오류 방지.
+    *   도메인(Lane)별 세분화된 락 시스템으로 병렬 작업 효율 극대화.
+*   **엔지니어링 중심 인프라**:
+    *   IDE 플러그인 형태가 아닌, 에이전트가 스스로 판단하고 비판하며 성장할 수 있는 '관제탑(Relay)' 역할 수행.
+
+---
+
 ## 🙌 영감 및 참고 (Inspirations)
 
-Cortex는 다음의 훌륭한 프로젝트들의 개념을 파이썬 기반으로 경량화하고 통합하여 탄생했습니다.
+Cortex는 다음의 프로젝트들의 개념을 파이썬 기반으로 경량화하고 통합하여 탄생했습니다.
 
 - **Vexp ([https://vexp.dev/](https://vexp.dev/))**: 
   - 범용 워크플로 프레임워크의 구조와 DB 스키마 형식을 참고하여 로컬 컨텍스트 엔진으로 재구현하였습니다.
