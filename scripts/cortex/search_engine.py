@@ -75,7 +75,8 @@ def _vector_search(workspace: str, query: str, category: str = None,
     results = []
     conn = get_connection(workspace)
     try:
-        query_vec = ve_module.get_embeddings([query])[0]
+        from cortex.vectorizer import detect_gpu
+        query_vec = ve_module.get_embeddings([query], use_gpu=detect_gpu())[0]
         vec_rows = conn.execute(
             "SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?",
             (query_vec.tobytes(), limit * multiplier)
