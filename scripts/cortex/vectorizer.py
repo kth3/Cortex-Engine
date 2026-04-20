@@ -44,8 +44,9 @@ def batch_vectorize_nodes(conn, items_by_prefix: dict, use_gpu: bool,
 
     # [Hybrid Strategy] 전체 아이템 수를 먼저 센 뒤 GPU/CPU 결정
     # → 폴더별 분할 감지로 인한 잘못된 CPU→GPU 전환 방지
-    if total_items <= GPU_THRESHOLD:
-        use_gpu = False   # 소량: CPU가 시동 비용 없이 즉시 처리
+    # [Policy Update] 사용자가 명시적으로 GPU(True) 혹은 CPU(False)를 지정했다면 임계값을 무시하고 존중한다.
+    if use_gpu is None and total_items <= GPU_THRESHOLD:
+        use_gpu = False   # 기회적 CPU: 소량 작업 시 로딩 시간 절약
 
     log.info("Nodes vectorize | profile: %s, device: %s, batch: %d, freq: %d, items: %d",
              params["hw_profile"], "GPU" if use_gpu else "CPU", batch_size, freq, total_items)

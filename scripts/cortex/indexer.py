@@ -39,13 +39,14 @@ SUPPORTED_EXTENSIONS = parser_registry.parsers
 # 핵심 인덱싱 로직
 # ==============================================================================
 
-def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True):
+def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True, use_gpu: bool = None):
     """단일 파일에 대한 정밀 인덱싱 및 임베딩.
 
     Args:
         vectorize: True(기본) = 즉시 벡터 임베딩까지 수행 (On-Save 단일 파일용).
                    False = 파싱/DB 저장만 수행하고 vector_items를 반환값에 포함
                            (index_workspace의 배치 모드에서 사용).
+        use_gpu: None(자동), True(GPU강제), False(CPU강제)
     """
     full_path = os.path.join(workspace, rel_path)
     if not os.path.exists(full_path):
@@ -108,7 +109,9 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
                 conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
                 conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
             conn.execute("DELETE FROM nodes WHERE file_path = ?", (rel_path,))
-
+        # 기존 데이터 존재 여부 확인 (CREATED vs UPDATED 구분용)
+        is_update = bool(old_ids)
+        
         # 신규 노드 저장
         nodes_data = []
         vector_items = []
@@ -160,7 +163,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
             rowids_query = conn.execute(f"SELECT id, rowid FROM nodes WHERE id IN ({ph})", ids).fetchall()
             id_to_rowid = {r[0]: r[1] for r in rowids_query}
             texts = [b["text"] for b in vector_items]
-            embeddings = ve.get_embeddings(texts)
+            embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
             vec_data = []
             for b, emb in zip(vector_items, embeddings):
                 rowid = id_to_rowid.get(b["id"])
@@ -196,7 +199,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
 
         conn.commit()
 
-        result = {"status": "success", "nodes": len(nodes_data)}
+        result = {"status": "updated" if is_update else "created", "nodes": len(nodes_data)}
         if not vectorize:
             # 배치 모드: 호출자가 일괄 처리하도록 vector_items 반환
             result["_vector_items"] = vector_items

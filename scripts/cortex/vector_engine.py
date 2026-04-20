@@ -16,6 +16,10 @@ MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 _model = None
 _model_device = None
 
+def preload_model(device: str = "cpu"):
+    """원격 데몬 상주화 시 하드웨어 부하를 조절하기 위해 모델을 수동으로 선행 로드한다."""
+    return _load_model(device=device)
+
 def _load_model(device: str = "cpu"):
     global _model, _model_device
     if _model is not None and _model_device == device:
@@ -81,12 +85,60 @@ def release_gpu():
         except Exception:
             pass
 
+import json
+import socket
+import struct
+
+SOCKET_PATH = "/tmp/cortex.sock"
+
+def _send_to_server(request: dict) -> dict:
+    """엔진 서버에 요청을 보내고 응답을 받는다."""
+    if not os.path.exists(SOCKET_PATH):
+        return {"status": "offline"}
+
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(10.0) # 넉넉한 타임아웃
+        client.connect(SOCKET_PATH)
+        
+        # 데이터 전송 (길이 헤더 + 바디)
+        data = json.dumps(request).encode("utf-8")
+        client.sendall(struct.pack("!I", len(data)) + data)
+        
+        # 응답 수신
+        header = client.recv(4)
+        if not header:
+            return {"status": "error", "message": "No response from server"}
+        size = struct.unpack("!I", header)[0]
+        
+        resp_data = b""
+        while len(resp_data) < size:
+            chunk = client.recv(min(size - len(resp_data), 4096))
+            if not chunk:
+                break
+            resp_data += chunk
+            
+        return json.loads(resp_data.decode("utf-8"))
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        client.close()
+
 def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
         return np.array([])
 
-    # [NOTE] 텍스트 길이 제한 해제 — max_seq_length=4096 에서 모델 토크나이저가 자동 truncate 처리
+    # 1. 서버 모드 시도 (상주 중인 GPU 엔진 활용)
+    # use_gpu가 False가 아닐 때만 서버(GPU) 시도
+    if use_gpu is not False:
+        resp = _send_to_server({"command": "embed", "texts": texts})
+        if resp.get("status") == "ok":
+            return np.array(resp["embeddings"], dtype=np.float32)
+        
+        if resp.get("status") == "error":
+            sys.stderr.write(f"[cortex-vector] Server Error: {resp.get('message')}. Falling back to local...\n")
 
+    # 2. 서버 오프라인 또는 강제 CPU 모드 시 로컬 처리
     global _model_device
     device = "cpu"
     try:
@@ -95,12 +147,9 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
             device = "mps"
         elif torch.cuda.is_available():
             if use_gpu is True:
-                device = "cuda"  # 명시적 GPU 요청 (대량 인덱싱)
-            elif use_gpu is False:
-                device = "cpu"   # 명시적 CPU 강제 (소량 증분/기회적 인덱싱)
+                device = "cuda"
             else:
-                # None: 이미 로드된 디바이스 유지, 미로드 시 CPU 기본
-                device = _model_device if _model_device else "cpu"
+                device = "cpu" # 기본적으로 서버가 없으면 CPU 상주 모드로 fallback
     except ImportError:
         pass
 

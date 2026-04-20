@@ -8,14 +8,17 @@ from pathlib import Path
 
 # DB 파일 경로: 프로젝트 내 .agents/data/memories.db
 def get_db_path(workspace: str) -> str:
-    if workspace.endswith(".agents"):
-        base_dir = workspace
+    path = Path(workspace).resolve()
+    # 경로 구성 요소 중 .agents가 이미 포함되어 있는지 확인 (중첩 생성 방지)
+    if ".agents" in path.parts:
+        idx = path.parts.index(".agents")
+        base_dir = Path(*path.parts[:idx + 1])
     else:
-        base_dir = os.path.join(workspace, ".agents")
+        base_dir = path / ".agents"
         
-    data_dir = os.path.join(base_dir, "data")
-    os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "memories.db")
+    data_dir = base_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "memories.db")
 
 def to_rel_path(full_path: str, workspace: str) -> str:
     """절대 경로를 워크스페이스 기준 상대 경로(ROOT/...)로 변환"""
