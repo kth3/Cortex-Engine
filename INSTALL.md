@@ -61,6 +61,12 @@ gemini mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts corte
 claude mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts cortex-mcp -- /절대/경로/참조/.agents/venv/bin/python3 /절대/경로/참조/.agents/scripts/cortex_mcp.py
 ```
 
+**OpenAI Codex CLI (`codex mcp add` 명령어 사용):**
+터미널에서 다음 명령어를 실행하십시오:
+```bash
+codex mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts cortex-mcp /절대/경로/참조/.agents/venv/bin/python3 /절대/경로/참조/.agents/scripts/cortex_mcp.py
+```
+
 ---
 
 ## ⚖️ 라이선스 (License)
