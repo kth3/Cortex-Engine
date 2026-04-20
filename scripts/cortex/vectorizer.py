@@ -131,9 +131,13 @@ def batch_vectorize_memories(conn, use_gpu: bool, workspace: str = None):
 
 
 def detect_gpu() -> bool:
-    """GPU 사용 가능 여부 탐지 (CUDA only, indexer.py용 호환 함수)"""
+    """GPU 사용 가능 여부 탐지 (하드웨어 프로필에 맞춰 CUDA 또는 MPS 자동 감지)"""
     try:
         import torch
-        return torch.cuda.is_available()
+        if torch.cuda.is_available():
+            return True
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return True
+        return False
     except ImportError:
         return False

@@ -27,7 +27,8 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
     vec_rowids = []
     try:
         from cortex import vector_engine as ve
-        query_vec = ve.get_embeddings([query])[0]
+        from cortex.vectorizer import detect_gpu
+        query_vec = ve.get_embeddings([query], use_gpu=detect_gpu())[0]
         vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? AND k = 10"
         vec_rows = conn.execute(vec_query, (query_vec.tobytes(),)).fetchall()
         vec_rowids = [r[0] for r in vec_rows]
