@@ -20,5 +20,8 @@ docs/
 # Metadata
 PROGRESS.md
 
+# User-local overrides (per-user, not shared)
+settings.local.yaml
+
 # Allow .gitkeep in all ignored directories
 !**/.gitkeep

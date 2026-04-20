@@ -1,0 +1,50 @@
+# ==============================================================================
+# settings.local.yaml (사용자 개인 설정 오버라이드)
+# ==============================================================================
+#
+# [중요] 이 파일은 .gitignore에 의해 공유되지 않습니다.
+#        팀원마다 각자 자신의 환경에 맞게 작성하세요.
+#        settings.yaml의 모든 키를 오버라이드할 수 있습니다.
+#
+# [사용법] 이 파일을 복사하여 settings.local.yaml로 저장하세요:
+#   cp .agents/templates/settings.local.yaml.example .agents/settings.local.yaml
+#
+# ==============================================================================
+
+# 에이전트 응답 언어 (settings.yaml의 기본값을 여기서 변경 가능)
+# agent_behavior:
+#   language: "en"   # 영어로 변경하려면 주석 해제
+
+# ==============================================================================
+# 프로젝트별 프레임워크 목록 (preferred_frameworks: auto 대신 직접 지정)
+# ==============================================================================
+# project_preferences:
+#   preferred_frameworks:
+#     - "React"
+#     - "TypeScript"
+#     - "Spring Boot"
+#     - "Unity"
+#     - "Python"
+#     - "Docker"
+
+# ==============================================================================
+# 모노레포 모듈 경로 정의 (내 프로젝트 구조에 맞게 수정)
+# ==============================================================================
+# 팀 공통 구조와 다를 경우, 아래 주석을 해제하고 실제 경로를 입력하세요.
+#
+# indexing_rules:
+#   modules:
+#     backend: ["BE/src/main/java"]
+#     frontend: ["FE/src", "FE/public"]
+#     ai: ["AI/apps", "AI/scripts"]
+#     unity: ["Assets/Scripts"]           # Unity 프로젝트 경로
+#
+# --- 단일 레포 예시 ---
+# indexing_rules:
+#   modules:
+#     app: ["src"]
+#
+# --- 다른 프로젝트와 연동 (linked_workspaces) ---
+# indexing_rules:
+#   linked_workspaces:
+#     - "../other-project"

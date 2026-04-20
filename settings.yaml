@@ -1,12 +1,21 @@
 # ==============================================================================
 # 에이전트 동작 및 환경 설정 (Agent Settings)
 # ==============================================================================
-# [SCHEMA GUIDE] 이 파일 수정 시 아래 형식을 준수하세요.
-#   - language: "ko" | "en"
+#
+# [사용법] 이 파일(settings.yaml)은 팀 공통 기본값을 정의합니다.
+#          사용자 개인 설정(경로, 프레임워크 등)은 settings.local.yaml에 작성하세요.
+#          settings.local.yaml은 .gitignore에 의해 공유되지 않습니다.
+#
+# [우선순위] settings.local.yaml > settings.yaml
+#
+# [예시] settings.local.yaml 생성:
+#   cp .agents/templates/settings.local.yaml.example .agents/settings.local.yaml
+#
+# [SCHEMA GUIDE]
+#   - language: "ko"
 #   - tone: "professional" | "casual" | "concise"
-#   - silent_shortcuts: @멘션 명령어 배열 (예: ["@동기화", "@백업"])
-#   - auto_planning: true | false
-#   - auto_planning: true | false
+#   - modules: "auto" | { backend: [...], frontend: [...] }
+#   - preferred_frameworks: "auto" | ["React", "Spring Boot"]
 # ==============================================================================
 
 agent_behavior:
@@ -17,7 +26,9 @@ agent_behavior:
   auto_planning: false
 
 project_preferences:
-  preferred_frameworks: [ "React", "Spring Boot", "Docker" ]
+  # "auto": package.json, pom.xml, build.gradle, requirements.txt 등에서 자동 감지
+  # 직접 지정: [ "React", "Spring Boot", "Unity", "Docker" ]
+  preferred_frameworks: auto
   protocols_path: ".agents/rules/core/protocols/"
 
 # ==============================================================================
@@ -48,11 +59,16 @@ indexing_rules:
     - "README.md"
     - ".env.example"
 
-  # 모노레포 모듈 정의 (src가 아닌 경우 경로 직접 지정 가능)
-  modules:
-    backend: [ "BE/src/main/java" ]
-    frontend: [ "FE/src", "FE/public" ]
-    ai: [ "AI/apps", "AI/jobs", "AI/scripts" ]
+  # 모노레포 모듈 정의
+  # "auto": 프로젝트 루트를 스캔하여 폴더 구조 자동 감지 (src/, main/, app/ 패턴)
+  # 직접 지정: settings.local.yaml에서 오버라이드하세요 (팀원별 경로가 다를 경우)
+  #   예:
+  #     modules:
+  #       backend: ["BE/src/main/java"]
+  #       frontend: ["FE/src", "FE/public"]
+  #       ai: ["AI"]
+  #       unity: ["Assets/Scripts"]
+  modules: auto
 
 # ==============================================================================
 # 성능 튜닝 설정 (Performance Tuning)
@@ -68,8 +84,7 @@ tuning:
   #  - balanced      : 일반적인 상황에서 가장 추천하는 설정입니다.
   #  - turbo         : 모든 자원을 끌어다 씁니다. (인덱싱 속도를 극대화할 때)
   #  - custom        : 아래 개별 수치를 직접 고치고 싶을 때 선택하세요.
-  mode: balanced
-
+  mode: auto
   # ---------------------------------------------------------------------------
   # [custom 오버라이드] mode가 'custom'일 때만 아래 값이 적용됩니다.
   # ---------------------------------------------------------------------------
