@@ -5,10 +5,11 @@ import fcntl
 from datetime import datetime, timedelta
 
 # 경로 설정
-STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "state", "board.json")
+STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "state", "board.json")
 
 # 좀비 락 자동 탈취 기준 시간 (초)
 ZOMBIE_LOCK_THRESHOLD_SECONDS = 2 * 60 * 60  # 2시간
+
 
 _DEFAULT_LANE = {
     "status": "IDLE",
@@ -153,8 +154,19 @@ def acquire(agent_id, task, lane_id="default"):
         
         lane = board["lanes"][lane_id]
         
-        # 좀비 락 자동 탈취: 해당 레인이 좀비 상태면 강제 해제 후 진행
-        if lane["status"] != "IDLE" and lane.get("active_agent_id") != agent_id:
+        # Fix #3: HANDOFF 상태는 별도 처리 — 다음 에이전트가 점유할 수 있도록 허용
+        if lane["status"] == "HANDOFF":
+            # handoff_to가 지정된 경우 해당 에이전트만 허용, 미지정이면 누구나 허용
+            expected = lane.get("handoff_to")
+            if expected and expected != agent_id:
+                print(f"[CONFLICT] Lane '{lane_id}' is in HANDOFF state waiting for '{expected}', but '{agent_id}' tried to acquire.")
+                sys.exit(1)
+            # HANDOFF → 신규 acquire 허용 (IDLE로 초기화하여 아래 로직으로 통과)
+            lane["status"] = "IDLE"
+            lane["handoff_to"] = None
+            print(f"[HANDOFF-ACCEPT] Lane '{lane_id}' handoff accepted by '{agent_id}'.")
+        elif lane["status"] != "IDLE" and lane.get("active_agent_id") != agent_id:
+            # 좀비 락 자동 탈취: 해당 레인이 좀비 상태면 강제 해제 후 진행
             if _is_zombie(lane, board.get("updated_at")):
                 _auto_evict_zombie(board, lane_id, lane)
             else:
