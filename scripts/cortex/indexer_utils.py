@@ -176,7 +176,6 @@ def _log_tuning_report(params: dict, hw: dict):
 
     # 클램핑 발생 시 알림
     if mode in ("conservative", "balanced", "turbo"):
-        from cortex.indexer_utils import PRESETS
         preset = PRESETS[mode]
         if preset["batch_size"] > params["batch_size"]:
             log.info("  * Clamped: batch %d -> %d (hw limit)",

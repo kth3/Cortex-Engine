@@ -334,6 +334,9 @@ def incremental_index_changed(workspace: str) -> dict:
         except OSError:
             continue
     
+    # 삭제된 파일 감지 및 정리 (유령 노드 방지)
+    _cleanup_deleted_files(workspace, conn, all_files)
+    
     if not changed_files:
         conn.close()
         return {"status": "clean", "checked_files": len(all_files)}
