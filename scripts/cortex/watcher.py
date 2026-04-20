@@ -70,26 +70,25 @@ class DebouncedIndexer(FileSystemEventHandler):
             
             indexer_path = Path(__file__).resolve().parent / "indexer.py"
             scripts_dir = str(indexer_path.parent.parent)
-            env = os.environ.copy()
-            env["PYTHONPATH"] = scripts_dir + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+            if scripts_dir not in sys.path:
+                sys.path.insert(0, scripts_dir)
             
-            logger.info(f"Debounce triggered. Indexing {len(files_to_index)} files...")
+            import traceback
+            from cortex import indexer as pc_indexer
+            
+            logger.info(f"Debounce triggered. Indexing {len(files_to_index)} files directly in-process...")
             for f in files_to_index:
                 try:
                     logger.info(f"  -> Indexing: {f}")
-                    res = subprocess.run(
-                        [sys.executable, str(indexer_path), "--file", f, str(WORKSPACE)],
-                        cwd=str(WORKSPACE),
-                        env=env,
-                        capture_output=True,
-                        text=True
-                    )
-                    if res.returncode == 0:
-                        logger.info(f"     [OK] {f}")
+                    # 콜드 스타트 제거: subprocess 대신 현재 메모리(System RAM)에 상주하는 엔진 직접 호출
+                    result = pc_indexer.index_file(str(WORKSPACE), f)
+                    if isinstance(result, dict) and "error" in result:
+                        logger.warning(f"     [FAIL] {f}: {result['error']}")
                     else:
-                        logger.warning(f"     [FAIL] {f}: {res.stderr.strip()}")
+                        logger.info(f"     [OK] {f}")
                 except Exception as e:
-                    logger.error(f"     [ERROR] {f}: {str(e)}")
+                    err_trace = traceback.format_exc()
+                    logger.error(f"     [ERROR] {f}: {str(e)}\n{err_trace}")
 
 def main():
     event_handler = DebouncedIndexer()
