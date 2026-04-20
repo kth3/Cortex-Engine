@@ -5,9 +5,11 @@ Cortex MCP Server (v3.8: Hook-Integrated Modular Architecture)
 """
 import sys
 import json
+import traceback
 import os
 import uuid
 import subprocess
+import shlex
 from pathlib import Path
 
 # 경로 설정
@@ -58,9 +60,6 @@ def get_skills():
     if _skills is None: _skills = SkillManager(WORKSPACE)
     return _skills
 
-def _auto_sync():
-    try: pc_indexer.index_workspace(WORKSPACE, force=False)
-    except: pass
 
 # ==============================================================================
 # MCP TOOL HANDLERS (Delegation with Hooks)
@@ -118,27 +117,22 @@ def handle_request(req):
     if m == "initialize": return {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "Cortex-Hooks", "version": "3.8.0"}}}
     if m == "tools/list": return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS}}
     if m == "tools/call":
-        n, a = p.get("name"), p.get("arguments", {})
+        n, a = p.get("name"), p.get("arguments") or {}
         try:
             # [Lifecycle Hook] Before Tool Call (Preventive Guard)
             # 위험한 도구 호출 전 자율 검증 및 키워드 기반 정보 제공
             hook_msg = ""
             if n in ["pc_strict_replace", "pc_create_contract", "pc_todo_manager", "pc_capsule"]:
                 guard_res = pc_hooks.dispatch(WORKSPACE, "before_tool_call", n, json.dumps(a))
-                if guard_res:
+                if guard_res and isinstance(guard_res, str):
                     if guard_res.startswith("Error:"):
                         return {"jsonrpc": "2.0", "id": rid, "result": {"isError": True, "content": [{"type": "text", "text": f"Guard Blocked: {guard_res}"}]}}
                     elif guard_res.startswith("Info:"):
                         hook_msg = f"[{guard_res}]\n"
+                    else:
+                        hook_msg = f"[Hook: {guard_res}]\n"
 
-            # [Opportunistic Indexing] 검색 도구 호출 전 변경된 핵심 파일 자동 반영 (CPU, 60초 디바운스)
-            if n in ["pc_capsule", "pc_auto_explore", "pc_memory_search_knowledge"]:
-                try:
-                    _inc = pc_indexer.incremental_index_changed(WORKSPACE)
-                    if _inc.get("indexed", 0) > 0:
-                        hook_msg += f"[Auto-indexed {_inc['indexed']} changed files (CPU)] "
-                except Exception:
-                    pass
+            # [Opportunistic Indexing] 동기식 인덱싱 호출 부분 삭제 (백그라운드 Watcher 데몬으로 위임됨)
 
             if n == "pc_reindex": r = pc_indexer.index_workspace(WORKSPACE, force=a.get("force", False))
             elif n == "pc_index_status": 
@@ -160,29 +154,96 @@ def handle_request(req):
                 cmd = a["command"]
                 lid = a["lane_id"]
                 tname = a["task_name"]
-                # relay.py를 사용하여 락 획득 후 백그라운드 실행
                 relay_script = SCRIPTS_DIR / "relay.py"
-                subprocess.run([sys.executable, str(relay_script), "acquire", SESSION_ID, tname, lid])
-                # 실제 백그라운드 프로세스 실행 (완료 후 자동으로 release 하지는 않으므로 사용자가 수동 release하거나 훅 연동 필요)
-                proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-                r = {"status": "started", "pid": proc.pid, "lane": lid}
+
+                # Fix #5: relay acquire
+                acq_result = subprocess.run(
+                    [sys.executable, str(relay_script), "acquire", SESSION_ID, tname, lid],
+                    capture_output=True, text=True
+                )
+                if acq_result.returncode != 0:
+                    r = {"status": "error", "reason": f"relay acquire failed: {acq_result.stdout.strip()}"}
+                else:
+                    # Fix #5: shlex.quote 적용 및 release 인자 순서 정상화
+                    # relay.py release [aid] [lid] [hto] [msg] [cid]
+                    release_cmd = " ".join([
+                        shlex.quote(sys.executable),
+                        shlex.quote(str(relay_script)),
+                        "release",
+                        shlex.quote(SESSION_ID),
+                        shlex.quote(lid),
+                        "''", # handoff_to
+                        "''", # message
+                        "''"  # contract_id
+                    ])
+                    wrapped_cmd = f"( {cmd} ); {release_cmd}"
+                    # Fix: PIPE 버퍼(64KB) 초과 → 프로세스 Hang → 좀비 락 연쇄 문제 해결
+                    # stdout/stderr를 로그 파일로 리디렉션하여 버퍼 막힘을 원천 차단
+                    # (PIPE는 읽지 않으면 64KB에서 블로킹 → 백그라운드 Hang → 락 반환 불가)
+                    import datetime as _dt
+                    _log_dir = Path(WORKSPACE) / ".agents" / "history"
+                    _log_dir.mkdir(parents=True, exist_ok=True)
+                    _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    _log_path = _log_dir / f"task_{lid}_{_ts}.log"
+                    with open(_log_path, "w", encoding="utf-8") as _log_fh:
+                        proc = subprocess.Popen(
+                            wrapped_cmd,
+                            shell=True,
+                            stdout=_log_fh,
+                            stderr=_log_fh,
+                            start_new_session=True,
+                        )
+                    r = {"status": "started", "pid": proc.pid, "lane": lid,
+                         "log": f".agents/history/task_{lid}_{_ts}.log",
+                         "note": "relay lock will be auto-released on completion"}
             else: return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": f"Unknown tool: {n}"}}
             
-            final_res = str(r)
+            if isinstance(r, (dict, list)):
+                final_res = json.dumps(r, ensure_ascii=False, indent=2)
+            else:
+                final_res = str(r)
             if hook_msg:
                 final_res = f"{hook_msg}\n{final_res}"
             return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": final_res}]}}
-        except Exception as e: return {"jsonrpc": "2.0", "id": rid, "result": {"isError": True, "content": [{"type": "text", "text": f"Error: {str(e)}"}]}}
+        except Exception as e: return {"jsonrpc": "2.0", "id": rid, "result": {"isError": True, "content": [{"type": "text", "text": f"Error: {str(e)}\n{traceback.format_exc()}"}]}}
     return {"jsonrpc": "2.0", "id": rid, "result": {}} if rid else None
 
-def serve():
-    while True:
-        line = sys.stdin.readline()
-        if not line: break
-        try:
-            req = json.loads(line)
-            res = handle_request(req)
-            if res: sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n"); sys.stdout.flush()
-        except: pass
+def start_watcher_daemon():
+    try:
+        watcher_script = SCRIPTS_DIR / "cortex" / "watcher.py"
+        log_file = Path(WORKSPACE) / ".agents" / "history" / "watcher.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 중복 실행 방지
+        subprocess.run("pkill -f watcher.py", shell=True, stderr=subprocess.DEVNULL)
+        
+        if watcher_script.exists():
+            with open(log_file, "a", encoding="utf-8") as f:
+                proc = subprocess.Popen(
+                    [sys.executable, str(watcher_script)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                return proc
+    except Exception as e:
+        sys.stderr.write(f"Failed to start watcher daemon: {e}\n")
+    return None
 
-if __name__ == "__main__": serve()
+def serve():
+    watcher_proc = start_watcher_daemon()
+    try:
+        while True:
+            line = sys.stdin.readline()
+            if not line: break
+            try:
+                req = json.loads(line)
+                res = handle_request(req)
+                if res: sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n"); sys.stdout.flush()
+            except: pass
+    finally:
+        if watcher_proc:
+            watcher_proc.terminate()
+            sys.stderr.write("[Cortex] Watcher terminated along with MCP server.\n")
+
+if __name__ == "__main__":
+    serve()
