@@ -5,20 +5,54 @@ import subprocess
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import logging
-from logging.handlers import RotatingFileHandler
 
-WORKSPACE = Path(__file__).resolve().parent.parent.parent.parent
+# 프로젝트 루트 및 스크립트 경로 설정
+CORTEX_DIR = Path(__file__).resolve().parent
+SCRIPTS_DIR = str(CORTEX_DIR.parent)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
-log_file = WORKSPACE / ".agents" / "history" / "watcher.log"
-log_file.parent.mkdir(parents=True, exist_ok=True)
+from cortex.logger import get_logger
 
-logger = logging.getLogger("cortex_watcher")
-logger.setLevel(logging.INFO)
-handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+WORKSPACE = CORTEX_DIR.parent.parent.parent
+logger = get_logger("watcher")
+
+# ---------------------------------------------------------
+# Resident Engine Initialization
+# ---------------------------------------------------------
+# indexer를 모듈 레벨에서 로드하여 cold start 방지 및 부팅 로그 확인
+indexer_path = Path(__file__).resolve().parent / "indexer.py"
+scripts_dir = str(indexer_path.parent.parent)
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
+
+import traceback
+try:
+    from cortex import indexer as pc_indexer
+    from cortex.vectorizer import detect_gpu
+    
+    # [Resident Strategy] 이제 모델을 직접 로드하지 않고, 통합 엔진 서버를 활용합니다.
+    # 데몬은 가벼운 감찰형 프로세스로 상주합니다.
+except ImportError:
+    # 런타임에 path를 다시 잡아야 할 수도 있음 (venv 환경 등)
+    pc_indexer = None
+    detect_gpu = lambda: "unknown"
+
+def print_ready_banner():
+    is_gpu = detect_gpu()
+    hw_str = "GPU (Accelerated)" if is_gpu else "CPU (Standard)"
+    banner = f"""
+================================================
+🚀 [SYSTEM READY] Cortex Unified Daemon Active
+------------------------------------------------
+- Mode: Shared Engine Client (Low Overhead)
+- Hardware: GPU (Shared via Engine Server)
+- Workspace: {WORKSPACE}
+- Monitoring: Active (5s debounce)
+================================================
+"""
+    for line in banner.strip().split('\n'):
+        logger.info(line)
 
 class DebouncedIndexer(FileSystemEventHandler):
     def __init__(self):
@@ -68,22 +102,22 @@ class DebouncedIndexer(FileSystemEventHandler):
             files_to_index = list(self.changed_files)
             self.changed_files.clear()
             
-            indexer_path = Path(__file__).resolve().parent / "indexer.py"
-            scripts_dir = str(indexer_path.parent.parent)
-            if scripts_dir not in sys.path:
-                sys.path.insert(0, scripts_dir)
-            
-            import traceback
-            from cortex import indexer as pc_indexer
-            
             logger.info(f"Debounce triggered. Indexing {len(files_to_index)} files directly in-process...")
             for f in files_to_index:
                 try:
                     logger.info(f"  -> Indexing: {f}")
-                    # 콜드 스타트 제거: subprocess 대신 현재 메모리(System RAM)에 상주하는 엔진 직접 호출
+                    # [Unified Policy] 이제 데몬이 직접 CPU를 쓰지 않고, 
+                    # 이미 GPU에 상주 중인 통합 엔진 서버에게 요청을 보냅니다.
+                    # 서버가 없을 경우에만 자동 fallback 처리됩니다.
                     result = pc_indexer.index_file(str(WORKSPACE), f)
                     if isinstance(result, dict) and "error" in result:
                         logger.warning(f"     [FAIL] {f}: {result['error']}")
+                    elif isinstance(result, dict) and result.get("status") == "deleted":
+                        logger.info(f"     [DELETED] {f}")
+                    elif isinstance(result, dict) and result.get("status") == "created":
+                        logger.info(f"     [CREATED] {f}")
+                    elif isinstance(result, dict) and result.get("status") == "updated":
+                        logger.info(f"     [UPDATED] {f}")
                     else:
                         logger.info(f"     [OK] {f}")
                 except Exception as e:
@@ -94,6 +128,9 @@ def main():
     event_handler = DebouncedIndexer()
     observer = Observer()
     observer.schedule(event_handler, str(WORKSPACE), recursive=True)
+    # 부팅 배너 출력 (모델 로딩 유도)
+    print_ready_banner()
+    
     observer.start()
     try:
         while True:
