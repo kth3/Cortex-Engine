@@ -49,7 +49,29 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True)
     """
     full_path = os.path.join(workspace, rel_path)
     if not os.path.exists(full_path):
-        return {"error": "File not found"}
+        close_conn = False
+        if conn is None:
+            conn = db.get_connection(workspace)
+            close_conn = True
+        try:
+            old_nodes = conn.execute("SELECT id FROM nodes WHERE file_path = ?", (rel_path,)).fetchall()
+            old_ids = [r[0] for r in old_nodes]
+            if old_ids:
+                chunk_size = 900
+                for i in range(0, len(old_ids), chunk_size):
+                    chunk = old_ids[i:i + chunk_size]
+                    ph = ",".join("?" * len(chunk))
+                    conn.execute(f"DELETE FROM edges WHERE source_id IN ({ph})", chunk)
+                    conn.execute(f"DELETE FROM edges WHERE target_id IN ({ph})", chunk)
+                conn.execute("DELETE FROM nodes WHERE file_path = ?", (rel_path,))
+            conn.execute("DELETE FROM file_cache WHERE file_path = ?", (rel_path,))
+            conn.commit()
+            return {"status": "deleted", "reason": f"File removed from DB"}
+        except Exception as e:
+            return {"error": f"Cleanup failed: {e}"}
+        finally:
+            if close_conn:
+                conn.close()
 
     try:
         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:

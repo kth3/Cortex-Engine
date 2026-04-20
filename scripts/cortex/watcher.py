@@ -37,7 +37,7 @@ class DebouncedIndexer(FileSystemEventHandler):
             return any(x in path_str for x in ['/rules/', '/knowledge/', '/skills/', '/docs/'])
 
         # 3. 그 외 프로젝트 폴더 및 예제 소스 (자동 감시) - 확장자 기반
-        allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json']
+        allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json', '.pdf']
         return any(path_str.endswith(ext) for ext in allowed_exts)
 
     def on_modified(self, event):
@@ -46,6 +46,11 @@ class DebouncedIndexer(FileSystemEventHandler):
         self.handle_event(event.src_path)
 
     def on_created(self, event):
+        if event.is_directory:
+            return
+        self.handle_event(event.src_path)
+
+    def on_deleted(self, event):
         if event.is_directory:
             return
         self.handle_event(event.src_path)
