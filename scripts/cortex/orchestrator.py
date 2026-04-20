@@ -81,11 +81,13 @@ def manage_todo(workspace, action, task=None, task_id=None):
             data = json.load(f)
 
             if action == "add":
-                new_id = str(len(data["todos"]) + 1)
+                # Fix #6: len+1 방식은 clear 후 ID 재사용 가능 → max(id)+1 방식으로 교체
+                existing_ids = [int(t["id"]) for t in data["todos"] if str(t.get("id", "")).isdigit()]
+                new_id = str(max(existing_ids) + 1) if existing_ids else "1"
                 data["todos"].append({
-                    "id": new_id, 
-                    "task": task, 
-                    "done": False, 
+                    "id": new_id,
+                    "task": task,
+                    "done": False,
                     "created_at": str(datetime.now())
                 })
                 res = {"success": True, "id": new_id}

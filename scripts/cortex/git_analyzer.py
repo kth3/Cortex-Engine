@@ -46,14 +46,14 @@ def get_file_lineage(workspace, file_path):
 
         # 마지막 수정자, 수정 시간, 커밋 횟수 추출
         cmd = ["git", "log", "-n", "1", "--format=%an|%at", "--", rel_path]
-        output = subprocess.check_output(cmd, cwd=real_root, stderr=subprocess.STDOUT).decode().strip()
+        output = subprocess.check_output(cmd, cwd=real_root, stderr=subprocess.STDOUT, timeout=15).decode().strip()
         if not output: return None
         
         author, ts = output.split("|")
         
         cmd_count = ["git", "rev-list", "--count", "HEAD", "--", rel_path]
         try:
-            count = subprocess.check_output(cmd_count, cwd=real_root).decode().strip()
+            count = subprocess.check_output(cmd_count, cwd=real_root, timeout=15).decode().strip()
         except Exception: count = "0"
         
         return {
@@ -81,7 +81,7 @@ def get_file_history(workspace, file_path, limit=5):
 
         # 커밋 해시, 작성자, 시간(Unix), 메시지 추출
         cmd = ["git", "log", "-n", str(limit), "--format=%h|%an|%at|%s", "--", rel_path]
-        output = subprocess.check_output(cmd, cwd=real_root, stderr=subprocess.STDOUT).decode().strip()
+        output = subprocess.check_output(cmd, cwd=real_root, stderr=subprocess.STDOUT, timeout=15).decode().strip()
         if not output: return []
         
         history = []

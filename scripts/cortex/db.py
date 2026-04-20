@@ -33,7 +33,16 @@ def to_abs_path(rel_path: str, workspace: str) -> str:
         return rel_path
     return os.path.abspath(os.path.join(workspace, rel_path.replace("ROOT/", "").replace("ROOT\\", "")))
 
+# Fix #5: sqlite-vec 확장 로드 상태를 모듈 레벨에서 관리
+# (sqlite3.Connection은 C 확장 타입이라 임의 속성 할당 불가)
+_VEC_AVAILABLE = None  # None=미확인, True/False=확인 완료
+
+def is_vec_available() -> bool:
+    """sqlite-vec 확장 로드 가능 여부를 반환"""
+    return _VEC_AVAILABLE is True
+
 def get_connection(workspace: str) -> sqlite3.Connection:
+    global _VEC_AVAILABLE
     db_path = get_db_path(workspace)
     conn = sqlite3.connect(db_path, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -42,14 +51,18 @@ def get_connection(workspace: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     
     # [NEW] V2 핵심: sqlite-vec 벡터 확장 모듈 직접 로드
+    # Fix #5: 로드 성공 여부를 모듈 레벨 플래그로 기록하여 Graceful Degradation 지원
     try:
         import sqlite_vec
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
         conn.enable_load_extension(False)
+        _VEC_AVAILABLE = True
     except Exception as e:
-        import sys
-        sys.stderr.write(f"[Cortex DB] Failed to load sqlite-vec extension: {e}\n")
+        if _VEC_AVAILABLE is None:
+            import sys
+            sys.stderr.write(f"[Cortex DB] sqlite-vec unavailable, falling back to FTS5-only: {e}\n")
+        _VEC_AVAILABLE = False
         
     return conn
 
@@ -170,16 +183,6 @@ def _create_memory_tables(conn: sqlite3.Connection):
         updated_at  INTEGER NOT NULL
     );
 
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
-        rowid INTEGER PRIMARY KEY,
-        embedding float[1024]
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
-        rowid INTEGER PRIMARY KEY,
-        embedding float[1024]
-    );
-
     CREATE TABLE IF NOT EXISTS search_misses (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         query       TEXT NOT NULL,
@@ -192,6 +195,30 @@ def _create_memory_tables(conn: sqlite3.Connection):
         key     TEXT PRIMARY KEY,
         value   TEXT
     );
+    """)
+
+
+def _create_vec_tables(conn: sqlite3.Connection):
+    """Fix #5: sqlite-vec 가상 테이블 생성 (확장이 로드된 경우에만 호출)"""
+    conn.executescript("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[1024]
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[1024]
+    );
+
+    -- sqlite-vec 고아 벡터 방지용 CASCADE 트리거
+    CREATE TRIGGER IF NOT EXISTS del_node_vec AFTER DELETE ON nodes BEGIN
+        DELETE FROM vec_nodes WHERE rowid = old.rowid;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS del_memory_vec AFTER DELETE ON memories BEGIN
+        DELETE FROM vec_memories WHERE rowid = old.rowid;
+    END;
     """)
 
 def _create_fts_and_triggers(conn: sqlite3.Connection):
@@ -234,15 +261,6 @@ def _create_fts_and_triggers(conn: sqlite3.Connection):
         VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
         INSERT INTO memories_fts(rowid, key, content, tags, category)
         VALUES (new.rowid, new.key, new.content, new.tags, new.category);
-    END;
-
-    -- [NEW] sqlite-vec 고아 벡터 방지용 CASCADE 트리거
-    CREATE TRIGGER IF NOT EXISTS del_node_vec AFTER DELETE ON nodes BEGIN
-        DELETE FROM vec_nodes WHERE rowid = old.rowid;
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS del_memory_vec AFTER DELETE ON memories BEGIN
-        DELETE FROM vec_memories WHERE rowid = old.rowid;
     END;
     """)
 
@@ -288,6 +306,10 @@ def init_schema(conn: sqlite3.Connection):
     _create_memory_tables(conn)
     _create_fts_and_triggers(conn)
     _create_indexes(conn)
+
+    # Fix #5: sqlite-vec 가상 테이블은 확장이 로드된 경우에만 생성
+    if is_vec_available():
+        _create_vec_tables(conn)
 
     # 초기화 및 마이그레이션
     _apply_migrations(conn)

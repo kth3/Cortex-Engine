@@ -8,8 +8,31 @@ import os
 import re
 import hashlib
 
+
+def _safe_resolve(workspace: str, file_path: str) -> str:
+    """Fix #6: 경로 이탈(Path Traversal) 방지.
+    
+    os.path.join은 file_path가 절대 경로이면 workspace를 무시하므로,
+    반드시 정규화 후 workspace 범위 내인지 검증합니다.
+    """
+    # 절대 경로는 즉시 거부 (workspace 외부 파일 접근 시도)
+    if os.path.isabs(file_path):
+        raise PermissionError(
+            f"Path traversal blocked: absolute path '{file_path}' is not allowed"
+        )
+    
+    full_path = os.path.abspath(os.path.join(workspace, file_path))
+    workspace_abs = os.path.abspath(workspace)
+    
+    # ../를 통한 workspace 경계 탈출 검증
+    if not full_path.startswith(workspace_abs + os.sep) and full_path != workspace_abs:
+        raise PermissionError(
+            f"Path traversal blocked: '{file_path}' escapes workspace '{workspace}'"
+        )
+    return full_path
+
 def read_with_hash(workspace, file_path):
-    full_path = os.path.join(workspace, file_path)
+    full_path = _safe_resolve(workspace, file_path)
     if not os.path.exists(full_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
@@ -58,8 +81,8 @@ def _find_fuzzy_match(content: str, old_content: str) -> tuple[int, int] | None:
     content_lines = content.split("\n")
     content_norm_lines = [re.sub(r'\s+', ' ', line.strip()) for line in content_lines]
     
-    # 슬라이딩 윈도우: 정규화된 라인 배열로 비교
-    window_size = len(old_norm_lines)
+    # 원본 라인 수 기준으로 윈도우 크기 결정 (빈 줄 포함 정확한 범위 특정)
+    window_size = len(old_content.split("\n"))
     
     for i in range(len(content_norm_lines) - window_size + 1):
         window = content_norm_lines[i:i + window_size]
@@ -86,7 +109,7 @@ def strict_replace(workspace, file_path, old_content, new_content):
     2단계: 실패 시 공백/들여쓰기 차이를 무시하는 퍼지 매칭 시도
     소형 모델(0.6B)의 Indent/공백 실수를 자동 보정합니다.
     """
-    full_path = os.path.join(workspace, file_path)
+    full_path = _safe_resolve(workspace, file_path)
     if not os.path.exists(full_path):
         return {"error": f"File not found: {file_path}"}
     

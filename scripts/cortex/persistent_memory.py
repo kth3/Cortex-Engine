@@ -118,60 +118,63 @@ class PersistentMemoryManager:
     def search(self, project_id: str, query: str, category: str = None, limit: int = 10) -> list:
         """하이브리드 검색 (FTS5 + 벡터 유사도 병합)"""
         from cortex import vector_engine as ve
-        
-        results_map = {} # key -> data
-        
-        # 1. 벡터 검색 (sqlite-vec 기반)
+
+        results_map = {}  # key -> data
+
+        # Fix #4: 단일 커넥션으로 두 검색 모두 처리하여 커넥션 누수 방지
         conn = get_connection(self.workspace)
         try:
-            query_vec = ve.get_embeddings([query])[0]
-            vec_rows = conn.execute("SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?", (query_vec.tobytes(), limit * 2)).fetchall()
-            if vec_rows:
-                ph = ",".join(["?"] * len(vec_rows))
-                rowids = [r[0] for r in vec_rows]
-                db_rows = conn.execute(f"SELECT * FROM memories WHERE rowid IN ({ph})").fetchall()
-                for r in db_rows:
-                    d = dict(r)
-                    if not category or d.get("category") == category:
+            # 1. 벡터 검색 (sqlite-vec 기반) — Fix #5: 확장 로드 여부를 체크
+            from cortex.db import is_vec_available
+            if is_vec_available():
+                try:
+                    query_vec = ve.get_embeddings([query])[0]
+                    vec_rows = conn.execute("SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?", (query_vec.tobytes(), limit * 2)).fetchall()
+                    if vec_rows:
+                        ph = ",".join(["?"] * len(vec_rows))
+                        rowids = [r[0] for r in vec_rows]
+                        db_rows = conn.execute(f"SELECT * FROM memories WHERE rowid IN ({ph})", rowids).fetchall()
+                        for r in db_rows:
+                            d = dict(r)
+                            if not category or d.get("category") == category:
+                                d["tags"] = json.loads(d.get("tags") or "[]")
+                                d["relationships"] = json.loads(d.get("relationships") or "{}")
+                                results_map[d["key"]] = d
+                except Exception as e:
+                    import sys as _sys
+                    _sys.stderr.write(f"[persistent_memory] Vector search failed: {e}\n")
+
+            # 2. FTS5 전문 검색 (키워드 기반)
+            try:
+                clean_query = query.replace('"', '').replace("'", "")
+                tokens = [f'"{t}"*' for t in clean_query.split() if len(t) >= 2]
+                fts_query = " OR ".join(tokens) if tokens else "*"
+
+                if category:
+                    rows = conn.execute(
+                        """SELECT m.* FROM memories_fts f
+                           JOIN memories m ON m.rowid = f.rowid
+                           WHERE memories_fts MATCH ? AND m.category = ?
+                           ORDER BY rank LIMIT ?""",
+                        (fts_query, category, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT m.* FROM memories_fts f
+                           JOIN memories m ON m.rowid = f.rowid
+                           WHERE memories_fts MATCH ?
+                           ORDER BY rank LIMIT ?""",
+                        (fts_query, limit),
+                    ).fetchall()
+
+                for row in rows:
+                    d = dict(row)
+                    if d["key"] not in results_map:
                         d["tags"] = json.loads(d.get("tags") or "[]")
                         d["relationships"] = json.loads(d.get("relationships") or "{}")
                         results_map[d["key"]] = d
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"[persistent_memory] Vector search failed: {e}\n")
-
-        # 2. FTS5 전문 검색 (키워드 기반)
-        conn = get_connection(self.workspace)
-        try:
-            clean_query = query.replace('"', '').replace("'", "")
-            tokens = [f'"{t}"*' for t in clean_query.split() if len(t) >= 2]
-            fts_query = " OR ".join(tokens) if tokens else "*"
-            
-            if category:
-                rows = conn.execute(
-                    """SELECT m.* FROM memories_fts f
-                       JOIN memories m ON m.rowid = f.rowid
-                       WHERE memories_fts MATCH ? AND m.category = ?
-                       ORDER BY rank LIMIT ?""",
-                    (fts_query, category, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT m.* FROM memories_fts f
-                       JOIN memories m ON m.rowid = f.rowid
-                       WHERE memories_fts MATCH ?
-                       ORDER BY rank LIMIT ?""",
-                    (fts_query, limit),
-                ).fetchall()
-
-            for row in rows:
-                d = dict(row)
-                if d["key"] not in results_map:
-                    d["tags"] = json.loads(d.get("tags") or "[]")
-                    d["relationships"] = json.loads(d.get("relationships") or "{}")
-                    results_map[d["key"]] = d
-        except Exception:
-            pass
+            except Exception:
+                pass
         finally:
             conn.close()
 

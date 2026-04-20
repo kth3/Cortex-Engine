@@ -7,6 +7,7 @@
 import gc
 import os
 import re
+import sys
 import time
 import json
 import logging
@@ -142,19 +143,25 @@ class SkillManager:
                     errors.append(f"{skill_path}: {e}")
 
             if skill_info_map:
-                # 기존 항목 대량 조회 (Batch SELECT)
-                existing_map = {}
+                # 기존 항목 대량 조회 (Batch SELECT) — vec 존재 여부도 함께 확인
+                existing_map = {}  # key -> has_vec (bool)
                 keys = list(skill_info_map.keys())
                 chunk_size = 900
                 for i in range(0, len(keys), chunk_size):
                     chunk = keys[i:i + chunk_size]
                     placeholders = ",".join(["?"] * len(chunk))
-                    rows = conn.execute(f"SELECT key FROM memories WHERE key IN ({placeholders})", chunk).fetchall()
+                    rows = conn.execute(
+                        f"SELECT m.key, (v.rowid IS NOT NULL) as has_vec "
+                        f"FROM memories m "
+                        f"LEFT JOIN vec_memories v ON v.rowid = m.rowid "
+                        f"WHERE m.key IN ({placeholders})",
+                        chunk
+                    ).fetchall()
                     for r in rows:
                         row_dict = dict(r)
                         k = row_dict.get("key")
                         if k:
-                            existing_map[k] = True
+                            existing_map[k] = bool(row_dict.get("has_vec", 0))
 
                 to_insert = []
                 to_update = []
@@ -176,8 +183,8 @@ class SkillManager:
 
                     if skill_key in existing_map:
                         to_update.append((content, tags_json, now, skill_key))
-                        if not existing_map.get(skill_key):
-                            pending_embed.append({"id": skill_key, "text": f"{s_name} {s_desc}"})
+                        # Fix #2: 벡터가 없거나 내용이 변경되었으므로 항상 re-embed
+                        pending_embed.append({"id": skill_key, "text": f"{s_name} {s_desc}"})
                     else:
                         to_insert.append((skill_key, project_id, content, tags_json, now, now))
                         pending_embed.append({"id": skill_key, "text": f"{s_name} {s_desc}"})
@@ -227,6 +234,11 @@ class SkillManager:
                     pass
 
             if vector_items:
+                # Fix #2: Step 1에서 변경/신규로 수집된 ID만 필터링 (효율성 복구)
+                pending_ids = {item["id"] for item in pending_embed}
+                vector_items = [item for item in vector_items if item["id"] in pending_ids]
+
+            if vector_items:
                 try:
                     import torch
                     use_gpu = torch.cuda.is_available()
@@ -240,7 +252,9 @@ class SkillManager:
                 vec_conn = _gc(self.workspace)
                 from tqdm import tqdm
                 try:
-                    batch_size = 16
+                    from cortex.indexer_utils import get_tuning_params
+                    tuning = get_tuning_params()
+                    batch_size = tuning.get("batch_size", 16)
                     for i in tqdm(range(0, len(vector_items), batch_size), desc="Skills Embedding", unit="batch"):
                         batch = vector_items[i:i + batch_size]
                         texts = [item["text"] for item in batch]
