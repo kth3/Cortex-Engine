@@ -171,9 +171,9 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
             base = base.split("<")[0].strip()  # 제네릭 제거
             if base:
                 edges.append({
-                    "from_id": node_id,
-                    "to_name": base,
-                    "relation": "Inherits" if kind in ("class", "struct") else "Implements",
+                    "source_id": node_id,
+                    "target_id": f"__unresolved__::{base}",
+                    "type": "INHERITS" if kind in ("class", "struct") else "IMPLEMENTS"
                 })
 
     # ----- 3. 메서드 -----
