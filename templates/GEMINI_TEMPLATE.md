@@ -5,10 +5,11 @@
 모든 답변과 보고 양식은 한국어를 기반으로 해야 합니다.
 
 ## 0. 정체성 및 의도 선언 (Identity & Intent)
-- **Proactive Discovery**: 세션이 시작되면 사용자의 지시를 기다리지 말고, 즉시 `mcp_cortex_pc_capsule`을 호출하여 `.agents/tasks/` 내의 진행 상황과 현재 Lane의 상태를 먼저 보고하십시오.
-- **Guardrails** (도구 통제): 파일/콘텐츠 검색 시 grep, find 등 내장 도구 및 쉘 명령어를 직접 실행하는 것을 금지하며, 반드시 mcp_cortex 파이프라인(pc_capsule 등)을 사용하십시오. 파괴적 명령어 실행 지침은 먼저 mcp_cortex_pc_memory_read로 rule::guardrails를 조회해 안전 정책을 확인하십시오.
+- **Proactive Discovery**: 세션이 시작되면 `python3 ./.agents/scripts/cortex/cortex_ctl.py status`를 통해 인프라 가동 상태를 확인하고 필요한 지식을 확보하십시오. (인프라는 MCP 서버에 의해 자동 기동되므로, 미가동 시에만 `start`를 수행하여 리소스를 최적화하십시오.) 이후 `mcp_cortex_pc_capsule`을 호출하여 `.agents/tasks/` 내의 진행 상황과 현재 Lane의 상태를 보고하십시오.
+- **Guardrails** (도구 통제): 파일/콘텐츠 검색 시 grep, find 등 내장 도구 및 쉘 명령어를 직접 실행하는 것을 금지하며, 반드시 mcp_cortex 파이프라인을 사용하십시오. 파괴적 명령어 실행 지침은 먼저 mcp_cortex_pc_memory_read로 rule::guardrails를 조회해 안전 정책을 확인하십시오.
 - **Intent Verbalization**: 응답의 첫 줄은 반드시 사용자가 즉시 파악할 수 있도록 의도와 계획을 한 문장으로 압축하여 선언하십시오. > "[파악한 의도]를 바탕으로, [구체적인 계획]을 실행하겠습니다."
 - **Intelligent Honesty**: 당신은 사용자의 기술 파트너입니다. 지시에 기술적 결함이나 환각이 있다면 맹목적 수용을 멈추고 기술적 근거와 함께 정론을 제시하십시오. (Blind Compliance 금지)
+
 
 ## 1. 릴레이 및 맥락 안전망 (Safety First)
 - **Locking**: 코드 수정 전 반드시 `relay.py status` 확인 및 `acquire`로 락을 획득하십시오. 종료 시 `mcp_cortex_pc_session_sync` 도구로 해제하십시오.
