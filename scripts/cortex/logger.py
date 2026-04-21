@@ -21,32 +21,36 @@ def get_logger(module_name: str = None) -> logging.Logger:
     global _initialized
 
     root_logger = logging.getLogger(LOGGER_NAME)
-    if not root_logger.hasHandlers():
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        root_logger.setLevel(logging.INFO)
+    
+    # [Singleton Guard] 기존에 등록된 핸들러가 있다면 중복 방지를 위해 모두 제거
+    if root_logger.hasHandlers():
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
 
-        # 1. 파일 핸들러 (실시간 1MB 로테이션)
-        file_handler = RotatingFileHandler(
-            LOG_FILE, 
-            maxBytes=MAX_BYTES, 
-            backupCount=BACKUP_COUNT, 
-            encoding="utf-8"
-        )
-        file_formatter = logging.Formatter(
-            fmt="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    root_logger.setLevel(logging.INFO)
 
-        # 2. 스트림 핸들러 (MCP JSON-RPC 통신 규격 보호를 위해 반드시 sys.stderr 사용)
-        stream_handler = logging.StreamHandler(sys.stderr)
-        stream_formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
-        stream_handler.setFormatter(stream_formatter)
-        root_logger.addHandler(stream_handler)
+    # 1. 파일 핸들러 (실시간 1MB 로테이션)
+    file_handler = RotatingFileHandler(
+        LOG_FILE, 
+        maxBytes=MAX_BYTES, 
+        backupCount=BACKUP_COUNT, 
+        encoding="utf-8"
+    )
+    file_formatter = logging.Formatter(
+        fmt="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
 
-        root_logger.propagate = False
-        _initialized = True
+    # 2. 스트림 핸들러 (MCP JSON-RPC 통신 규격 보호를 위해 반드시 sys.stderr 사용)
+    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
+    stream_handler.setFormatter(stream_formatter)
+    root_logger.addHandler(stream_handler)
+
+    root_logger.propagate = False
 
     name = f"{LOGGER_NAME}.{module_name}" if module_name else LOGGER_NAME
     return logging.getLogger(name)
