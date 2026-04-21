@@ -199,7 +199,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
 
         conn.commit()
 
-        result = {"status": "updated" if is_update else "created", "nodes": len(nodes_data)}
+        result = {"status": "updated" if is_update else "created", "nodes": len(nodes_data), "chunks": len(nodes_data)}
         if not vectorize:
             # 배치 모드: 호출자가 일괄 처리하도록 vector_items 반환
             result["_vector_items"] = vector_items
