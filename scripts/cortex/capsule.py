@@ -45,8 +45,18 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
         for r in query_nodes:
             d = dict(r)
             results[d["id"]] = d
-        
-    pivots = list(results.values())[:3]
+
+    # [우선순위 정렬] 프로젝트 코드 우선, references/ 는 후순위
+    # 차단이 아닌 소프트 정렬: 프로젝트 코드 피벗이 부족할 때만 references가 보완
+    def _is_reference(node: dict) -> bool:
+        fp = str(node.get("file_path", ""))
+        return fp.startswith("references/") or fp.startswith("references\\")
+
+    all_nodes = list(results.values())
+    project_nodes = [n for n in all_nodes if not _is_reference(n)]
+    ref_nodes     = [n for n in all_nodes if _is_reference(n)]
+    # 프로젝트 코드를 앞에, 레퍼런스를 뒤에 배치
+    pivots = (project_nodes + ref_nodes)[:3]
     if not pivots:
         conn.close()
         return "No relevant context found."
