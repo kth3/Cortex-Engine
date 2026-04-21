@@ -6,6 +6,7 @@ import signal
 import socket
 import struct
 import json
+import fcntl
 from pathlib import Path
 
 # 경로 설정
@@ -23,6 +24,7 @@ logger = get_logger("ctl")
 # 제어 대상 스크립트
 SERVER_SCRIPT = CORTEX_DIR / "vector_engine_server.py"
 WATCHER_SCRIPT = CORTEX_DIR / "watcher.py"
+LOCK_FILE = LOG_DIR / "cortex_ctl.lock"
 
 def _send_minimal_ping() -> bool:
     """엔진 서버에 최소한의 핑을 보내 살아있는지 확인"""
@@ -32,16 +34,10 @@ def _send_minimal_ping() -> bool:
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.settimeout(2.0)
         client.connect(SOCKET_PATH)
-        
-        # 'ping' 명령 전송
         data = json.dumps({"command": "ping"}).encode("utf-8")
         client.sendall(struct.pack("!I", len(data)) + data)
-        
-        # 헤더 수신 (4바이트)
         header = client.recv(4)
         if not header: return False
-        
-        # 응답 바디 수신
         size = struct.unpack("!I", header)[0]
         resp = client.recv(size).decode("utf-8")
         return json.loads(resp).get("status") == "ok"
@@ -59,7 +55,26 @@ def get_pids(script_name: str):
     except subprocess.CalledProcessError:
         return []
 
-def stop():
+def acquire_lock():
+    """하나의 ctl 프로세스만 서버/워처를 제어하도록 파일 락 획득"""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        f = open(LOCK_FILE, "w")
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return f
+    except (IOError, OSError):
+        return None
+
+def release_lock(f):
+    if f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_UN)
+            f.close()
+        except:
+            pass
+
+def _perform_stop():
+    """실제 종료 로직 (락 획득 여부와 상관없이 실행 가능)"""
     logger.info("Stopping all Cortex services...")
     
     # 1. Watcher 종료
@@ -82,86 +97,108 @@ def stop():
     else:
         logger.info("Engine Server is not running.")
     
-    # 3. 인프라 파일 정리 (소켓 및 유령 로그)
+    # 3. 소켓 파일 정리
     if os.path.exists(SOCKET_PATH):
-        os.remove(SOCKET_PATH)
+        try: os.remove(SOCKET_PATH)
+        except: pass
         logger.info(f"Cleaned IPC Socket: {SOCKET_PATH}")
 
-    # [CLEANUP] 유령 로그 파일 삭제 (사용자 요청 반영)
-    phantom_logs = ["watcher.log", "watcher_output.log", "engine_server.log"]
+    # [CLEANUP] 유령 로그 파일 삭제
+    phantom_logs = ["watcher_output.log", "engine_server.log"]
     for vlog in phantom_logs:
         target = LOG_DIR / vlog
         if target.exists():
-            target.unlink()
+            try: target.unlink()
+            except: pass
             logger.info(f"Infrastructure Cleaned: Removed {vlog}")
-        else:
-            # 존재하지 않아도 기록하여 투명성 보장
-            logger.info(f"Infrastructure Sync: {vlog} is already clean.")
 
     logger.info("All services stop/cleanup sequence complete.")
+
+def stop():
+    lock_f = acquire_lock()
+    if not lock_f:
+        logger.info("Another control process is running. Skipping stop.")
+        return
+    try:
+        _perform_stop()
+    finally:
+        release_lock(lock_f)
 
 def start():
     # 로그 디렉토리 준비
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 먼저 종료 및 청소 (중복 방지 및 유령 로그 제거)
-    stop()
-    
-    logger.info("Starting Unified Cortex Services...")
-    
-    # 1. Engine Server 가동
-    # start_new_session=True 를 사용하여 부모 세션(에디터/터미널) 종료 시에도 상주 보장
-    logger.info("Launching GPU Engine Server...")
-    subprocess.Popen(
-        [str(VENV_PYTHON), str(SERVER_SCRIPT)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True
-    )
-    
-    # 2. 서버 대기 (소켓 생성 확인)
-    logger.info("Waiting for Engine Server to initialize GPU...")
-    retry = 0
-    max_retries = 35 # 모델 로딩 시간을 고려하여 넉넉히 설정
-    ready = False
-    while retry < max_retries:
-        if _send_minimal_ping():
-            ready = True
-            break
-        time.sleep(1)
-        retry += 1
-    
-    if not ready:
-        logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
+    # [Atomic Lock] 중복 기동 방지를 위한 파일 락 획득
+    lock_f = acquire_lock()
+    if not lock_f:
+        # 이미 다른 ctl(예: MCP 자동기동)이 작업 중이면 조용히 종료
         return
 
-    logger.info("Engine Server is Ready (GPU Shared Mode).")
+    try:
+        # 먼저 이미 완벽히 실행 중인지 체크 (중복 실행 방지)
+        current_watchers = get_pids(str(WATCHER_SCRIPT))
+        current_servers = get_pids(str(SERVER_SCRIPT))
+        
+        if current_watchers and current_servers and _send_minimal_ping():
+            # 이미 모든 서비스가 정상 가동 중이면 종료
+            return
 
-    # 3. Watcher 가동
-    logger.info("Launching Watcher Daemon...")
-    subprocess.Popen(
-        [str(VENV_PYTHON), str(WATCHER_SCRIPT)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True
-    )
-    
-    logger.info("Cortex services started successfully. All logs unified in cortex.log (1MB rotate).")
+        # 기동 전 청소 (기존 프로세스 및 파일 정리)
+        _perform_stop()
+        
+        logger.info("Starting Unified Cortex Services...")
+        
+        # 1. Engine Server 가동
+        logger.info("Launching GPU Engine Server...")
+        subprocess.Popen(
+            [str(VENV_PYTHON), str(SERVER_SCRIPT)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        # 2. 서버 대기 (소켓 생성 및 Ping 확인)
+        logger.info("Waiting for Engine Server to initialize GPU...")
+        retry = 0
+        max_retries = 35
+        ready = False
+        while retry < max_retries:
+            if _send_minimal_ping():
+                ready = True
+                break
+            time.sleep(1)
+            retry += 1
+        
+        if not ready:
+            logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
+            return
+
+        logger.info("Engine Server is Ready (GPU Shared Mode).")
+
+        # 3. Watcher 가동
+        logger.info("Launching Watcher Daemon...")
+        subprocess.Popen(
+            [str(VENV_PYTHON), str(WATCHER_SCRIPT)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        logger.info("Cortex services started successfully.")
+        (LOG_DIR / "last_start.txt").write_text(str(time.time()))
+    finally:
+        release_lock(lock_f)
 
 def status():
     server_pids = get_pids(str(SERVER_SCRIPT))
     watcher_pids = get_pids(str(WATCHER_SCRIPT))
+    ping_ok = _send_minimal_ping()
     
     print("\n--- Cortex Status Report (Resident Mode) ---")
-    print(f"Engine Server : {'RUNNING' if server_pids else 'STOPPED'} (PIDs: {server_pids})")
+    print(f"Engine Server : {'RUNNING' if server_pids else 'STOPPED'} (PIDs: {server_pids}) {'[READY]' if ping_ok else '[LOADING/ERROR]'}")
     print(f"Watcher Daemon: {'RUNNING' if watcher_pids else 'STOPPED'} (PIDs: {watcher_pids})")
-    
-    if os.path.exists(SOCKET_PATH):
-        print(f"IPC Socket    : [OK] {SOCKET_PATH}")
-    else:
-        print(f"IPC Socket    : [MISSING]")
-        
-    print(f"Log Path      : {LOG_DIR}/cortex.log (1MB Auto-Rotate)")
+    print(f"IPC Socket    : {'[OK]' if os.path.exists(SOCKET_PATH) else '[MISSING]'} {SOCKET_PATH}")
+    print(f"Log Path      : {LOG_DIR}/cortex.log")
     print("--------------------------------------------\n")
 
 if __name__ == "__main__":
