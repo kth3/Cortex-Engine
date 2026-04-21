@@ -13,21 +13,39 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from vector_engine import _load_model
-from logger import get_logger
+from cortex.logger import get_logger
 
 logger = get_logger("server")
 SOCKET_PATH = "/tmp/cortex.sock"
 
 def start_server():
+    from vector_engine import release_gpu
+    import time
+
+    IDLE_TIMEOUT = 1200  # 운영 환경: 20분 유휴 시 VRAM 반환
+    last_activity = time.time()
+    model_loaded = False
+    current_device = "cpu"
+
     # 기존 소켓 파일 정리
     if os.path.exists(SOCKET_PATH):
         os.remove(SOCKET_PATH)
 
-    # 모델 강제 GPU 로드 (서비스의 핵심)
+    # 디바이스 감지 로직
     try:
-        logger.info("Initializing GPU Engine...")
-        model = _load_model(device="cuda")
-        logger.info("GPU Engine Ready.")
+        import torch
+        if torch.cuda.is_available():
+            current_device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            current_device = "mps"
+        elif hasattr(torch, "xpu") and torch.xpu.is_available():
+            current_device = "xpu"
+            
+        # 상시 대기를 위해 시작 시 모델 로드
+        model = _load_model(device=current_device)
+        model_loaded = True
+        last_activity = time.time()
+        logger.info(f"Engine Ready on {current_device}.")
     except Exception as e:
         logger.error(f"Critical Error during startup: {e}")
         sys.exit(1)
@@ -44,7 +62,20 @@ def start_server():
 
     try:
         while True:
-            conn, _ = server.accept()
+            try:
+                server.settimeout(1.0) # 1초마다 루프를 돌아 타임아웃 체크
+                conn, _ = server.accept()
+                last_activity = time.time() # 요청이 왔으므로 시간 갱신
+            except socket.timeout:
+                # 유휴 시간 체크
+                if model_loaded and (time.time() - last_activity > IDLE_TIMEOUT):
+                    logger.info(f"IDLE Timeout ({IDLE_TIMEOUT}s). Releasing VRAM...")
+                    release_gpu()
+                    model = None
+                    model_loaded = False
+                    logger.info("VRAM Released. Standing by (Lazy loading enabled).")
+                continue
+
             try:
                 # 데이터 수신 (길이 헤더 + 바디)
                 header = conn.recv(4)
@@ -63,12 +94,19 @@ def start_server():
                 cmd = request.get("command", "embed")
                 
                 if cmd == "ping":
-                    response = {"status": "ok", "message": "Cortex Engine is alive (GPU)"}
+                    status_str = "alive" if model_loaded else "standby"
+                    response = {"status": "ok", "message": f"Cortex Engine is {status_str}"}
                 elif cmd == "embed":
                     texts = request.get("texts", [])
                     if not texts:
                         response = {"status": "ok", "embeddings": []}
                     else:
+                        # [Lazy Loading] 모델이 내려가 있다면 다시 로드
+                        if not model_loaded:
+                            logger.info(f"Request received. Re-loading model on {current_device}...")
+                            model = _load_model(device=current_device)
+                            model_loaded = True
+
                         # GPU 연산 수행
                         embeddings = model.encode(
                             texts,

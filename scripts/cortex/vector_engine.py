@@ -36,9 +36,12 @@ def _load_model(device: str = "cpu"):
     try:
         from sentence_transformers import SentenceTransformer
         import torch
+        from cortex.logger import get_logger
+        
+        log = get_logger("cortex.vector")
 
         hf_token = os.getenv("HF_TOKEN", "").strip() or None
-        sys.stderr.write(f"[cortex-vector] Loading {MODEL_ID} on {device}...\n")
+        log.info(f"Loading {MODEL_ID} on {device}...")
 
         if sys.platform == "darwin":
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
@@ -48,10 +51,10 @@ def _load_model(device: str = "cpu"):
             # [Optimization] Use bfloat16 if supported (Ampere+), else fallback to float16
             if torch.cuda.is_bf16_supported():
                 dtype_choice = torch.bfloat16
-                sys.stderr.write("[cortex-vector] Using bfloat16 (bf16) for CUDA acceleration.\n")
+                log.info("Using bfloat16 (bf16) for CUDA acceleration.")
             else:
                 dtype_choice = torch.float16
-                sys.stderr.write("[cortex-vector] Using float16 (fp16) for CUDA acceleration.\n")
+                log.info("Using float16 (fp16) for CUDA acceleration.")
         elif device == "mps":
             dtype_choice = torch.float16
 
@@ -66,7 +69,7 @@ def _load_model(device: str = "cpu"):
             _model.to(dtype_choice)
 
         _model_device = device
-        sys.stderr.write(f"[cortex-vector] Model successfully loaded on {_model_device}.\n")
+        log.info(f"Model successfully loaded on {_model_device}.")
     except Exception as e:
         sys.stderr.write(f"[cortex-vector] Model Load Error: {e}\n")
         raise RuntimeError(f"모델 로딩 실패: {e}")
@@ -91,38 +94,46 @@ import struct
 
 SOCKET_PATH = "/tmp/cortex.sock"
 
-def _send_to_server(request: dict) -> dict:
-    """엔진 서버에 요청을 보내고 응답을 받는다."""
-    if not os.path.exists(SOCKET_PATH):
-        return {"status": "offline"}
+def _send_to_server(request: dict, retries: int = 15) -> dict:
+    """엔진 서버에 요청을 보내고 응답을 받는다. 서버가 로딩 중일 경우 재시도한다."""
+    import time
+    for i in range(retries):
+        if not os.path.exists(SOCKET_PATH):
+            if i < retries - 1:
+                time.sleep(1.0)
+                continue
+            return {"status": "offline"}
 
-    try:
-        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        client.settimeout(10.0) # 넉넉한 타임아웃
-        client.connect(SOCKET_PATH)
-        
-        # 데이터 전송 (길이 헤더 + 바디)
-        data = json.dumps(request).encode("utf-8")
-        client.sendall(struct.pack("!I", len(data)) + data)
-        
-        # 응답 수신
-        header = client.recv(4)
-        if not header:
-            return {"status": "error", "message": "No response from server"}
-        size = struct.unpack("!I", header)[0]
-        
-        resp_data = b""
-        while len(resp_data) < size:
-            chunk = client.recv(min(size - len(resp_data), 4096))
-            if not chunk:
-                break
-            resp_data += chunk
+        try:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.settimeout(10.0)
+            client.connect(SOCKET_PATH)
             
-        return json.loads(resp_data.decode("utf-8"))
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    finally:
-        client.close()
+            data = json.dumps(request).encode("utf-8")
+            client.sendall(struct.pack("!I", len(data)) + data)
+            
+            header = client.recv(4)
+            if not header:
+                return {"status": "error", "message": "Empty response"}
+            size = struct.unpack("!I", header)[0]
+            
+            resp_data = b""
+            while len(resp_data) < size:
+                chunk = client.recv(min(size - len(resp_data), 4096))
+                if not chunk: break
+                resp_data += chunk
+            
+            return json.loads(resp_data.decode("utf-8"))
+        except (ConnectionRefusedError, socket.timeout):
+            if i < retries - 1:
+                time.sleep(1.0)
+                continue
+            return {"status": "error", "message": "Server busy or not responding"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+        finally:
+            client.close()
+    return {"status": "error", "message": "Max retries exceeded"}
 
 def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
@@ -146,10 +157,16 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
-            if use_gpu is True:
+            # [Shared Engine Policy] 서버 소켓이 존재한다면, 
+            # 로컬에서는 GPU를 점유하지 않고 안전하게 CPU로 폴백하여 중복 방지.
+            if use_gpu is True and os.path.exists(SOCKET_PATH):
+                from cortex.logger import get_logger
+                get_logger("vector").warning("Shared Engine Server exists. Falling back to Local CPU to avoid VRAM conflict.")
+                device = "cpu"
+            elif use_gpu is True:
                 device = "cuda"
             else:
-                device = "cpu" # 기본적으로 서버가 없으면 CPU 상주 모드로 fallback
+                device = "cpu"
     except ImportError:
         pass
 
