@@ -208,29 +208,9 @@ def handle_request(req):
         except Exception as e: return {"jsonrpc": "2.0", "id": rid, "result": {"isError": True, "content": [{"type": "text", "text": f"Error: {str(e)}\n{traceback.format_exc()}"}]}}
     return {"jsonrpc": "2.0", "id": rid, "result": {}} if rid else None
 
-def start_watcher_daemon():
-    try:
-        watcher_script = SCRIPTS_DIR / "cortex" / "watcher.py"
-        log_file = Path(WORKSPACE) / ".agents" / "history" / "watcher.log"
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        # 중복 실행 방지
-        subprocess.run("pkill -f watcher.py", shell=True, stderr=subprocess.DEVNULL)
-        
-        if watcher_script.exists():
-            with open(log_file, "a", encoding="utf-8") as f:
-                proc = subprocess.Popen(
-                    [sys.executable, str(watcher_script)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                return proc
-    except Exception as e:
-        sys.stderr.write(f"Failed to start watcher daemon: {e}\n")
-    return None
+
 
 def serve():
-    watcher_proc = start_watcher_daemon()
     try:
         while True:
             line = sys.stdin.readline()
@@ -241,9 +221,7 @@ def serve():
                 if res: sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n"); sys.stdout.flush()
             except: pass
     finally:
-        if watcher_proc:
-            watcher_proc.terminate()
-            sys.stderr.write("[Cortex] Watcher terminated along with MCP server.\n")
+        sys.stderr.write("[Cortex] MCP server terminated.\n")
 
 if __name__ == "__main__":
     serve()

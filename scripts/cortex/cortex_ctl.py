@@ -15,9 +15,9 @@ VENV_PYTHON = PROJECT_ROOT / ".agents" / "venv" / "bin" / "python3"
 LOG_DIR = PROJECT_ROOT / ".agents" / "history"
 SOCKET_PATH = "/tmp/cortex.sock"
 
-# 중앙 로거 가져오기
-sys.path.append(str(CORTEX_DIR))
-from logger import get_logger
+# 중앙 로거 가져오기 (scripts 폴더를 추가하여 cortex.logger 사용 가능하게 함)
+sys.path.append(str(CORTEX_DIR.parent))
+from cortex.logger import get_logger
 logger = get_logger("ctl")
 
 # 제어 대상 스크립트
@@ -109,11 +109,14 @@ def start():
     
     logger.info("Starting Unified Cortex Services...")
     
-    # 1. Engine Server 가동 (이제 파일 리다이렉션 없이 실행, 자체가 logger.py 사용)
+    # 1. Engine Server 가동
+    # start_new_session=True 를 사용하여 부모 세션(에디터/터미널) 종료 시에도 상주 보장
     logger.info("Launching GPU Engine Server...")
     subprocess.Popen(
         [str(VENV_PYTHON), str(SERVER_SCRIPT)],
-        preexec_fn=os.setpgrp
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
     )
     
     # 2. 서버 대기 (소켓 생성 확인)
@@ -138,7 +141,9 @@ def start():
     logger.info("Launching Watcher Daemon...")
     subprocess.Popen(
         [str(VENV_PYTHON), str(WATCHER_SCRIPT)],
-        preexec_fn=os.setpgrp
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
     )
     
     logger.info("Cortex services started successfully. All logs unified in cortex.log (1MB rotate).")
