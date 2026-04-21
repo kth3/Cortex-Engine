@@ -20,9 +20,9 @@ _initialized = False
 def get_logger(module_name: str = None) -> logging.Logger:
     global _initialized
 
-    if not _initialized:
+    root_logger = logging.getLogger(LOGGER_NAME)
+    if not root_logger.hasHandlers():
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        root_logger = logging.getLogger(LOGGER_NAME)
         root_logger.setLevel(logging.INFO)
 
         # 1. 파일 핸들러 (실시간 1MB 로테이션)
@@ -39,8 +39,8 @@ def get_logger(module_name: str = None) -> logging.Logger:
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
 
-        # 2. 스트림 핸들러 (이게 있어야 cortex.log에 표준 출력이 담김)
-        stream_handler = logging.StreamHandler(sys.stdout)
+        # 2. 스트림 핸들러 (MCP JSON-RPC 통신 규격 보호를 위해 반드시 sys.stderr 사용)
+        stream_handler = logging.StreamHandler(sys.stderr)
         stream_formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
         stream_handler.setFormatter(stream_formatter)
         root_logger.addHandler(stream_handler)
