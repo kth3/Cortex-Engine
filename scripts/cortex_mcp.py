@@ -212,6 +212,21 @@ def handle_request(req):
 
 def serve():
     try:
+        # [Auto-Start] 에디터가 MCP 서버를 올리는 즉시 Cortex 인프라 동기화 (백그라운드)
+        import subprocess
+        from pathlib import Path
+        ctl_script = Path(__file__).parent / "cortex" / "cortex_ctl.py"
+        if ctl_script.exists():
+            subprocess.Popen(
+                [sys.executable, str(ctl_script), "start"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+    except:
+        pass
+
+    try:
         while True:
             line = sys.stdin.readline()
             if not line: break
