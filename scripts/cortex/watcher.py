@@ -105,24 +105,25 @@ class DebouncedIndexer(FileSystemEventHandler):
             logger.info(f"Debounce triggered. Indexing {len(files_to_index)} files directly in-process...")
             for f in files_to_index:
                 try:
-                    logger.info(f"  -> Indexing: {f}")
+                    start_t = time.time()
                     # [Unified Policy] 이제 데몬이 직접 CPU를 쓰지 않고, 
                     # 이미 GPU에 상주 중인 통합 엔진 서버에게 요청을 보냅니다.
-                    # 서버가 없을 경우에만 자동 fallback 처리됩니다.
                     result = pc_indexer.index_file(str(WORKSPACE), f)
+                    elapsed = (time.time() - start_t) * 1000 # ms
+                    
                     if isinstance(result, dict) and "error" in result:
                         logger.warning(f"     [FAIL] {f}: {result['error']}")
-                    elif isinstance(result, dict) and result.get("status") == "deleted":
-                        logger.info(f"     [DELETED] {f}")
-                    elif isinstance(result, dict) and result.get("status") == "created":
-                        logger.info(f"     [CREATED] {f}")
-                    elif isinstance(result, dict) and result.get("status") == "updated":
-                        logger.info(f"     [UPDATED] {f}")
                     else:
-                        logger.info(f"     [OK] {f}")
+                        status = result.get("status", "ok").upper()
+                        chunks = result.get("chunks", 0)
+                        logger.info(f"     [{status}] {f} ({chunks} chunks, {elapsed:.1f}ms)")
                 except Exception as e:
                     err_trace = traceback.format_exc()
                     logger.error(f"     [ERROR] {f}: {str(e)}\n{err_trace}")
+            
+            logger.info("------------------------------------------------")
+            logger.info("✅ [ALL UPDATES SYNCED] Indexing batch complete.")
+            logger.info("================================================")
 
 def main():
     event_handler = DebouncedIndexer()
