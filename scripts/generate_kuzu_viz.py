@@ -39,7 +39,7 @@ for etype in ["Imports", "Calls", "Defines", "Contains"]:
 
 with open(html_path, "w") as f:
     f.write(f'''<!DOCTYPE html><html><head>
-    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="./vis-network.min.js"></script>
     <style>body{{margin:0;background:#1a1a1a;color:#fff}}#nw{{width:100vw;height:100vh}}</style></head>
     <body><div id="nw"></div><script>
     var tk = {{nodes: new vis.DataSet({json.dumps(nodes)}), edges: new vis.DataSet({json.dumps(edges)})}};
@@ -60,9 +60,18 @@ with open(html_path, "w") as f:
             External: {{color: {{background: '#F06292', border: '#C2185B'}}, shape: 'square'}}
         }},
         physics: {{
-            forceAtlas2Based: {{ gravitationalConstant: -80, springLength: 150 }},
             solver: 'forceAtlas2Based',
-            stabilization: {{ iterations: 150 }}
+            forceAtlas2Based: {{
+                gravitationalConstant: -100,
+                springLength: 100,
+                springConstant: 0.08,
+                avoidOverlap: 0.5
+            }},
+            stabilization: {{
+                enabled: true,
+                iterations: 50,
+                updateInterval: 10
+            }}
         }}
     }});
     </script></body></html>''')
