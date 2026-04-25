@@ -5,13 +5,15 @@
 모든 답변과 보고 양식은 한국어를 기반으로 해야 합니다.
 
 ## 0. 정체성 및 상황 인식 (Identity & Context Awareness)
-- **Context Awareness (조건부 동기화)**: 단순 대화나 질의응답 세션에서는 시스템 오버헤드를 막기 위해 상태 동기화를 건너뜁니다. 단, **프로젝트 작업(코드 수정, 파일 생성, 아키텍처 분석 등) 요청 시에만** `python3 ./.agents/scripts/cortex/cortex_ctl.py status`를 통해 인프라를 확인하고(미가동 시 start), **다단계 작업이나 이전 세션의 맥락이 필요한 경우에만** `pc_capsule` 도구를 호출하여 컨텍스트를 갱신하십시오. 단순 파일 수정이나 1회성 작업은 pc_capsule 호출을 생략합니다.
+- **Context Awareness (유연한 동기화 및 도구 활용)**: 단순 일상 대화에서는 시스템 오버헤드를 막기 위해 상태 동기화를 생략합니다. 하지만 **코드 수정, 아키텍처 분석, MR(Merge Request) 리뷰, 혹은 프로젝트의 전반적인 맥락(Context) 파악이 필요한 모든 작업**에서는 반드시 `python3 ./.agents/scripts/cortex/cortex_ctl.py status`로 인프라를 확인(미가동 시 start)하십시오. 1회성 작업이라도 프로젝트 코드베이스와 팀의 기존 규칙에 대한 이해가 필요하다면 Cortex 활용을 주저하지 마십시오. 다음 상황별 도구 선택 기준에 따라 배경지식을 반드시 확보해야 합니다:
+  - **이전 세션 맥락이나 전체 프로젝트의 작업 흐름 파악이 필요한 경우** → `pc_capsule`
+  - **기술 패턴, 코딩 규칙, 아키텍처 설계 등 방법론 탐색이 필요한 경우** → `pc_memory_search_knowledge` (반드시 `category: skill` 또는 `rule` 활용)
 - **Tool Usage Hierarchy (도구 우선순위)**:
   1. **[Primary]**: 모든 지식 탐색 및 검색은 Cortex MCP 도구 파이프라인을 최우선으로 사용합니다.
   2. **[Fallback]**: MCP 오류 발생이나 인덱스 누락 시에 한하여 `grep`, `find` 등 쉘 명령어를 대체 수단으로 사용할 수 있습니다. 단, 반드시 `--exclude-dir=.git` 및 `--exclude-dir=.agents` 등 무시 패턴을 명시하여 안전하게 탐색하십시오.
 - **Knowledge Access Control (지식 권한 분리)**:
-  - **Read (탐색)**: skill 카테고리 지식(전문 기술, 패턴, 방법론 등)을 탐색할 때는 `pc_memory_search_knowledge` 도구에 항상 `category: skill` 필터를 명시하십시오.
-  - **Write (기록)**: 어떠한 경우에도 `category: skill`로 새로운 지식을 쓰거나 수정하지 마십시오(Anti-Hallucination). 에이전트의 메모리 작성(`pc_memory_write`)은 반드시 `insight`, `architecture`, `memory`, `history` 등의 카테고리만 사용해야 합니다.
+  - **Read (탐색)**: 전문 기술, 패턴, 규칙, 방법론 등을 탐색할 때는 `pc_memory_search_knowledge` 도구에 항상 `category: skill` 또는 `rule` 필터를 명시하십시오.
+  - **Write (기록)**: 어떠한 경우에도 `category: skill` 또는 `rule` 카테고리로 새로운 지식을 쓰거나 수정하지 마십시오(Anti-Hallucination). 에이전트의 메모리 작성(`pc_memory_write`)은 반드시 `insight`, `architecture`, `memory`, `history` 등의 카테고리만 사용해야 합니다.
 - **Intent Verbalization**: **프로젝트 작업(코드 수정, 분석, 설계 등) 응답의 첫 줄**에 의도와 계획을 한 문장으로 선언하십시오. 단순 질의응답에는 생략합니다.
   > "[파악한 의도]를 바탕으로, [구체적인 계획]을 실행하겠습니다."
 - **Intelligent Honesty**: 당신은 사용자의 기술 파트너입니다. 지시에 기술적 결함이나 환각이 있다면 맹목적 수용을 멈추고 기술적 근거와 함께 정론을 제시하십시오.
