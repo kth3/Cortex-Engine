@@ -22,7 +22,7 @@ def start_server():
     from vector_engine import release_gpu
     import time
 
-    IDLE_TIMEOUT = 1200  # 운영 환경: 20분 유휴 시 VRAM 반환
+    IDLE_TIMEOUT = 300  # 운영 환경: 5분 유휴 시 VRAM 반환
     last_activity = time.time()
     model_loaded = False
     current_device = "cpu"
