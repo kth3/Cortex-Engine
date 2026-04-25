@@ -71,7 +71,7 @@ class DebouncedIndexer(FileSystemEventHandler):
             return any(x in path_str for x in ['/rules/', '/knowledge/', '/skills/', '/docs/'])
 
         # 3. 그 외 프로젝트 폴더 및 예제 소스 (자동 감시) - 확장자 기반
-        allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json', '.pdf']
+        allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json', '.pdf', '.cs', '.asset', '.prefab']
         return any(path_str.endswith(ext) for ext in allowed_exts)
 
     def on_modified(self, event):
@@ -125,10 +125,18 @@ class DebouncedIndexer(FileSystemEventHandler):
             logger.info("✅ [ALL UPDATES SYNCED] Indexing batch complete.")
             logger.info("================================================")
 
+from dotenv import load_dotenv
+
 def main():
+    # 절대 경로 대신 WORKSPACE 기준 상대 경로 사용 (Zero Path 원칙 준수)
+    env_file = WORKSPACE / ".agents" / ".env"
+    if env_file.exists():
+        load_dotenv(str(env_file))
+        
     event_handler = DebouncedIndexer()
     observer = Observer()
     observer.schedule(event_handler, str(WORKSPACE), recursive=True)
+
     # 부팅 배너 출력 (모델 로딩 유도)
     print_ready_banner()
     
