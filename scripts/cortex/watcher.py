@@ -55,10 +55,13 @@ def print_ready_banner():
         logger.info(line)
 
 class DebouncedIndexer(FileSystemEventHandler):
+    DUPLICATE_DELETE_TTL = 120  # seconds — 이 시간 내 동일 경로 DELETE 중복 무시
+
     def __init__(self):
         super().__init__()
         self.changed_files = set()
         self.last_event_time = 0
+        self._delete_cooldown = {}  # {rel_path: processed_timestamp}
 
     def _is_valid_file(self, path_str):
         # 1. 절대 무시 (무한 루프 및 불필요 파일 방지)
@@ -91,14 +94,31 @@ class DebouncedIndexer(FileSystemEventHandler):
 
     def handle_event(self, src_path):
         rel_path = os.path.relpath(src_path, str(WORKSPACE))
-        if self._is_valid_file(rel_path):
-            self.changed_files.add(rel_path)
-            self.last_event_time = time.time()
+        if not self._is_valid_file(rel_path):
+            return
+
+        abs_path = os.path.join(str(WORKSPACE), rel_path)
+        if not os.path.exists(abs_path):
+            # DELETE 이벤트 — cooldown 내 중복이면 억제
+            last_ts = self._delete_cooldown.get(rel_path)
+            if last_ts and (time.time() - last_ts) < self.DUPLICATE_DELETE_TTL:
+                return
+        else:
+            # CREATE/MODIFY 이벤트 — 파일이 다시 생겼으면 cooldown 해제
+            self._delete_cooldown.pop(rel_path, None)
+
+        self.changed_files.add(rel_path)
+        self.last_event_time = time.time()
 
     def process_queue(self):
         # 5초 디바운싱
         now = time.time()
         if self.changed_files and (now - self.last_event_time) >= 5.0:
+            # 만료된 DELETE cooldown 정리
+            self._delete_cooldown = {
+                p: ts for p, ts in self._delete_cooldown.items()
+                if now - ts < self.DUPLICATE_DELETE_TTL
+            }
             files_to_index = list(self.changed_files)
             self.changed_files.clear()
             
@@ -117,6 +137,8 @@ class DebouncedIndexer(FileSystemEventHandler):
                         status = result.get("status", "ok").upper()
                         chunks = result.get("chunks", 0)
                         logger.info(f"     [{status}] {f} ({chunks} chunks, {elapsed:.1f}ms)")
+                        if status == "DELETED":
+                            self._delete_cooldown[f] = time.time()
                 except Exception as e:
                     err_trace = traceback.format_exc()
                     logger.error(f"     [ERROR] {f}: {str(e)}\n{err_trace}")
