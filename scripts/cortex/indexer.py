@@ -221,18 +221,38 @@ def _sync_rules_to_memories(workspace: str, conn):
     
     rule_dirs = {
         "rule": os.path.join(workspace, ".agents", "rules"),
-        "protocol": os.path.join(workspace, ".agents", "rules", "protocols"),
+        "protocol": os.path.join(workspace, ".agents", "rules", "core", "protocols"),
         "resource": os.path.join(workspace, ".agents", "knowledge", "resources"),
         "example": os.path.join(workspace, ".agents", "knowledge", "examples"),
     }
     
     synced = 0
     from tqdm import tqdm
+
+    # 다른 카테고리가 점유한 하위 디렉토리를 스캔에서 제외 (예: rule 디렉토리 안의 protocols/)
+    resolved_dirs = {cat: Path(p).resolve() for cat, p in rule_dirs.items()}
+
+    def _within(child: Path, parent: Path) -> bool:
+        try:
+            child.relative_to(parent)
+            return True
+        except ValueError:
+            return False
+
     for category, dir_path in rule_dirs.items():
         if not os.path.isdir(dir_path):
             continue
-        
-        md_files = list(Path(dir_path).rglob("*.md"))
+
+        own_root = resolved_dirs[category]
+        exclusions = [
+            other for other_cat, other in resolved_dirs.items()
+            if other_cat != category and other != own_root and _within(other, own_root)
+        ]
+
+        md_files = [
+            p for p in Path(dir_path).rglob("*.md")
+            if not any(_within(p.resolve(), excl) for excl in exclusions)
+        ]
         for md_path in tqdm(md_files, desc=f"Syncing {category}", unit="file"):
             full_path = str(md_path)
             try:
@@ -281,6 +301,41 @@ def _sync_rules_to_memories(workspace: str, conn):
     if synced > 0:
         conn.commit()
         log.info("Synced %d rule/protocol docs to memories table.", synced)
+
+    # ── Reverse-GC: 디스크에서 사라진 rule/protocol 키를 memories에서 제거 ──
+    # 트리거(del_memory_vec, memories_ad)가 vec_memories·FTS5 자동 정리.
+    # tags LIKE '%agent-rule%' 조건으로 sync 함수가 작성한 항목만 대상.
+    all_disk_keys = set()
+    for category, dir_path in rule_dirs.items():
+        if not os.path.isdir(dir_path):
+            continue
+        own_root = resolved_dirs[category]
+        exclusions = [
+            other for other_cat, other in resolved_dirs.items()
+            if other_cat != category and other != own_root and _within(other, own_root)
+        ]
+        for md_path in Path(dir_path).rglob("*.md"):
+            if any(_within(md_path.resolve(), excl) for excl in exclusions):
+                continue
+            all_disk_keys.add(f"{category}::{md_path.stem}")
+
+    managed = list(rule_dirs.keys())
+    ph = ",".join("?" * len(managed))
+    db_keys = [r[0] for r in conn.execute(
+        f"SELECT key FROM memories WHERE category IN ({ph}) AND tags LIKE '%agent-rule%'",
+        managed
+    ).fetchall()]
+
+    orphans = [k for k in db_keys if k not in all_disk_keys]
+    if orphans:
+        chunk = 900
+        for i in range(0, len(orphans), chunk):
+            ck = orphans[i:i+chunk]
+            ph2 = ",".join("?" * len(ck))
+            conn.execute(f"DELETE FROM memories WHERE key IN ({ph2})", ck)
+        conn.commit()
+        log.info("GC: removed %d orphaned rule/protocol entries: %s",
+                 len(orphans), orphans[:5])
 
 
 def _cleanup_deleted_files(workspace: str, conn, current_files: list):
