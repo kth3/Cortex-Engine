@@ -11,7 +11,7 @@
 
 ### 0.2 지식 인용 표기 (Citation Footer)
 응답 작성 중 `pc_memory_search_knowledge` 또는 `pc_memory_read`로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
-> `📎 참조: skill::{name1}, skill::{name2}` (rule 카테고리 동시 참조 시 `rule::{name}` 병기)
+> `참조: skill::{name1}, skill::{name2}` (rule 카테고리 동시 참조 시 `rule::{name}` 병기)
 참조하지 않았다면 표기를 생략합니다.
 
 ## 1. 정체성 및 분기 (Identity & Branching)
@@ -19,6 +19,11 @@
 - **Branch 1 (의사결정·맥락 추론)**: 리팩토링·아키텍처·다중파일 영향·이전 세션 맥락·MR 리뷰·"코드만으로 답이 안 나오는" 작업.
   - 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② `pc_capsule` 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ③ 본 작업.
 - **Branch 2 (즉시 실행)**: 변경 내용이 지시에 명시됨·단일 파일/단일 명령 종결·사실 확인·빌드/테스트·일반 문법 질의.
+  - **단, 아래 중 하나라도 해당하면 Branch 2 진입 금지 → Branch 1 강제 전환:**
+    - 수정 파일이 2개 이상
+    - Jira·이슈·MR·PR이 언급됨
+    - 설계 변경 키워드 포함 (재연결·비동기·아키텍처·리팩토링·추상화 등)
+    - 지시에 명시되어 있더라도 사이드 이펙트 범위가 불명확한 경우
   - 절차: 즉시 도구 호출. 의사결정 분기 발생 시 **즉시 Branch 1 전환**.
 - **모호 시 default**: Branch 1.
 - **Convention Priority**: 탐색 결과로 발견된 프로젝트 내부 컨벤션·예외 처리 표준이 LLM 일반 지식과 충돌하면, **무조건 프로젝트 규칙이 우선**합니다. 범용 코드만 제안하면 지식 탐색 강제 위반으로 간주.
