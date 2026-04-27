@@ -15,7 +15,7 @@ description: Success Case Library (SCL) 기록 규칙
 - 여러 기술 스택에서 공통적으로 사용할 수 있는 보안 향상, 성능 최적화 방법론을 완성했을 때
 
 ## 2. '행동 유도형(Actionable)' 템플릿
-메모리 DB에 `category: success_pattern`으로 기록 시, 다음 4가지 항목을 반드시 포함하여 마크다운 형태로 저장해야 합니다.
+memories.db에 `category: success_pattern`으로 기록 시, 다음 4가지 항목을 반드시 포함하여 마크다운 형태로 저장해야 합니다.
 
 ```markdown
 1. **Symptom (증상)**: 사용자가 겪은 표면적 오류나 시스템이 뿜어내는 예외 메시지 (후행 에이전트의 검색 키워드 보장)
