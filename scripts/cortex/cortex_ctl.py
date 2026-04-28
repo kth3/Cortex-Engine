@@ -26,6 +26,22 @@ SERVER_SCRIPT = CORTEX_DIR / "vector_engine_server.py"
 WATCHER_SCRIPT = CORTEX_DIR / "watcher.py"
 LOCK_FILE = LOG_DIR / "cortex_ctl.lock"
 
+# 사용자 커스텀 데몬 스크립트 파싱 (.env)
+LOCAL_DAEMON_SCRIPT = None
+env_path = PROJECT_ROOT / ".agents" / ".env"
+if env_path.exists():
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("CORTEX_LOCAL_DAEMON="):
+                    val = line.split("=", 1)[1].strip("'\" ")
+                    if os.path.exists(val):
+                        LOCAL_DAEMON_SCRIPT = Path(val)
+                    break
+    except Exception:
+        pass
+
 def _send_minimal_ping() -> bool:
     """엔진 서버에 최소한의 핑을 보내 살아있는지 확인"""
     if not os.path.exists(SOCKET_PATH):
@@ -77,17 +93,7 @@ def _perform_stop():
     """실제 종료 로직 (락 획득 여부와 상관없이 실행 가능)"""
     logger.info("Stopping all Cortex services...")
     
-    # 1. Watcher 종료
-    pids = get_pids(str(WATCHER_SCRIPT))
-    if pids:
-        for pid in pids:
-            logger.info(f"Terminating Watcher (PID: {pid})...")
-            try: os.kill(pid, signal.SIGTERM)
-            except: pass
-    else:
-        logger.info("Watcher is not running.")
-    
-    # 2. Server 종료
+    # 1. Server 종료
     pids = get_pids(str(SERVER_SCRIPT))
     if pids:
         for pid in pids:
@@ -97,7 +103,28 @@ def _perform_stop():
     else:
         logger.info("Engine Server is not running.")
     
-    # 3. 소켓 파일 정리
+    # 2. Watcher 종료
+    pids = get_pids(str(WATCHER_SCRIPT))
+    if pids:
+        for pid in pids:
+            logger.info(f"Terminating Watcher (PID: {pid})...")
+            try: os.kill(pid, signal.SIGTERM)
+            except: pass
+    else:
+        logger.info("Watcher is not running.")
+        
+    # 3. Local Daemon 종료
+    if LOCAL_DAEMON_SCRIPT:
+        pids = get_pids(str(LOCAL_DAEMON_SCRIPT))
+        if pids:
+            for pid in pids:
+                logger.info(f"Terminating Local Daemon (PID: {pid})...")
+                try: os.kill(pid, signal.SIGTERM)
+                except: pass
+        else:
+            logger.info("Local Daemon is not running.")
+    
+    # 4. 소켓 파일 정리
     if os.path.exists(SOCKET_PATH):
         try: os.remove(SOCKET_PATH)
         except: pass
@@ -139,7 +166,11 @@ def start():
         current_watchers = get_pids(str(WATCHER_SCRIPT))
         current_servers = get_pids(str(SERVER_SCRIPT))
         
-        if current_watchers and current_servers and _send_minimal_ping():
+        all_running = bool(current_watchers) and bool(current_servers) and _send_minimal_ping()
+        if all_running and LOCAL_DAEMON_SCRIPT:
+            all_running = all_running and bool(get_pids(str(LOCAL_DAEMON_SCRIPT)))
+            
+        if all_running:
             # 이미 모든 서비스가 정상 가동 중이면 종료
             return
 
@@ -184,6 +215,16 @@ def start():
             start_new_session=True
         )
         
+        # 4. Local Daemon 가동
+        if LOCAL_DAEMON_SCRIPT:
+            logger.info(f"Launching Local Daemon: {LOCAL_DAEMON_SCRIPT.name}...")
+            subprocess.Popen(
+                [str(VENV_PYTHON), str(LOCAL_DAEMON_SCRIPT)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+        
         logger.info("Cortex services started successfully.")
         (LOG_DIR / "last_start.txt").write_text(str(time.time()))
     finally:
@@ -197,6 +238,11 @@ def status():
     print("\n--- Cortex Status Report (Resident Mode) ---")
     print(f"Engine Server : {'RUNNING' if server_pids else 'STOPPED'} (PIDs: {server_pids}) {'[READY]' if ping_ok else '[LOADING/ERROR]'}")
     print(f"Watcher Daemon: {'RUNNING' if watcher_pids else 'STOPPED'} (PIDs: {watcher_pids})")
+    
+    if LOCAL_DAEMON_SCRIPT:
+        local_pids = get_pids(str(LOCAL_DAEMON_SCRIPT))
+        print(f"Local Daemon  : {'RUNNING' if local_pids else 'STOPPED'} (PIDs: {local_pids}) [{LOCAL_DAEMON_SCRIPT.name}]")
+        
     print(f"IPC Socket    : {'[OK]' if os.path.exists(SOCKET_PATH) else '[MISSING]'} {SOCKET_PATH}")
     print(f"Log Path      : {LOG_DIR}/cortex.log")
     print("--------------------------------------------\n")
