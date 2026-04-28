@@ -29,6 +29,8 @@ from cortex.persistent_memory import PersistentMemoryManager
 from cortex.skill_manager import SkillManager
 from cortex.orchestrator import manage_todo, create_contract
 from cortex.edit_engine import read_with_hash, strict_replace
+from cortex.search_engine import unified_pipeline_search
+from cortex import vector_engine as ve
 
 def _find_real_workspace(start_path):
     curr = start_path.resolve()
@@ -403,21 +405,25 @@ def call_pc_git_log(args):
 def call_pc_run_pipeline(args):
     query = args["query"]
     try:
+        # 1. 통합 교차 검색 수행
+        unified = unified_pipeline_search(WORKSPACE, query, limit=5, ve_module=ve)
+        
+        # 2. 코드 도메인 1위 항목 FQN 추출 및 Impact Graph 스킵 처리
+        code_results = [r for r in unified if r["domain"] == "code"]
+        impact = []
+        if code_results:
+            fqn = code_results[0].get("key")
+            if fqn:
+                impact_res = call_pc_impact_graph({"fqn": fqn, "direction": "both", "max_depth": 2})
+                impact = impact_res.get("impact_nodes", [])[:10]
+        
+        # 3. 보완용 상세 코드 캡슐 생성 (Option B)
         capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
-        conn = pc_db.get_connection(WORKSPACE)
-        first_match = pc_db.search_nodes_fts(conn, query, limit=1)
-        impact = {}
-        if first_match:
-            impact_res = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
-            impact = impact_res.get("impact_nodes", [])[:10]
-        conn.close()
-        mem = []
-        if hasattr(pc_mem_mod, "search_memory"):
-            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+        
         return {
+            "unified_context": unified,
             "capsule": capsule,
-            "impact_summary": impact,
-            "related_memories": mem
+            "impact_summary": impact
         }
     except Exception as e:
         return {"error": str(e)}
