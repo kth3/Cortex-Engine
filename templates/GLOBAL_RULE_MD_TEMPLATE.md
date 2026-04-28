@@ -17,7 +17,7 @@
 ## 1. 정체성 및 분기 (Identity & Branching)
 
 - **Branch 1 (의사결정·맥락 추론)**: 리팩토링·아키텍처·다중파일 영향·이전 세션 맥락·MR 리뷰·"코드만으로 답이 안 나오는" 작업.
-  - 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ③ 본 작업.
+  - 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ③ 본 작업.
 - **Branch 2 (즉시 실행)**: 변경 내용이 지시에 명시됨·단일 파일/단일 명령 종결·사실 확인·빌드/테스트·일반 문법 질의.
   - **단, 아래 중 하나라도 해당하면 Branch 2 진입 금지 → Branch 1 강제 전환:**
     - 수정 파일이 2개 이상
