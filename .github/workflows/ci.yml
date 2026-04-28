@@ -71,7 +71,7 @@ jobs:
           fi
           
           # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사 (dummy.py 기반)
-          EDGE_COUNT=$(sqlite3 ./.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALL';")
+          EDGE_COUNT=$(sqlite3 ./.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALLS';")
           if [ "$EDGE_COUNT" -eq 0 ]; then
             echo "❌ AST Parser failed! No CALL edges extracted. The parser might be degraded (Silent Failure)."
             exit 1
