@@ -7,7 +7,7 @@
 
 ### 0.1 의도 선언 (Intent Verbalization)
 **모든 응답 첫 줄에 의도와 계획을 한 문장으로 선언**하십시오. Branch 2 작업은 짧게 한 줄.
-> "[파악한 의도]를 바탕으로, [구체적인 계획]을 실행하겠습니다."
+> "[파악한 의도], [구체적인 계획]"
 
 ### 0.2 지식 인용 표기 (Citation Footer)
 응답 작성 중 `pc_memory_search_knowledge` 또는 `pc_memory_read`로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
@@ -35,17 +35,20 @@
 ## 2. 도구 운용 (Tool Operations)
 
 1. **MCP 우선**: Branch 1의 모든 정보 획득(Read·Grep·Glob 포함)은 Cortex MCP 파이프라인을 1차 경로로 사용.
-2. **Fallback 조건**: MCP가 **실제로 실패·타임아웃한 경우에만** 쉘 또는 플랫폼 내장 검색(`grep`, `find`, `grep_search`, `glob` 등)으로 전환. **선제적 Fallback 금지** — "느릴 것 같다"는 추측만으로 직행 불가. 검색 시 반드시 `.git`, `.agents` 디렉토리를 **제외**(도구별 자율 문법 — 예: GNU grep `--exclude-dir=...`, ripgrep `--glob '!.git/**'`, 에디터 검색의 ignore 옵션).
-3. **Fallback도 실패 시**: 추측 진행 금지 → 오류 로그·원인을 보고하고 사용자 판단을 요청.
-4. **편집 도구 의미론**:
+2. **Git 조회 강제**: `git log` / `git show` / `git diff` 셸 명령 직접 실행 금지. 파일 이력·커밋 확인은 **반드시 `pc_git_log` MCP를 먼저 호출**하고, 실패 시에만 셸로 전환하며 전환 사유를 명시.
+3. **Fallback 조건**: MCP가 **실제로 실패·타임아웃한 경우에만** 쉘 또는 플랫폼 내장 검색(`grep`, `find`, `grep_search`, `glob` 등)으로 전환. **선제적 Fallback 금지** — "느릴 것 같다"는 추측만으로 직행 불가. 검색 시 반드시 `.git`, `.agents` 디렉토리를 **제외**(도구별 자율 문법 — 예: GNU grep `--exclude-dir=...`, ripgrep `--glob '!.git/**'`, 에디터 검색의 ignore 옵션).
+
+4. **Fallback도 실패 시**: 추측 진행 금지 → 오류 로그·원인을 보고하고 사용자 판단을 요청.
+5. **편집 도구 의미론**:
    - 기존 라인 정밀 치환 → **내용 일치 매칭**(라인 번호 의존 금지). 도구 종류는 플랫폼 자동 인지.
    - 신규 파일 생성·전체 재작성 → 네이티브 Write 도구.
-5. **Cognitive Stack**: 정보 결합 시 ① 실시간(세션·파일) → ② MCP 검색 결과 → ③ 영구 기억(DB) 순으로 신뢰.
-6. **위임**: 3+파일 동시 수정 또는 1,000+줄 처리는 직접 수행 대신 `.agents/scripts/` Python 스크립트로 위임.
+6. **Cognitive Stack**: 정보 결합 시 ① 실시간(세션·파일) → ② MCP 검색 결과 → ③ 영구 기억(DB) 순으로 신뢰.
+7. **위임**: 3+파일 동시 수정 또는 1,000+줄 처리는 직접 수행 대신 `.agents/scripts/` Python 스크립트로 위임.
+
 
 ## 3. 안전망 (Safety First)
 
-- **Locking**: **쓰기 작업에 한해서만** `python3 .agents/scripts/relay.py acquire` → 종료 시 `release [LANE_ID]` 직접 실행. 읽기 전용은 락 없이 즉시.
+- **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire` → 종료 시 `release [LANE_ID]` 직접 실행. 읽기 전용은 락 없이 즉시.
 - **Memo Override**: 사용자가 `memo`만 입력 시, 즉시 `.agents/memo.md`를 읽고 최우선 지침으로 채택.
 - **Zero Path**: 커밋·보고서에 절대 경로(`/home/...`) 금지. 워크스페이스 기준 상대 경로만.
 - **Context Anxiety**: 표준 예산 15턴. 80%(12턴) 소모 시 진행률 <50%면 즉시 중단·요약 후 사용자에게 의견 요청. 동일 에러 3회 반복 시 강행 금지.
