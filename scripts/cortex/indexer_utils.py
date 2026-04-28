@@ -196,6 +196,7 @@ DEFAULT_IGNORES = [
     "dist", "build", ".gradle", ".idea", ".vscode",
     ".agents", "target", ".next", "*.min.js", "*.min.css",
     "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out",
+    "Library", "Temp", "Logs", "obj",  # Unity 캐시
 ]
 
 
