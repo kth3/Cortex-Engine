@@ -52,16 +52,7 @@ jobs:
           echo "export function sampleTs() { return 0; }" > test_workspace/dummy.ts
 
           # 지식 문서 임베딩 시나리오: sync_skills가 스캔하는 실제 경로에 더미 스킬 배치
-          cat > test_workspace/.agents/skills/dummy-skill/SKILL.md << 'EOF'
----
-name: dummy-skill
-description: A dummy skill for CI knowledge embedding test
-tags: [test, ci, cortex]
----
-# Dummy Skill
-
-This file proves that skill/knowledge markdown parsing and embedding works correctly.
-EOF
+          printf '%s\n' '---' 'name: dummy-skill' 'description: A dummy skill for CI knowledge embedding test' 'tags: [test, ci, cortex]' '---' '# Dummy Skill' '' 'This file proves that skill/knowledge markdown parsing and embedding works correctly.' > test_workspace/.agents/skills/dummy-skill/SKILL.md
 
           # 2) 인덱싱 실행 (test_workspace 경로를 워크스페이스로 지정)
           uv run python scripts/cortex/indexer.py ./test_workspace --force
