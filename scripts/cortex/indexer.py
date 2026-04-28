@@ -249,6 +249,7 @@ def _sync_rules_to_memories(workspace: str, conn):
         "resource": os.path.join(workspace, ".agents", "knowledge", "resources"),
         "example": os.path.join(workspace, ".agents", "knowledge", "examples"),
         "success_pattern": os.path.join(workspace, ".agents", "docs", "success_patterns"),
+        "anti_pattern": os.path.join(workspace, ".agents", "docs", "anti_patterns"),
         "insight": os.path.join(workspace, ".agents", "docs", "insights"),
         "architecture": os.path.join(workspace, ".agents", "docs", "architecture"),
         "reference": os.path.join(workspace, "references"),
@@ -487,6 +488,8 @@ def _resolve_unresolved_edges(conn) -> None:
     두 가지 패턴:
     - __unresolved_fqn__::a.b.c.ClassName → fqn LIKE + language 필터로 정밀 매칭
     - __unresolved__::Name              → 소스 노드 언어 장벽 우선, 실패 시 전체 매칭
+
+    [성능] N+1 쿼리 패턴 제거: 개별 SELECT → 배치 딕셔너리 룩업으로 교체.
     """
     unresolved = conn.execute(
         "SELECT id, target_id FROM edges WHERE target_id LIKE '__unresolved%'"
@@ -499,23 +502,37 @@ def _resolve_unresolved_edges(conn) -> None:
 
     updates = []
 
-    # FQN 기반 정밀 매칭 (Python 언어 장벽 포함)
-    for eid, tid in fqn_edges:
-        dotted_fqn = tid[len("__unresolved_fqn__::"):]
-        parts = dotted_fqn.rsplit(".", 1)
-        if len(parts) != 2:
-            continue
-        module_path = parts[0].replace(".", "/") + ".py"
-        class_name = parts[1]
-        node = conn.execute(
-            "SELECT id FROM nodes WHERE fqn LIKE ? AND language = 'python' LIMIT 1",
-            (f"%{module_path}::{class_name}",)
-        ).fetchone()
-        if node:
-            updates.append((node[0], eid))
+    # ── FQN 기반 정밀 매칭 (배치 딕셔너리 룩업) ──────────────────────────────
+    if fqn_edges:
+        # 1) 필요한 (module_path, class_name) 쌍을 중복 없이 수집
+        lookup_keys: dict[tuple, list[int]] = {}  # (module_path, class_name) → [edge_id, ...]
+        for eid, tid in fqn_edges:
+            dotted_fqn = tid[len("__unresolved_fqn__::"):]
+            parts = dotted_fqn.rsplit(".", 1)
+            if len(parts) != 2:
+                continue
+            module_path = parts[0].replace(".", "/") + ".py"
+            class_name = parts[1]
+            lookup_keys.setdefault((module_path, class_name), []).append(eid)
 
-    # 이름 기반 매칭: 소스 노드 언어를 배치 조회 후 동일 언어 우선
+        # 2) 고유 class_name 목록으로 배치 SELECT (IN절 단 1회)
+        unique_names = list({k[1] for k in lookup_keys})
+        if unique_names:
+            ph = ",".join("?" * len(unique_names))
+            rows = conn.execute(
+                f"SELECT id, fqn FROM nodes WHERE name IN ({ph}) AND language = 'python'",
+                unique_names
+            ).fetchall()
+            # fqn에 module_path::class_name 포함 여부로 정밀 매칭
+            for node_id, fqn in rows:
+                for (mp, cn), eids in lookup_keys.items():
+                    if f"{mp}::{cn}" in fqn:
+                        for eid in eids:
+                            updates.append((node_id, eid))
+
+    # ── 이름 기반 매칭 (배치 딕셔너리 룩업) ──────────────────────────────────
     if name_edges:
+        # 1) 소스 노드 언어를 배치 조회 (기존 코드 유지, 이미 배치)
         edge_ids = [e[0] for e in name_edges]
         src_lang_map: dict[int, str] = {}
         for i in range(0, len(edge_ids), 900):
@@ -530,21 +547,53 @@ def _resolve_unresolved_edges(conn) -> None:
             for rid, rlang in rows:
                 src_lang_map[rid] = rlang
 
+        # 2) (name, language) 조합을 그룹핑하여 언어별 배치 SELECT
+        #    기존: 엣지마다 SELECT 1~2회 → 개선: 언어별 고유 이름 집합으로 2회
+        from collections import defaultdict
+        lang_to_names: dict[str, set] = defaultdict(set)
+        no_lang_names: set = set()
         for eid, tid in name_edges:
             name = tid.split("::")[-1]
-            src_lang = src_lang_map.get(eid)
-            node = None
-            if src_lang:
-                node = conn.execute(
-                    "SELECT id FROM nodes WHERE name = ? AND language = ? LIMIT 1",
-                    (name, src_lang)
-                ).fetchone()
-            if not node:
-                node = conn.execute(
-                    "SELECT id FROM nodes WHERE name = ? LIMIT 1", (name,)
-                ).fetchone()
-            if node:
-                updates.append((node[0], eid))
+            lang = src_lang_map.get(eid)
+            if lang:
+                lang_to_names[lang].add(name)
+            else:
+                no_lang_names.add(name)
+
+        # 언어별 노드 딕셔너리 구성 (name → node_id, 언어 우선)
+        node_by_name_lang: dict[tuple, str] = {}  # (name, lang) → node_id
+        for lang, names in lang_to_names.items():
+            name_list = list(names)
+            ph = ",".join("?" * len(name_list))
+            rows = conn.execute(
+                f"SELECT id, name FROM nodes WHERE name IN ({ph}) AND language = ?",
+                name_list + [lang]
+            ).fetchall()
+            for node_id, name in rows:
+                node_by_name_lang[(name, lang)] = node_id
+
+        # 언어 무관 fallback 딕셔너리 (name → node_id)
+        all_fallback_names = no_lang_names | {n for names in lang_to_names.values() for n in names}
+        node_by_name_any: dict[str, str] = {}
+        if all_fallback_names:
+            name_list = list(all_fallback_names)
+            ph = ",".join("?" * len(name_list))
+            rows = conn.execute(
+                f"SELECT id, name FROM nodes WHERE name IN ({ph})",
+                name_list
+            ).fetchall()
+            for node_id, name in rows:
+                node_by_name_any[name] = node_id
+
+        # 3) 엣지별 매핑 (이제 딕셔너리 룩업만, 쿼리 없음)
+        for eid, tid in name_edges:
+            name = tid.split("::")[-1]
+            lang = src_lang_map.get(eid)
+            node_id = node_by_name_lang.get((name, lang)) if lang else None
+            if not node_id:
+                node_id = node_by_name_any.get(name)
+            if node_id:
+                updates.append((node_id, eid))
 
     if updates:
         # OR IGNORE: UNIQUE constraint 충돌(이미 resolved된 중복) 시 해당 행 건너뜀
