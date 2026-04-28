@@ -61,11 +61,20 @@ def batch_vectorize_nodes(conn, items_by_prefix: dict, use_gpu: bool,
             batch = deduped[i:i + batch_size]
             texts = [item["text"] for item in batch]
             embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-            for item, emb in zip(batch, embeddings):
-                rowid_cur = conn.execute("SELECT rowid FROM nodes WHERE id = ?", (item["id"],)).fetchone()
-                if rowid_cur:
-                    conn.execute("DELETE FROM vec_nodes WHERE rowid = ?", (rowid_cur[0],))
-                    conn.execute("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", (rowid_cur[0], emb.tobytes()))
+
+            # N+1 제거: IN 절 일괄 조회 → executemany DELETE/INSERT
+            ids = [item["id"] for item in batch]
+            placeholders = ",".join(["?"] * len(ids))
+            rowid_map = {
+                row[0]: row[1]
+                for row in conn.execute(
+                    f"SELECT id, rowid FROM nodes WHERE id IN ({placeholders})", ids
+                ).fetchall()
+            }
+            delete_params = [(rowid_map[item["id"]],) for item, _ in zip(batch, embeddings) if item["id"] in rowid_map]
+            insert_params = [(rowid_map[item["id"]], emb.tobytes()) for item, emb in zip(batch, embeddings) if item["id"] in rowid_map]
+            conn.executemany("DELETE FROM vec_nodes WHERE rowid = ?", delete_params)
+            conn.executemany("INSERT INTO vec_nodes(rowid, embedding) VALUES (?, ?)", insert_params)
             conn.commit()
             counter += 1
             _maybe_flush_gpu(use_gpu, counter, freq)
@@ -119,9 +128,12 @@ def batch_vectorize_memories(conn, use_gpu: bool, workspace: str = None):
         # 하드웨어 프로필에 따라 동적으로 텍스트 길이 제한
         texts = [item["text"][:max_chars] for item in batch]
         embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-        for item, emb in zip(batch, embeddings):
-            conn.execute("DELETE FROM vec_memories WHERE rowid = ?", (item["rowid"],))
-            conn.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", (item["rowid"], emb.tobytes()))
+
+        # N+1 제거: executemany로 배치 DELETE/INSERT
+        delete_params = [(item["rowid"],) for item in batch]
+        insert_params = [(item["rowid"], emb.tobytes()) for item, emb in zip(batch, embeddings)]
+        conn.executemany("DELETE FROM vec_memories WHERE rowid = ?", delete_params)
+        conn.executemany("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", insert_params)
         conn.commit()
         total_indexed += len(batch)
         counter += 1
