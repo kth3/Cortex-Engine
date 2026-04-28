@@ -194,28 +194,47 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
                 conn.executemany("INSERT OR REPLACE INTO vec_nodes (rowid, embedding) VALUES (?, ?)", vec_data)
                 conn.commit()
             
-        # Graph DB 연동
+        # Graph DB 연동 (UNWIND 배치 upsert — N+1 제거)
         try:
             from cortex.graph_db import GraphDB
             gdb = GraphDB(workspace)
-            gdb.execute("MERGE (m:Module {name: $name, file_path: $path})", {"name": mod_name, "path": rel_path})
-            for node in result["nodes"]:
-                if node["type"] == "Function":
-                    gdb.execute("MERGE (f:Function {fqn: $fqn, name: $name, file_path: $path})", 
-                        {"fqn": node["fqn"], "name": node["name"], "path": node["file_path"]})
-                    gdb.execute("MATCH (m:Module {name: $mod_name}), (f:Function {fqn: $fqn}) MERGE (m)-[:Defines]->(f)", 
-                        {"mod_name": mod_name, "fqn": node["fqn"]})
-                elif node["type"] == "Class":
-                    gdb.execute("MERGE (c:Class {fqn: $fqn, name: $name, file_path: $path})", 
-                        {"fqn": node["fqn"], "name": node["name"], "path": node["file_path"]})
-                    gdb.execute("MATCH (m:Module {name: $mod_name}), (c:Class {fqn: $fqn}) MERGE (m)-[:Defines]->(c)", 
-                        {"mod_name": mod_name, "fqn": node["fqn"]})
-            # 간단한 Calls 관계 추가
+
+            # 모듈 노드 단건 upsert (파일당 1회)
+            gdb.execute("MERGE (m:Module {name: $name, file_path: $path})",
+                        {"name": mod_name, "path": rel_path})
+
+            # 노드 배치 upsert (노드 N개 → UNWIND 타입별 쿼리)
+            node_batch = [
+                {"fqn": n["fqn"], "name": n["name"],
+                 "file_path": n["file_path"], "type": n["type"]}
+                for n in result["nodes"]
+                if n["type"] in ("Function", "Class")
+            ]
+            if node_batch:
+                gdb.batch_upsert_nodes(node_batch)
+
+            # Defines 엣지 배치 upsert (모듈 → 노드)
+            defines_batch = [
+                {"src_fqn": mod_name, "src_type": "Module",
+                 "tgt_fqn": n["fqn"],  "tgt_type": n["type"],
+                 "edge_type": "DEFINES"}
+                for n in result["nodes"]
+                if n["type"] in ("Function", "Class")
+            ]
+            if defines_batch:
+                gdb.batch_upsert_edges(defines_batch)
+
+            # Calls 엣지 배치 upsert (엣지 M개 → UNWIND 조합별 쿼리)
             if result.get("edges"):
-                for e in result["edges"]:
-                    gdb.execute("MATCH (a {fqn: $src}), (b {fqn: $tgt}) MERGE (a)-[:Calls]->(b)", 
-                        {"src": e["source_id"], "tgt": e["target_id"]})
-        except Exception as e:
+                call_batch = [
+                    {"src_fqn": e["source_id"], "src_type": "Function",
+                     "tgt_fqn": e["target_id"], "tgt_type": "Function",
+                     "edge_type": "CALLS"}
+                    for e in result["edges"]
+                ]
+                gdb.batch_upsert_edges(call_batch)
+
+        except Exception:
             pass
 
         conn.commit()
