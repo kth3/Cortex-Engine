@@ -9,12 +9,27 @@ import json
 import fcntl
 from pathlib import Path
 
+import shutil
+
 # 경로 설정
 CORTEX_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CORTEX_DIR.parent.parent.parent
-VENV_PYTHON = PROJECT_ROOT / ".agents" / "venv" / "bin" / "python3"
-LOG_DIR = PROJECT_ROOT / ".agents" / "history"
+AGENTS_DIR = PROJECT_ROOT / ".agents"
+LOG_DIR = AGENTS_DIR / "history"
 SOCKET_PATH = "/tmp/cortex.sock"
+
+# uv 실행 경로 탐색
+UV_BIN = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+
+def _uv_cmd(script: Path) -> list:
+    """uv run 기반 실행 명령어를 생성"""
+    if not os.path.exists(UV_BIN):
+        print("\n[ERROR] uv 패키지 관리자를 찾을 수 없습니다.")
+        print("Cortex 엔진은 빠른 속도와 안전한 환경 격리를 위해 uv를 사용합니다.")
+        print("터미널에 아래 명령어를 입력하여 uv를 먼저 설치해 주세요:")
+        print("    curl -LsSf https://astral.sh/uv/install.sh | sh\n")
+        sys.exit(1)
+    return [UV_BIN, "run", "--project", str(AGENTS_DIR), "python", str(script)]
 
 # 중앙 로거 가져오기 (scripts 폴더를 추가하여 cortex.logger 사용 가능하게 함)
 sys.path.append(str(CORTEX_DIR.parent))
@@ -182,7 +197,7 @@ def start():
         # 1. Engine Server 가동
         logger.info("Launching GPU Engine Server...")
         subprocess.Popen(
-            [str(VENV_PYTHON), str(SERVER_SCRIPT)],
+            _uv_cmd(SERVER_SCRIPT),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True
@@ -209,7 +224,7 @@ def start():
         # 3. Watcher 가동
         logger.info("Launching Watcher Daemon...")
         subprocess.Popen(
-            [str(VENV_PYTHON), str(WATCHER_SCRIPT)],
+            _uv_cmd(WATCHER_SCRIPT),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True
@@ -219,7 +234,7 @@ def start():
         if LOCAL_DAEMON_SCRIPT:
             logger.info(f"Launching Local Daemon: {LOCAL_DAEMON_SCRIPT.name}...")
             subprocess.Popen(
-                [str(VENV_PYTHON), str(LOCAL_DAEMON_SCRIPT)],
+                _uv_cmd(LOCAL_DAEMON_SCRIPT),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True

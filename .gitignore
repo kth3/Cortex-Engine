@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.so
 venv/
+.venv/
+uv.lock
 .env
 
 # Dynamic Data (Protected)

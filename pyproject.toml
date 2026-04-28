@@ -1,0 +1,38 @@
+[project]
+name = "cortex-agent"
+version = "0.1.0"
+description = "Cortex MCP Agent — Semantic Code Intelligence Engine"
+requires-python = "==3.12.*"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "numpy>=1.24.0",
+    "python-dotenv>=1.0.0",
+    "sentence-transformers>=2.2.0",
+    "sqlite-vec>=0.1.2",
+    "kuzu>=0.11.3",
+    "torch==2.5.1",
+    "openai>=1.0.0",
+    "tqdm>=4.66.0",
+    "pypdf>=3.0.0",
+    "watchdog>=3.0.0",
+    # MCP Server
+    "mcp>=1.0.0",
+    # Tree-sitter parsers
+    "tree-sitter>=0.24.0",
+    "tree-sitter-c-sharp>=0.23.1",
+    "tree-sitter-typescript>=0.23.2",
+]
+
+[dependency-groups]
+gpu-accel = [
+    "flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
