@@ -92,6 +92,413 @@ def call_save_observation(args):
     pc_hooks.dispatch(WORKSPACE, "after_save_observation")
     return res
 
+def _append_markdown_with_archive(target_filename, content):
+    import datetime
+    import shutil
+    md_path = os.path.join(WORKSPACE, ".agents", "history", target_filename)
+    if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
+        archive_dir = os.path.join(WORKSPACE, ".agents", "history", "archive")
+        os.makedirs(archive_dir, exist_ok=True)
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        name_part, ext = os.path.splitext(target_filename)
+        archive_path = os.path.join(archive_dir, f"{name_part}_{now_str}{ext}")
+        shutil.move(md_path, archive_path)
+    with open(md_path, "a", encoding="utf-8") as f:
+        f.write(content)
+
+def call_pc_memory_write(args):
+    key = args["key"]
+    category = args["category"]
+    content = args["content"]
+    data = {
+        "key": key,
+        "category": category,
+        "content": content,
+        "tags": args.get("tags", []),
+        "relationships": args.get("relationships", {}),
+    }
+    ok = get_storage().write("default", data)
+    target_file = None
+    if category in ["decision", "architecture"]:
+        target_file = "decisions.md"
+    elif category in ["pattern", "convention", "rule", "protocol"]:
+        target_file = "patterns.md"
+    if target_file and ok:
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_line = f"\n### [{now_str}] {key}\n- **Category**: {category}\n- **Content**: {content}\n"
+        _append_markdown_with_archive(target_file, log_line)
+    return {"success": ok, "key": key, "auto_promoted_to": target_file}
+
+def call_pc_memory_consolidate(args):
+    new_key = args["new_key"]
+    category = args["category"]
+    content = args["content"]
+    old_keys = args["old_keys"]
+    st = get_storage()
+    deleted_count = st.delete_many("default", old_keys)
+    data = {
+        "key": new_key,
+        "category": category,
+        "content": content,
+        "tags": args.get("tags", []),
+        "relationships": args.get("relationships", {}),
+    }
+    ok = st.write("default", data)
+    target_file = None
+    if category in ["decision", "architecture"]:
+        target_file = "decisions.md"
+    elif category in ["pattern", "convention", "rule"]:
+        target_file = "patterns.md"
+    if target_file and ok:
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_line = f"\n### [{now_str}] {new_key} (Consolidated from {len(old_keys)} items)\n- **Category**: {category}\n- **Content**: {content}\n"
+        _append_markdown_with_archive(target_file, log_line)
+    return {"success": ok, "consolidated_key": new_key, "deleted_old_fragments": deleted_count, "auto_promoted_to": target_file}
+
+def call_pc_session_sync(args):
+    import re
+    import yaml
+    task_desc = args["task_desc"]
+    branch = "unknown"
+    jira_issues = []
+    try:
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=WORKSPACE).decode().strip()
+        match = re.search(r'([A-Z0-9]+-\d+)', branch)
+        if match:
+            jira_issues.append(match.group(1))
+    except:
+        pass
+    modified_files = []
+    try:
+        status1 = subprocess.check_output(["git", "diff", "--name-only", "HEAD"], cwd=WORKSPACE).decode().strip().split('\n')
+        status2 = subprocess.check_output(["git", "log", "-n", "3", "--name-only", "--pretty=format:"], cwd=WORKSPACE).decode().strip().split('\n')
+        combined = [f for f in status1 + status2 if f]
+        seen = set()
+        for f in combined:
+            if f not in seen:
+                seen.add(f)
+                modified_files.append(f)
+    except:
+        pass
+    relationships = {
+        "jira_issues": jira_issues,
+        "modifies": modified_files[:10],
+        "branch": branch
+    }
+    key = f"session-sync-{SESSION_ID}"
+    data = {
+        "key": key,
+        "category": "decision",
+        "content": task_desc,
+        "tags": ["session-sync", "auto-generated", "autonomous-rag"],
+        "relationships": relationships
+    }
+    ok = get_storage().write("default", data)
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"\n- [CONFIRMED] **[SESSION_SYNC]** {now_str} | Branch: {branch} | Issue: {jira_issues}\n  - 📝 {task_desc}\n  - 📂 Modifies: {len(modified_files)} files\n"
+    _append_markdown_with_archive("inbox.md", log_line)
+    yaml_path = os.path.join(WORKSPACE, ".agents", "history", "memory.yaml")
+    if os.path.exists(yaml_path):
+        try:
+            with open(yaml_path, 'r', encoding='utf-8') as yf:
+                yaml_data = yaml.safe_load(yf) or {}
+            yaml_data['active_branch'] = branch
+            yaml_data['last_sync'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            with open(yaml_path, 'w', encoding='utf-8') as yf:
+                yaml.dump(yaml_data, yf, allow_unicode=True, sort_keys=False)
+        except Exception:
+            pass
+    return {"success": ok, "key": key, "extracted_relationships": relationships, "markdown_synced": True}
+
+def _append_markdown_with_archive(target_filename, content):
+    import datetime
+    import shutil
+    md_path = os.path.join(WORKSPACE, ".agents", "history", target_filename)
+    if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
+        archive_dir = os.path.join(WORKSPACE, ".agents", "history", "archive")
+        os.makedirs(archive_dir, exist_ok=True)
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        name_part, ext = os.path.splitext(target_filename)
+        archive_path = os.path.join(archive_dir, f"{name_part}_{now_str}{ext}")
+        shutil.move(md_path, archive_path)
+    with open(md_path, "a", encoding="utf-8") as f:
+        f.write(content)
+
+def call_pc_memory_write(args):
+    key = args["key"]
+    category = args["category"]
+    content = args["content"]
+    data = {
+        "key": key,
+        "category": category,
+        "content": content,
+        "tags": args.get("tags", []),
+        "relationships": args.get("relationships", {}),
+    }
+    ok = get_storage().write("default", data)
+    target_file = None
+    if category in ["decision", "architecture"]:
+        target_file = "decisions.md"
+    elif category in ["pattern", "convention", "rule", "protocol"]:
+        target_file = "patterns.md"
+    if target_file and ok:
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_line = f"\n### [{now_str}] {key}\n- **Category**: {category}\n- **Content**: {content}\n"
+        _append_markdown_with_archive(target_file, log_line)
+    return {"success": ok, "key": key, "auto_promoted_to": target_file}
+
+def call_pc_memory_consolidate(args):
+    new_key = args["new_key"]
+    category = args["category"]
+    content = args["content"]
+    old_keys = args["old_keys"]
+    st = get_storage()
+    deleted_count = st.delete_many("default", old_keys)
+    data = {
+        "key": new_key,
+        "category": category,
+        "content": content,
+        "tags": args.get("tags", []),
+        "relationships": args.get("relationships", {}),
+    }
+    ok = st.write("default", data)
+    target_file = None
+    if category in ["decision", "architecture"]:
+        target_file = "decisions.md"
+    elif category in ["pattern", "convention", "rule"]:
+        target_file = "patterns.md"
+    if target_file and ok:
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_line = f"\n### [{now_str}] {new_key} (Consolidated from {len(old_keys)} items)\n- **Category**: {category}\n- **Content**: {content}\n"
+        _append_markdown_with_archive(target_file, log_line)
+    return {"success": ok, "consolidated_key": new_key, "deleted_old_fragments": deleted_count, "auto_promoted_to": target_file}
+
+def call_pc_session_sync(args):
+    import re
+    import yaml
+    task_desc = args["task_desc"]
+    branch = "unknown"
+    jira_issues = []
+    try:
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=WORKSPACE).decode().strip()
+        match = re.search(r'([A-Z0-9]+-\d+)', branch)
+        if match:
+            jira_issues.append(match.group(1))
+    except:
+        pass
+    modified_files = []
+    try:
+        status1 = subprocess.check_output(["git", "diff", "--name-only", "HEAD"], cwd=WORKSPACE).decode().strip().split('\n')
+        status2 = subprocess.check_output(["git", "log", "-n", "3", "--name-only", "--pretty=format:"], cwd=WORKSPACE).decode().strip().split('\n')
+        combined = [f for f in status1 + status2 if f]
+        seen = set()
+        for f in combined:
+            if f not in seen:
+                seen.add(f)
+                modified_files.append(f)
+    except:
+        pass
+    relationships = {
+        "jira_issues": jira_issues,
+        "modifies": modified_files[:10],
+        "branch": branch
+    }
+    key = f"session-sync-{SESSION_ID}"
+    data = {
+        "key": key,
+        "category": "decision",
+        "content": task_desc,
+        "tags": ["session-sync", "auto-generated", "autonomous-rag"],
+        "relationships": relationships
+    }
+    ok = get_storage().write("default", data)
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"\n- [CONFIRMED] **[SESSION_SYNC]** {now_str} | Branch: {branch} | Issue: {jira_issues}\n  - 📝 {task_desc}\n  - 📂 Modifies: {len(modified_files)} files\n"
+    _append_markdown_with_archive("inbox.md", log_line)
+    yaml_path = os.path.join(WORKSPACE, ".agents", "history", "memory.yaml")
+    if os.path.exists(yaml_path):
+        try:
+            with open(yaml_path, 'r', encoding='utf-8') as yf:
+                yaml_data = yaml.safe_load(yf) or {}
+            yaml_data['active_branch'] = branch
+            yaml_data['last_sync'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            with open(yaml_path, 'w', encoding='utf-8') as yf:
+                yaml.dump(yaml_data, yf, allow_unicode=True, sort_keys=False)
+        except Exception:
+            pass
+    return {"success": ok, "key": key, "extracted_relationships": relationships, "markdown_synced": True}
+
+def call_pc_impact_graph(args):
+    fqn = args["fqn"]
+    direction = args.get("direction", "both")
+    max_depth = args.get("max_depth", 3)
+    conn = pc_db.get_connection(WORKSPACE)
+    try:
+        node = pc_db.get_node_by_fqn(conn, fqn)
+        if not node:
+            return {"error": f"Symbol not found: {fqn}"}
+        visited = set()
+        queue = [(node, 0)]
+        impact_nodes = {node["id"]: node}
+        while queue:
+            curr, depth = queue.pop(0)
+            if depth >= max_depth or curr["id"] in visited:
+                continue
+            visited.add(curr["id"])
+            if direction in ["callers", "both"]:
+                callers = pc_db.get_callers(conn, curr["id"])
+                for caller in callers:
+                    if caller["id"] not in impact_nodes:
+                        impact_nodes[caller["id"]] = caller
+                        queue.append((caller, depth + 1))
+            if direction in ["callees", "both"]:
+                callees = pc_db.get_callees(conn, curr["id"])
+                for callee in callees:
+                    if callee["id"] not in impact_nodes:
+                        impact_nodes[callee["id"]] = callee
+                        queue.append((callee, depth + 1))
+        return {"fqn": fqn, "impact_nodes": [n["fqn"] for n in impact_nodes.values()]}
+    finally:
+        conn.close()
+
+def call_pc_logic_flow(args):
+    from_fqn = args["from_fqn"]
+    to_fqn = args["to_fqn"]
+    conn = pc_db.get_connection(WORKSPACE)
+    try:
+        start_node = pc_db.get_node_by_fqn(conn, from_fqn)
+        end_node = pc_db.get_node_by_fqn(conn, to_fqn)
+        if not start_node or not end_node:
+            return {"error": "Start or end symbol not found."}
+        queue = [[start_node["id"]]]
+        visited = set()
+        while queue:
+            path = queue.pop(0)
+            curr = path[-1]
+            if curr == end_node["id"]:
+                path_nodes = [pc_db.get_node_by_id(conn, pid) for pid in path]
+                return {"path": [n["fqn"] for n in path_nodes]}
+            if curr not in visited:
+                visited.add(curr)
+                callees = pc_db.get_callees(conn, curr)
+                for callee in callees:
+                    queue.append(path + [callee["id"]])
+        return {"path": []}
+    finally:
+        conn.close()
+
+def call_pc_git_log(args):
+    try:
+        history = pc_git_mod.get_file_history(WORKSPACE, args["file_path"], args.get("limit", 5))
+        return history
+    except Exception as e:
+        return {"error": str(e)}
+
+def call_pc_run_pipeline(args):
+    query = args["query"]
+    try:
+        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
+        conn = pc_db.get_connection(WORKSPACE)
+        first_match = pc_db.search_nodes_fts(conn, query, limit=1)
+        impact = {}
+        if first_match:
+            impact_res = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
+            impact = impact_res.get("impact_nodes", [])[:10]
+        conn.close()
+        mem = []
+        if hasattr(pc_mem_mod, "search_memory"):
+            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+        return {
+            "capsule": capsule,
+            "impact_summary": impact,
+            "related_memories": mem
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+def call_pc_auto_context(args):
+    token_budget = args.get("token_budget", 2000)
+    conn = pc_db.get_connection(WORKSPACE)
+    try:
+        sections = []
+        total_chars = 0
+        
+        # 1. 최신 decisions
+        rows = conn.execute(
+            "SELECT key, content, updated_at FROM memories WHERE category = 'decision' ORDER BY updated_at DESC LIMIT 5"
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            snippet = d["content"][:150]
+            entry = f"[decision] {d['key']}: {snippet}"
+            if total_chars + len(entry) > token_budget: break
+            sections.append(entry)
+            total_chars += len(entry)
+
+        # 2. 최신 patterns
+        rows = conn.execute(
+            "SELECT key, content, updated_at FROM memories WHERE category = 'pattern' ORDER BY updated_at DESC LIMIT 3"
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            snippet = d["content"][:150]
+            entry = f"[pattern] {d['key']}: {snippet}"
+            if total_chars + len(entry) > token_budget: break
+            sections.append(entry)
+            total_chars += len(entry)
+
+        # 3. 인기 항목 (access_count)
+        rows = conn.execute(
+            "SELECT key, category, content, access_count FROM memories WHERE access_count > 0 ORDER BY access_count DESC LIMIT 5"
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            snippet = d["content"][:100]
+            entry = f"[{d['category']}] {d['key']} (hits:{d['access_count']}): {snippet}"
+            if total_chars + len(entry) > token_budget: break
+            if not any(d["key"] in s for s in sections):
+                sections.append(entry)
+                total_chars += len(entry)
+
+        return {
+            "context": "\n".join(sections),
+            "totalChars": total_chars,
+            "itemCount": len(sections)
+        }
+    finally:
+        conn.close()
+
+def call_pc_auto_explore(args):
+    query = args["query"]
+    token_budget = args.get("token_budget", 15000)
+    # pc_capsule_mod uses token_budget conditionally or might not have it, let's pass securely
+    capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
+    result = {"capsule": capsule}
+    if len(capsule) < 1500:
+        result["reasoning"] = f"Generated capsule was relatively short ({len(capsule)} chars). Autonomously chaining impact graph and memories..."
+        conn = pc_db.get_connection(WORKSPACE)
+        try:
+            first_match = pc_db.search_nodes_fts(conn, query, limit=1)
+            if first_match:
+                impact = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
+                result["chained_impact"] = impact.get("impact_nodes", [])[:10]
+        finally:
+            conn.close()
+        
+        if hasattr(pc_mem_mod, "search_memory"):
+            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+            result["chained_memories"] = mem
+    else:
+        result["reasoning"] = f"Generated capsule is robust ({len(capsule)} chars). No further chaining required."
+    pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {query}", [])
+    return result
+
 # ==============================================================================
 # TOOL REGISTRY
 # ==============================================================================
@@ -100,12 +507,20 @@ TOOLS = [
     {"name": "pc_reindex", "description": "인덱싱 실행", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean"}}}},
     {"name": "pc_index_status", "description": "인덱스 상태", "inputSchema": {"type": "object"}},
     {"name": "pc_capsule", "description": "1순위 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "pc_auto_explore", "description": "자율 다단계 탐색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
+    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "token_budget": {"type": "integer", "description": "토큰 제한", "default": 15000}}, "required": ["query"]}},
+    {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
+    {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
+    {"name": "pc_git_log", "description": "특정 파일의 상세 Git 수정 이력 조회.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "limit": {"type": "integer", "description": "최대 로그 수", "default": 5}}, "required": ["file_path"]}},
+    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}}, "required": ["query"]}},
+    {"name": "pc_auto_context", "description": "세션 시작 시 최신 결정사항과 인기 지식을 요약하여 제공 (맥락 복원).", "inputSchema": {"type": "object", "properties": {"token_budget": {"type": "integer", "description": "토큰 예산", "default": 2000}}}},
     {"name": "pc_read_with_hash", "description": "해시 포함 읽기", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}},
     {"name": "pc_strict_replace", "description": "정밀 편집", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_content": {"type": "string"}, "new_content": {"type": "string"}}, "required": ["file_path", "old_content", "new_content"]}},
     {"name": "pc_create_contract", "description": "계약 생성", "inputSchema": {"type": "object", "properties": {"lane_id": {"type": "string"}, "task_name": {"type": "string"}, "instructions": {"type": "string"}}, "required": ["lane_id", "task_name", "instructions"]}},
     {"name": "pc_todo_manager", "description": "Todo 관리", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}}, "required": ["action"]}},
-    {"name": "pc_memory_write", "description": "지식 저장", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}}, "required": ["key", "category", "content"]}},
+    {"name": "pc_session_sync", "description": "작업 종료 시 Git 상태와 변경 파일을 스캔하여 세션 메모리를 자동 동기화합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "작업 요약"}}, "required": ["task_desc"]}},
+    {"name": "pc_memory_write", "description": "지식 저장 및 마크다운 승격(decisions/patterns.md)", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["key", "category", "content"]}},
+    {"name": "pc_memory_consolidate", "description": "파편화된 과거 지식을 하나의 새로운 규칙으로 병합.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "지식 조회", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_save_observation", "description": "인사이트 저장", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}},
     {"name": "pc_memory_search_knowledge", "description": "영구 지식, 규칙 및 스킬 하이브리드 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}, "required": ["query"]}},
@@ -138,12 +553,20 @@ def handle_request(req):
             elif n == "pc_index_status": 
                 conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
             elif n == "pc_capsule": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
-            elif n == "pc_auto_explore": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
+            elif n == "skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
+            elif n == "pc_auto_explore": r = call_pc_auto_explore(a)
+            elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
+            elif n == "pc_logic_flow": r = call_pc_logic_flow(a)
+            elif n == "pc_git_log": r = call_pc_git_log(a)
+            elif n == "pc_run_pipeline": r = call_pc_run_pipeline(a)
+            elif n == "pc_auto_context": r = call_pc_auto_context(a)
             elif n == "pc_read_with_hash": r = read_with_hash(WORKSPACE, a["file_path"])
             elif n == "pc_strict_replace": r = call_strict_replace(a)
             elif n == "pc_create_contract": r = call_create_contract(a)
             elif n == "pc_todo_manager": r = call_todo_manager(a)
-            elif n == "pc_memory_write": r = get_storage().write("default", {"key": a["key"], "category": a["category"], "content": a["content"]})
+            elif n == "pc_session_sync": r = call_pc_session_sync(a)
+            elif n == "pc_memory_write": r = call_pc_memory_write(a)
+            elif n == "pc_memory_consolidate": r = call_pc_memory_consolidate(a)
             elif n == "pc_memory_read": r = get_storage().read("default", a["key"])
             elif n == "pc_save_observation": r = call_save_observation(a)
             elif n == "pc_memory_search_knowledge":

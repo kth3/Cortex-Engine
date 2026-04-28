@@ -89,6 +89,23 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
     if not parser_func:
         return {"status": "skipped", "reason": "unsupported extension"}
 
+    # hash pre-check: file_cache에 동일 hash가 있으면 임베딩 없이 즉시 반환
+    try:
+        current_hash = compute_hash(source)
+        _close_check = conn is None
+        _check_conn  = conn if conn is not None else db.get_connection(workspace)
+        try:
+            cached = _check_conn.execute(
+                "SELECT hash FROM file_cache WHERE file_path = ?", (rel_path,)
+            ).fetchone()
+            if cached and cached[0] == current_hash:
+                return {"status": "skipped", "reason": "hash unchanged", "chunks": 0}
+        finally:
+            if _close_check:
+                _check_conn.close()
+    except Exception:
+        pass  # 체크 실패 시 정상 인덱싱 진행
+
     close_conn = False
     if conn is None:
         conn = db.get_connection(workspace)
@@ -156,6 +173,10 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
         conn.execute("INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
                      (rel_path, compute_hash(source), int(time.time()), workspace_id))
         
+        # Deduplicate vector_items by id to prevent UNIQUE constraint failed on vec_nodes
+        if vector_items:
+            vector_items = list({item["id"]: item for item in vector_items}.values())
+
         if vectorize and vector_items:
             from cortex import vector_engine as ve
             ids = [item["id"] for item in vector_items]
@@ -224,6 +245,10 @@ def _sync_rules_to_memories(workspace: str, conn):
         "protocol": os.path.join(workspace, ".agents", "rules", "core", "protocols"),
         "resource": os.path.join(workspace, ".agents", "knowledge", "resources"),
         "example": os.path.join(workspace, ".agents", "knowledge", "examples"),
+        "success_pattern": os.path.join(workspace, ".agents", "docs", "success_patterns"),
+        "insight": os.path.join(workspace, ".agents", "docs", "insights"),
+        "architecture": os.path.join(workspace, ".agents", "docs", "architecture"),
+        "reference": os.path.join(workspace, "references"),
     }
     
     synced = 0
