@@ -56,11 +56,12 @@ jobs:
           echo "This file proves that markdown and frontmatter parsing works." >> dummy.md
           
           # 2) 파서별 문법 엔진 검증 (knowledge 폴더 3,800+ 파일 타임아웃 방지, 코어 스크립트 스캔)
-          # SkillManager가 .gitignore를 무시하고 knowledge 폴더를 강제 동기화하므로, 물리적으로 폴더명을 숨깁니다.
-          mv knowledge knowledge_backup
+          # knowledge_backup은 같은 디렉터리 내 rename이므로 인덱서가 그대로 탐지함.
+          # workspace 완전 외부(/tmp)로 이동해야 스캔 범위에서 제외됨.
+          mv knowledge /tmp/knowledge_ci_backup
           uv run python scripts/cortex/indexer.py . --force
           uv run python scripts/cortex/indexer.py . --file dummy.py --force
-          mv knowledge_backup knowledge
+          mv /tmp/knowledge_ci_backup knowledge
           
           # 3) 생성된 SQLite DB 파일 및 AST 파서 엣지 무결성(알맹이) 검증
           echo "Verifying generated artifacts and logic..."
