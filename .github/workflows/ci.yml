@@ -1,0 +1,33 @@
+name: Cortex Agents CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Sync Dependencies
+        run: uv sync
+
+      - name: Verify Environment Setup
+        run: |
+          # 기본 의존성 충돌 여부 및 환경 생성 성공 여부 검증
+          uv run python -c "import mcp; import tree_sitter; print('Environment is strictly valid!')"
