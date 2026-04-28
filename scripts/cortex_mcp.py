@@ -33,6 +33,10 @@ from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
 
 def _find_real_workspace(start_path):
+    # 환경변수 우선 오버라이드 (CI 등 외부 주입 시 사용)
+    env_ws = os.environ.get("CORTEX_WORKSPACE")
+    if env_ws:
+        return str(Path(env_ws).resolve())
     curr = start_path.resolve()
     parts = curr.parts
     if ".agents" in parts:

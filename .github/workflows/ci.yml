@@ -43,35 +43,32 @@ jobs:
 
       - name: Test Core Indexing & Embedding Engine
         run: |
-          # 1) 테스트용 다국어 더미 파일(Python, CS, TS) 및 지식 문서(MD) 추가 생성
-          echo "def inner_func(): return 1" > dummy.py
-          echo "def outer_func(): return inner_func()" >> dummy.py
-          echo "namespace Test { public class Sample { void Work() {} } }" > dummy.cs
-          echo "export function sampleTs() { return 0; }" > dummy.ts
-          echo "---" > dummy.md
-          echo "name: test-knowledge" >> dummy.md
-          echo "description: A dummy knowledge file" >> dummy.md
-          echo "---" >> dummy.md
-          echo "# Testing Cortex Extraction" >> dummy.md
-          echo "This file proves that markdown and frontmatter parsing works." >> dummy.md
-          
-          # 2) 파서별 문법 엔진 검증 (knowledge 폴더 3,800+ 파일 타임아웃 방지, 코어 스크립트 스캔)
-          # knowledge_backup은 같은 디렉터리 내 rename이므로 인덱서가 그대로 탐지함.
-          # workspace 완전 외부(/tmp)로 이동해야 스캔 범위에서 제외됨.
-          mv knowledge /tmp/knowledge_ci_backup
-          uv run python scripts/cortex/indexer.py . --force
-          uv run python scripts/cortex/indexer.py . --file dummy.py --force
-          mv /tmp/knowledge_ci_backup knowledge
+          # 1) 테스트용 별도 워크스페이스 및 더미 파일 생성
+          # .agents 저장소 루트에 .agents 폴더가 중첩되지 않도록 분리된 test_workspace 사용
+          mkdir test_workspace
+          echo "def inner_func(): return 1" > test_workspace/dummy.py
+          echo "def outer_func(): return inner_func()" >> test_workspace/dummy.py
+          echo "namespace Test { public class Sample { void Work() {} } }" > test_workspace/dummy.cs
+          echo "export function sampleTs() { return 0; }" > test_workspace/dummy.ts
+          echo "---" > test_workspace/dummy.md
+          echo "name: test-knowledge" >> test_workspace/dummy.md
+          echo "description: A dummy knowledge file" >> test_workspace/dummy.md
+          echo "---" >> test_workspace/dummy.md
+          echo "# Testing Cortex Extraction" >> test_workspace/dummy.md
+          echo "This file proves that markdown and frontmatter parsing works." >> test_workspace/dummy.md
+
+          # 2) 인덱싱 실행 (test_workspace 경로를 워크스페이스로 지정)
+          uv run python scripts/cortex/indexer.py ./test_workspace --force
           
           # 3) 생성된 SQLite DB 파일 및 AST 파서 엣지 무결성(알맹이) 검증
           echo "Verifying generated artifacts and logic..."
-          if [ ! -f ./.agents/data/memories.db ]; then
+          if [ ! -f ./test_workspace/.agents/data/memories.db ]; then
             echo "❌ memories.db missing!"
             exit 1
           fi
-          
-          # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사 (dummy.py 기반)
-          EDGE_COUNT=$(sqlite3 ./.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALLS';")
+
+          # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사
+          EDGE_COUNT=$(sqlite3 ./test_workspace/.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALLS';")
           if [ "$EDGE_COUNT" -eq 0 ]; then
             echo "❌ AST Parser failed! No CALL edges extracted. The parser might be degraded (Silent Failure)."
             exit 1
@@ -79,6 +76,8 @@ jobs:
           echo "✅ AST Parser successfully extracted $EDGE_COUNT CALL edges! (Data Integrity Verified)"
 
       - name: Test MCP Server Protocol (JSON-RPC)
+        env:
+          CORTEX_WORKSPACE: ${{ github.workspace }}/test_workspace
         run: |
           # 1) tools/list API 호출 (껍데기 명세 검증)
           echo '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}' > mcp_list.json
