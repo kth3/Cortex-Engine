@@ -11,6 +11,7 @@ data/
 history/
 !history/inbox.md
 state/
+memo.md
 
 # Project-Specific Assets (Isolated)
 rules/*/
