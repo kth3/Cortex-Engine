@@ -507,7 +507,7 @@ TOOLS = [
     {"name": "pc_reindex", "description": "인덱싱 실행", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean"}}}},
     {"name": "pc_index_status", "description": "인덱스 상태", "inputSchema": {"type": "object"}},
     {"name": "pc_capsule", "description": "1순위 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
+    {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
     {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "token_budget": {"type": "integer", "description": "토큰 제한", "default": 15000}}, "required": ["query"]}},
     {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
     {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
@@ -553,7 +553,7 @@ def handle_request(req):
             elif n == "pc_index_status": 
                 conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
             elif n == "pc_capsule": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
-            elif n == "skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
+            elif n == "pc_skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
             elif n == "pc_auto_explore": r = call_pc_auto_explore(a)
             elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
             elif n == "pc_logic_flow": r = call_pc_logic_flow(a)
