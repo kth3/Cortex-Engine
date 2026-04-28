@@ -396,13 +396,15 @@ def get_callees(conn: sqlite3.Connection, node_id: str):
 
 def get_stats(conn: sqlite3.Connection) -> dict:
     """인덱스 통계"""
-    node_count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-    edge_count = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-    file_count = conn.execute("SELECT COUNT(*) FROM file_cache").fetchone()[0]
+    node_count    = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+    edge_count    = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    file_count    = conn.execute("SELECT COUNT(*) FROM file_cache").fetchone()[0]
+    memory_count  = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
     return {
-        "total_nodes": node_count,
-        "total_edges": edge_count,
-        "total_files": file_count,
+        "total_nodes":    node_count,
+        "total_edges":    edge_count,
+        "total_files":    file_count,
+        "total_memories": memory_count,
         "schema_version": conn.execute(
             "SELECT value FROM meta WHERE key='schema_version'"
         ).fetchone()[0]
