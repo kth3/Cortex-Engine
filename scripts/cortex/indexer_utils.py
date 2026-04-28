@@ -264,19 +264,26 @@ def should_include(path: str, workspace: str, settings: dict) -> bool:
     """파일이 인덱싱 범위에 포함되는지 확인 (Whitelist 우선)"""
     rules = settings.get("indexing_rules", {})
     rel = os.path.relpath(path, workspace)
-    
+
+    def _matches(pattern: str) -> bool:
+        """** 포함 패턴은 pathlib.PurePath.match() 사용, 단순 패턴은 fnmatch 사용."""
+        if "**" in pattern:
+            return Path(rel).match(pattern)
+        return fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(os.path.basename(rel), pattern)
+
     # 1. 화이트리스트 파일 체크
     whitelist = rules.get("config_whitelist", [])
     for pattern in whitelist:
-        if fnmatch.fnmatch(os.path.basename(rel), pattern) or fnmatch.fnmatch(rel, pattern):
+        if _matches(pattern):
             return True
-            
+
     # 2. 포함 경로 체크
-    includes = rules.get("include_paths", ["**/src/**", "**/*.py"])
+    # 기본값 "**": settings.yaml 없는 워크스페이스에서 전체 파일 포함 (빈 프로젝트 보호)
+    includes = rules.get("include_paths", ["**"])
     for pattern in includes:
-        if fnmatch.fnmatch(rel, pattern):
+        if _matches(pattern):
             return True
-            
+
     # 3. 모듈별 경로 체크
     modules = rules.get("modules", {})
     if isinstance(modules, dict):
@@ -284,7 +291,7 @@ def should_include(path: str, workspace: str, settings: dict) -> bool:
             for m_path in mod_paths:
                 if rel.startswith(m_path) or fnmatch.fnmatch(rel, m_path):
                     return True
-                
+
     return False
 
 
