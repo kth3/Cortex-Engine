@@ -43,7 +43,9 @@ jobs:
 
       - name: Test Core Indexing & Embedding Engine
         run: |
-          # 1) 테스트용 다국어 더미 파일(CS, TS) 및 지식 문서(MD) 추가 생성
+          # 1) 테스트용 다국어 더미 파일(Python, CS, TS) 및 지식 문서(MD) 추가 생성
+          echo "def inner_func(): return 1" > dummy.py
+          echo "def outer_func(): return inner_func()" >> dummy.py
           echo "namespace Test { public class Sample { void Work() {} } }" > dummy.cs
           echo "export function sampleTs() { return 0; }" > dummy.ts
           echo "---" > dummy.md
@@ -53,17 +55,25 @@ jobs:
           echo "# Testing Cortex Extraction" >> dummy.md
           echo "This file proves that markdown and frontmatter parsing works." >> dummy.md
           
-          # 2) 파서별 문법 엔진 검증 (knowledge 폴더 3,800+ 파일 타임아웃 방지, 코어 파이썬 스크립트만 전체 스캔)
+          # 2) 파서별 문법 엔진 검증 (knowledge 폴더 3,800+ 파일 타임아웃 방지, 코어 스크립트 스캔)
           echo "knowledge" >> .gitignore
           uv run python scripts/cortex/indexer.py . --force
+          uv run python scripts/cortex/indexer.py . --file dummy.py --force
           
-          # 3) 생성된 SQLite DB 파일 검증
-          echo "Verifying generated artifacts..."
+          # 3) 생성된 SQLite DB 파일 및 AST 파서 엣지 무결성(알맹이) 검증
+          echo "Verifying generated artifacts and logic..."
           if [ ! -f ./.agents/data/memories.db ]; then
             echo "❌ memories.db missing!"
             exit 1
           fi
-          echo "✅ memories.db generated successfully!"
+          
+          # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사 (dummy.py 기반)
+          EDGE_COUNT=$(sqlite3 ./.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALL';")
+          if [ "$EDGE_COUNT" -eq 0 ]; then
+            echo "❌ AST Parser failed! No CALL edges extracted. The parser might be degraded (Silent Failure)."
+            exit 1
+          fi
+          echo "✅ AST Parser successfully extracted $EDGE_COUNT CALL edges! (Data Integrity Verified)"
 
       - name: Test MCP Server Protocol (JSON-RPC)
         run: |
@@ -81,16 +91,28 @@ jobs:
           done
           echo "✅ All critical MCP tools are successfully registered!"
 
-          # 2) tools/call API (pc_index_status) 호출 -> 실제 DB 연동 및 작동 여부 철저 검증!
+          # 2) tools/call API (pc_index_status) 호출 -> 실제 DB 연동 작동 여부 검증
           echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 2, "params": {"name": "pc_index_status", "arguments": {}}}' > mcp_call.json
           RESPONSE_CALL=$(uv run python scripts/cortex_mcp.py < mcp_call.json)
           
-          # 반환값에 통계 항목(total_nodes, total_memories)이 온전히 잡히는지 확인
           if [[ "$RESPONSE_CALL" == *"total_nodes"* ]] && [[ "$RESPONSE_CALL" == *"total_memories"* ]]; then
-            echo "🎉 MCP Server successfully executed tools/call and read the live database!"
+            echo "✅ MCP Server successfully executed tools/call and read the live database!"
           else
             echo "❌ MCP Server failed to execute tools/call or could not read the database!"
             echo "Call Response was: $RESPONSE_CALL"
+            exit 1
+          fi
+          
+          # 3) tools/call API (pc_run_pipeline) 호출 -> HuggingFace 벡터 임베딩 및 검색 품질 검증
+          echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 3, "params": {"name": "pc_run_pipeline", "arguments": {"query": "Cortex Extraction"}}}' > mcp_pipeline.json
+          RESPONSE_PIPELINE=$(uv run python scripts/cortex_mcp.py < mcp_pipeline.json)
+          
+          # 생성해둔 dummy.md의 Frontmatter name 속성인 'test-knowledge'가 벡터 검색으로 잘 잡히는지 검증
+          if [[ "$RESPONSE_PIPELINE" == *"test-knowledge"* ]]; then
+            echo "🎉 MCP Vector Search (pc_run_pipeline) successfully retrieved knowledge!"
+          else
+            echo "❌ MCP Vector Search failed to retrieve the dummy knowledge! Semantic extraction is broken."
+            echo "Pipeline Response was: $RESPONSE_PIPELINE"
             exit 1
           fi
 
