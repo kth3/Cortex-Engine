@@ -11,6 +11,25 @@ Cortex C# Parser (Unity-Aware)
 import re
 import uuid
 
+# C# 기본 타입 및 자주 쓰이는 BCL/Unity 타입 — ANNOTATED_WITH/CALLS 노이즈 필터
+_CS_BUILTIN_TYPES = frozenset({
+    "void", "int", "float", "double", "string", "bool", "byte",
+    "char", "long", "object", "var", "dynamic", "decimal",
+    "short", "uint", "ulong", "ushort", "sbyte",
+    "String", "Int32", "Int64", "Boolean", "Object", "Char",
+    "Byte", "Double", "Single", "Decimal", "Nullable",
+    "List", "Dictionary", "HashSet", "Queue", "Stack", "Array",
+    "IEnumerator", "IEnumerable", "IList", "IDictionary", "ICollection",
+    "Task", "ValueTask", "Action", "Func", "Predicate", "Tuple",
+    "CancellationToken", "Exception",
+    "Vector2", "Vector3", "Vector4", "Quaternion", "Color", "Rect",
+    "Transform", "GameObject", "Component", "MonoBehaviour",
+    "ScriptableObject", "Coroutine",
+    "Debug", "Mathf", "Time", "Input", "Physics",
+    "WaitForSeconds", "WaitForEndOfFrame", "WaitForFixedUpdate",
+    "System", "Collections", "Generic", "T", "TKey", "TValue",
+})
+
 # ==============================================================================
 # 지원 확장자 메타데이터 (ParserRegistry 자동 등록)
 # ==============================================================================
@@ -42,6 +61,14 @@ UNITY_LIFECYCLE_METHODS = {
 # ==============================================================================
 # 정규식 패턴
 # ==============================================================================
+
+# using 디렉티브 (IMPORTS 엣지용)
+USING_PATTERN = re.compile(r'^using\s+([\w.]+)\s*;', re.MULTILINE)
+
+# new ClassName(...) or new ClassName<T> { }
+_NEW_CALL_RE = re.compile(r'\bnew\s+([A-Z][A-Za-z0-9_]*)(?:<[^>]+>)?\s*[({]')
+# ClassName.StaticMethod(...) — 정적 호출, 첫 글자 대문자
+_STATIC_CALL_RE = re.compile(r'\b([A-Z][A-Za-z0-9_]*)\.(?:[A-Za-z_][A-Za-z0-9_]*)\s*\(')
 
 # 네임스페이스
 NAMESPACE_PATTERN = re.compile(
@@ -101,10 +128,32 @@ PROPERTY_PATTERN = re.compile(
 def parse_csharp_file(file_path: str, source: str) -> dict:
     """C# 파일을 파싱하여 노드와 엣지를 추출합니다."""
     lines = source.splitlines()
-    nodes = []
-    edges = []
-
     clean_source = _strip_comments(source)
+
+    # 파일 모듈 노드
+    module_id = str(uuid.uuid5(uuid.NAMESPACE_URL, file_path))
+    line_count = len(lines) or 1
+    module_node = {
+        "id": module_id,
+        "type": "module",
+        "name": file_path.rsplit("/", 1)[-1].replace(".cs", ""),
+        "fqn": file_path,
+        "file_path": file_path,
+        "start_line": 1,
+        "end_line": line_count,
+        "signature": None,
+        "return_type": None,
+        "docstring": "",
+        "is_exported": 1,
+        "is_async": 0,
+        "is_test": 0,
+        "raw_body": "",
+        "skeleton_standard": None,
+        "skeleton_minimal": None,
+        "language": "csharp",
+    }
+    nodes = [module_node]
+    edges = _extract_csharp_imports(clean_source, module_id)
 
     # ----- 1. 네임스페이스 수집 (FQN 구성용) -----
     namespaces = []
@@ -213,9 +262,11 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
         is_test = "Test" in attrs_raw or "test" in name.lower()
 
         docstring = _find_comment_above(source, m.start())
+        method_id = str(uuid.uuid5(uuid.NAMESPACE_URL, unique_key))
+        body = "\n".join(lines[start_line - 1:end_line])
 
         nodes.append({
-            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, unique_key)),
+            "id": method_id,
             "type": "method",
             "name": name,
             "fqn": fqn,
@@ -228,7 +279,7 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
             "is_exported": "public" in modifiers,
             "is_async": 1 if (is_async or is_coroutine) else 0,
             "is_test": is_test,
-            "raw_body": _truncate("\n".join(lines[start_line - 1:end_line]), 500),
+            "raw_body": _truncate(body, 500),
             "skeleton_standard": f"{sig} {{\n    ...\n}}",
             "skeleton_minimal": f"{name}(...)",
             "language": "csharp",
@@ -236,6 +287,8 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
             "unity_lifecycle": is_lifecycle,
             "unity_coroutine": is_coroutine,
         })
+        edges.extend(_extract_csharp_type_refs(method_id, ret_type, params, start_line))
+        edges.extend(_extract_csharp_calls(method_id, body, start_line))
 
     # ----- 4. 프로퍼티 -----
     for m in PROPERTY_PATTERN.finditer(clean_source):
@@ -338,3 +391,72 @@ def _truncate(text: str, max_len: int) -> str:
         return ""
     first_line = text.split("\n")[0].strip()
     return first_line[:max_len] if len(first_line) > max_len else first_line
+
+
+# ==============================================================================
+# 엣지 추출 헬퍼 (IMPORTS / ANNOTATED_WITH / CALLS)
+# ==============================================================================
+
+def _extract_csharp_imports(clean_source: str, module_id: str) -> list:
+    """using 디렉티브를 IMPORTS 엣지로 추출"""
+    edges = []
+    for m in USING_PATTERN.finditer(clean_source):
+        ns = m.group(1)
+        lineno = clean_source[:m.start()].count("\n") + 1
+        last_segment = ns.split(".")[-1]
+        edges.append({
+            "source_id": module_id,
+            "target_id": f"__unresolved__::{last_segment}",
+            "type": "IMPORTS",
+            "call_site_line": lineno,
+        })
+    return edges
+
+
+def _extract_csharp_type_refs(node_id: str, ret_type: str, params: str, lineno: int) -> list:
+    """메서드 리턴 타입 및 파라미터 타입에서 ANNOTATED_WITH 엣지 추출"""
+    edges = []
+    seen: set[str] = set()
+
+    for ts in [ret_type] + ([p.strip() for p in params.split(",")] if params else []):
+        for m in re.finditer(r'([A-Z][A-Za-z0-9_]*)', ts):
+            name = m.group(1)
+            if name not in _CS_BUILTIN_TYPES and name not in seen:
+                seen.add(name)
+                edges.append({
+                    "source_id": node_id,
+                    "target_id": f"__unresolved__::{name}",
+                    "type": "ANNOTATED_WITH",
+                    "call_site_line": lineno,
+                })
+    return edges
+
+
+def _extract_csharp_calls(node_id: str, body: str, lineno: int) -> list:
+    """메서드 본문에서 CALLS 엣지 추출 (new ClassName, ClassName.Method 패턴)"""
+    edges = []
+    seen: set[str] = set()
+
+    for m in _NEW_CALL_RE.finditer(body):
+        name = m.group(1)
+        if name not in _CS_BUILTIN_TYPES and name not in seen:
+            seen.add(name)
+            edges.append({
+                "source_id": node_id,
+                "target_id": f"__unresolved__::{name}",
+                "type": "CALLS",
+                "call_site_line": lineno,
+            })
+
+    for m in _STATIC_CALL_RE.finditer(body):
+        name = m.group(1)
+        if name not in _CS_BUILTIN_TYPES and name not in seen:
+            seen.add(name)
+            edges.append({
+                "source_id": node_id,
+                "target_id": f"__unresolved__::{name}",
+                "type": "CALLS",
+                "call_site_line": lineno,
+            })
+
+    return edges

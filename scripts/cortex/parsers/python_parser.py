@@ -18,15 +18,38 @@ def parse_python_file(file_path: str, source: str) -> dict:
         tree = ast.parse(source, filename=file_path)
     except SyntaxError:
         return {"nodes": [], "edges": []}
-    
-    nodes = []
-    edges = []
-    
+
+    module_id = str(uuid.uuid5(uuid.NAMESPACE_URL, file_path))
+    line_count = len(source.splitlines()) or 1
+    module_node = {
+        "id": module_id,
+        "type": "module",
+        "name": file_path.rsplit("/", 1)[-1].replace(".py", ""),
+        "fqn": file_path,
+        "file_path": file_path,
+        "start_line": 1,
+        "end_line": line_count,
+        "signature": None,
+        "return_type": None,
+        "docstring": ast.get_docstring(tree) or "",
+        "is_exported": 1,
+        "is_async": 0,
+        "is_test": 0,
+        "raw_body": "",
+        "skeleton_standard": None,
+        "skeleton_minimal": None,
+        "language": "python",
+    }
+
+    imports_map = _build_imports_map(tree)
+    nodes = [module_node]
+    edges = _extract_imports(tree, module_id)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             cls_node = _extract_class(node, file_path, source)
             nodes.append(cls_node)
-            
+
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     method_node = _extract_method(item, file_path, source, parent_class=node.name)
@@ -38,16 +61,16 @@ def parse_python_file(file_path: str, source: str) -> dict:
                         "type": "CONTAINS",
                         "call_site_line": item.lineno
                     })
-                    # 메서드 내부 호출 추적
-                    edges.extend(_extract_calls(item, method_node["id"], source))
-        
+                    edges.extend(_extract_calls(item, method_node["id"], source, imports_map))
+                    edges.extend(_extract_type_refs(item, method_node["id"], imports_map))
+
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # 트리 최상위 함수 (클래스 내부가 아닌)
             if not _is_method(node, tree):
                 func_node = _extract_function(node, file_path, source)
                 nodes.append(func_node)
-                edges.extend(_extract_calls(node, func_node["id"], source))
-    
+                edges.extend(_extract_calls(node, func_node["id"], source, imports_map))
+                edges.extend(_extract_type_refs(node, func_node["id"], imports_map))
+
     return {"nodes": nodes, "edges": edges}
 
 def _extract_class(node: ast.ClassDef, file_path: str, source: str) -> dict:
@@ -150,7 +173,70 @@ def _extract_func_like(node, file_path: str, source: str, ntype: str, parent: st
         "language": "python"
     }
 
-def _extract_calls(func_node, source_id: str, source: str) -> list:
+def _build_imports_map(tree) -> dict:
+    """import 문에서 로컬명 → 전체 점 구분 FQN 매핑 구성 (오매칭 방지용)"""
+    imports_map = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                imports_map[local_name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                imports_map[local_name] = alias.name
+    return imports_map
+
+
+def _extract_imports(tree, module_id: str) -> list:
+    """모듈 수준 import 문을 IMPORTS 엣지로 추출 (from X import Y → FQN 타겟)"""
+    edges = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                full_fqn = f"{node.module}.{alias.name}"
+                edges.append({
+                    "source_id": module_id,
+                    "target_id": f"__unresolved_fqn__::{full_fqn}",
+                    "type": "IMPORTS",
+                    "call_site_line": node.lineno,
+                })
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.asname or alias.name.split(".")[0]
+                edges.append({
+                    "source_id": module_id,
+                    "target_id": f"__unresolved__::{name}",
+                    "type": "IMPORTS",
+                    "call_site_line": node.lineno,
+                })
+    return edges
+
+
+def _extract_type_refs(func_node, source_id: str, imports_map: dict = None) -> list:
+    """함수/메서드의 파라미터 및 리턴 타입 어노테이션을 ANNOTATED_WITH 엣지로 추출"""
+    edges = []
+    annotations = [a.annotation for a in func_node.args.args if a.annotation]
+    if func_node.returns:
+        annotations.append(func_node.returns)
+    for ann in annotations:
+        for name_node in ast.walk(ann):
+            if isinstance(name_node, ast.Name) and not name_node.id.startswith("_"):
+                name = name_node.id
+                if imports_map and name in imports_map:
+                    target_id = f"__unresolved_fqn__::{imports_map[name]}"
+                else:
+                    target_id = f"__unresolved__::{name}"
+                edges.append({
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "type": "ANNOTATED_WITH",
+                    "call_site_line": func_node.lineno,
+                })
+    return edges
+
+
+def _extract_calls(func_node, source_id: str, source: str, imports_map: dict = None) -> list:
     """함수 내부의 호출 관계를 추출 (CALLS 엣지)"""
     edges = []
     for node in ast.walk(func_node):
@@ -160,12 +246,15 @@ def _extract_calls(func_node, source_id: str, source: str) -> list:
                 target_name = node.func.attr
             elif isinstance(node.func, ast.Name):
                 target_name = node.func.id
-            
+
             if target_name and not target_name.startswith("_"):
-                # 실제 target_id는 인덱싱 후 FQN 해석 단계에서 연결
+                if imports_map and target_name in imports_map:
+                    target_id = f"__unresolved_fqn__::{imports_map[target_name]}"
+                else:
+                    target_id = f"__unresolved__::{target_name}"
                 edges.append({
                     "source_id": source_id,
-                    "target_id": f"__unresolved__::{target_name}",
+                    "target_id": target_id,
                     "type": "CALLS",
                     "call_site_line": getattr(node, 'lineno', None)
                 })

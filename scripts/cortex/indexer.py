@@ -150,7 +150,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
             if cat == "RULE":
                 vec_text += clean_source[:1200]
             else:
-                vec_text += node['raw_body'][:1200]
+                vec_text += (node.get('raw_body') or '')[:1200]
             
             vector_items.append({
                 "id": node["id"], "text": vec_text,
@@ -219,6 +219,9 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
             pass
 
         conn.commit()
+
+        # 증분 인덱싱 시에도 unresolved 엣지 즉시 해소
+        _resolve_unresolved_edges(conn)
 
         result = {"status": "updated" if is_update else "created", "nodes": len(nodes_data), "chunks": len(nodes_data)}
         if not vectorize:
@@ -478,6 +481,78 @@ def incremental_index_changed(workspace: str) -> dict:
     log.info("Opportunistic indexing complete: %d files indexed (CPU).", indexed)
     return {"status": "indexed", "changed": len(changed_files), "indexed": indexed}
 
+def _resolve_unresolved_edges(conn) -> None:
+    """unresolved 엣지 target_id를 실제 노드 UUID로 교체.
+
+    두 가지 패턴:
+    - __unresolved_fqn__::a.b.c.ClassName → fqn LIKE + language 필터로 정밀 매칭
+    - __unresolved__::Name              → 소스 노드 언어 장벽 우선, 실패 시 전체 매칭
+    """
+    unresolved = conn.execute(
+        "SELECT id, target_id FROM edges WHERE target_id LIKE '__unresolved%'"
+    ).fetchall()
+    if not unresolved:
+        return
+
+    fqn_edges = [(eid, tid) for eid, tid in unresolved if tid.startswith("__unresolved_fqn__::")]
+    name_edges = [(eid, tid) for eid, tid in unresolved if not tid.startswith("__unresolved_fqn__::")]
+
+    updates = []
+
+    # FQN 기반 정밀 매칭 (Python 언어 장벽 포함)
+    for eid, tid in fqn_edges:
+        dotted_fqn = tid[len("__unresolved_fqn__::"):]
+        parts = dotted_fqn.rsplit(".", 1)
+        if len(parts) != 2:
+            continue
+        module_path = parts[0].replace(".", "/") + ".py"
+        class_name = parts[1]
+        node = conn.execute(
+            "SELECT id FROM nodes WHERE fqn LIKE ? AND language = 'python' LIMIT 1",
+            (f"%{module_path}::{class_name}",)
+        ).fetchone()
+        if node:
+            updates.append((node[0], eid))
+
+    # 이름 기반 매칭: 소스 노드 언어를 배치 조회 후 동일 언어 우선
+    if name_edges:
+        edge_ids = [e[0] for e in name_edges]
+        src_lang_map: dict[int, str] = {}
+        for i in range(0, len(edge_ids), 900):
+            batch = edge_ids[i:i + 900]
+            ph = ",".join("?" * len(batch))
+            rows = conn.execute(
+                f"SELECT e.id, n.language FROM edges e "
+                f"JOIN nodes n ON e.source_id = n.id "
+                f"WHERE e.id IN ({ph})",
+                batch
+            ).fetchall()
+            for rid, rlang in rows:
+                src_lang_map[rid] = rlang
+
+        for eid, tid in name_edges:
+            name = tid.split("::")[-1]
+            src_lang = src_lang_map.get(eid)
+            node = None
+            if src_lang:
+                node = conn.execute(
+                    "SELECT id FROM nodes WHERE name = ? AND language = ? LIMIT 1",
+                    (name, src_lang)
+                ).fetchone()
+            if not node:
+                node = conn.execute(
+                    "SELECT id FROM nodes WHERE name = ? LIMIT 1", (name,)
+                ).fetchone()
+            if node:
+                updates.append((node[0], eid))
+
+    if updates:
+        # OR IGNORE: UNIQUE constraint 충돌(이미 resolved된 중복) 시 해당 행 건너뜀
+        conn.executemany("UPDATE OR IGNORE edges SET target_id = ? WHERE id = ?", updates)
+        conn.commit()
+        log.info("Resolved %d unresolved edges.", len(updates))
+
+
 def index_workspace(workspace: str, force: bool = False) -> dict:
     """전체 워크스페이스 하이브리드 인덱싱.
 
@@ -506,7 +581,11 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
     # N+1 최적화: file_cache 일괄 로드
     cache_dict = {}
-    if not force:
+    if force:
+        # force=True: index_file 내부 hash 체크도 우회하도록 캐시 전체 초기화
+        conn.execute("DELETE FROM file_cache")
+        conn.commit()
+    else:
         cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
         cache_dict = {row[0]: row[1] for row in cached_rows}
 
@@ -569,6 +648,9 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     # 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
     conn.commit()
+
+    # __unresolved__ 엣지를 실제 노드 UUID로 해소
+    _resolve_unresolved_edges(conn)
 
     # SQLite nodes/edges → Kuzu 그래프 DB 동기화
     try:

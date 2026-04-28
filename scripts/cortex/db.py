@@ -376,16 +376,19 @@ def get_callers(conn: sqlite3.Connection, node_id: str):
     rows = conn.execute(
         """SELECT n.*, e.type as edge_type, e.call_site_line
            FROM edges e JOIN nodes n ON n.id = e.source_id
-           WHERE e.target_id = ?""",
-        (node_id,)
+           WHERE e.target_id = ?
+              OR e.target_id = '__unresolved__::' || (SELECT name FROM nodes WHERE id = ?)""",
+        (node_id, node_id)
     ).fetchall()
     return [dict(r) for r in rows]
 
 def get_callees(conn: sqlite3.Connection, node_id: str):
     """특정 노드가 호출하는 타겟 노드 목록"""
     rows = conn.execute(
-        """SELECT n.*, e.type as edge_type, e.call_site_line
-           FROM edges e JOIN nodes n ON n.id = e.target_id
+        """SELECT DISTINCT n.*, e.type as edge_type, e.call_site_line
+           FROM edges e JOIN nodes n
+             ON (n.id = e.target_id
+                 OR e.target_id = '__unresolved__::' || n.name)
            WHERE e.source_id = ?""",
         (node_id,)
     ).fetchall()
