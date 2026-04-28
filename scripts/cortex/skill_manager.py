@@ -259,23 +259,23 @@ class SkillManager:
                         batch = vector_items[i:i + batch_size]
                         texts = [item["text"] for item in batch]
                         embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
-                        
-                        for item, emb in zip(batch, embeddings):
-                            rowid_cur = vec_conn.execute(
-                                "SELECT rowid FROM memories WHERE key = ?", (item["id"],)
-                            ).fetchone()
-                            if rowid_cur:
-                                try:
-                                    vec_conn.execute(
-                                        "DELETE FROM vec_memories WHERE rowid = ?",
-                                        (rowid_cur[0],)
-                                    )
-                                except Exception:
-                                    pass
-                                vec_conn.execute(
-                                    "INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)",
-                                    (rowid_cur[0], emb.tobytes())
-                                )
+
+                        # N+1 제거: IN 절 일괄 조회 → executemany DELETE/INSERT
+                        ids = [item["id"] for item in batch]
+                        ph = ",".join(["?"] * len(ids))
+                        rowid_map = {
+                            row[0]: row[1]
+                            for row in vec_conn.execute(
+                                f"SELECT key, rowid FROM memories WHERE key IN ({ph})", ids
+                            ).fetchall()
+                        }
+                        delete_params = [(rowid_map[item["id"]],) for item in batch if item["id"] in rowid_map]
+                        insert_params = [(rowid_map[item["id"]], emb.tobytes()) for item, emb in zip(batch, embeddings) if item["id"] in rowid_map]
+                        try:
+                            vec_conn.executemany("DELETE FROM vec_memories WHERE rowid = ?", delete_params)
+                        except Exception:
+                            pass
+                        vec_conn.executemany("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", insert_params)
                         vec_conn.commit()
                         embed_done += len(batch)
                         if use_gpu:
