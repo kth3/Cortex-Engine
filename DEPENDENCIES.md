@@ -10,31 +10,18 @@
 
 ---
 
-## 🛠 설치 단계 (GPU 전용)
+## 🛠 설치 (uv 기반 — 단일 명령어)
 
-CPU용 패키지를 먼저 설치하고 교체하는 방식이 아닌, 처음부터 CUDA 환경에 최적화된 패키지를 설치하는 것을 권장합니다.
-
-### 1. PyTorch CUDA 빌드 설치
-가상환경 생성 직후, CUDA 12.4 대응 빌드를 가장 먼저 설치합니다.
+`pyproject.toml`의 `[dependency-groups]`에 GPU 가속 패키지(flash-attn 포함)가 선언되어 있습니다.
+**torch CUDA wheel**은 `[tool.uv.sources]`에 의해 자동으로 올바른 CUDA 12.4 빌드가 설치됩니다.
 
 ```bash
-.agents/venv/bin/pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# GPU 가속 의존성 포함 전체 동기화 (단일 명령어)
+uv sync --project .agents --group gpu-accel
 ```
 
-### 2. 나머지 공통 의존성 설치
-PyTorch 설치가 완료되면, 프로젝트에 필요한 나머지 의존성을 설치합니다. (이미 CUDA 버전이 설치되어 있으므로 `torch`는 중복 다운로드되지 않고 유지됩니다.)
-
-```bash
-.agents/venv/bin/pip install -r .agents/requirements.txt
-```
-
-### 3. Flash-Attention 설치 (선택)
-Ampere(RTX 30xx) 이상의 GPU에서 `bf16` 가속을 활성화하기 위해 필수적입니다. 빌드 시간 단축을 위해 Pre-built Wheel을 사용합니다.
-
-```bash
-# Python 3.12 / CUDA 12.4 환경용 Pre-built Wheel
-.agents/venv/bin/pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
-```
+> **참고**: 위 명령어 한 줄로 PyTorch CUDA 12.4 빌드 + Flash-Attention 프리컴파일 wheel이 모두 설치됩니다.
+> 별도의 `pip install --index-url` 이나 수동 wheel 다운로드가 필요하지 않습니다.
 
 ---
 
@@ -43,5 +30,5 @@ Ampere(RTX 30xx) 이상의 GPU에서 `bf16` 가속을 활성화하기 위해 필
 설치 후 아래 명령을 실행하여 `bf16` 지원 여부를 확인할 수 있습니다.
 
 ```bash
-.agents/venv/bin/python3 -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}'); print(f'BF16 Supported: {torch.cuda.is_bf16_supported()}')"
+uv run --project .agents python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}'); print(f'BF16 Supported: {torch.cuda.is_bf16_supported()}')"
 ```

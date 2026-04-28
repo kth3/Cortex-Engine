@@ -79,15 +79,17 @@ graph TD
 
 ## 🚀 Key Features
 
-### 1. Hybrid Context Engine (Vector + Graph + RDB)
+### 1. Hybrid Context Engine & AST Parsing
+*   **AST Structural Parsing (`Tree-sitter`)**: Goes beyond regular expressions by parsing code (C#/Unity, TypeScript, Python) at the Abstract Syntax Tree (AST) level to precisely extract classes, methods, and lifecycle hooks.
 *   **Vector Search (`sqlite-vec`)**: Runs 100% natively in the local environment without heavy external dependencies like FAISS, restoring semantic search in seconds.
 *   **Graph Analysis (`Kuzu DB`)**: Tracks function calls, "contains" relationships, and external library references through Cypher queries to provide multi-dimensional context.
 *   **FTS5 Text Search**: Supports high-speed broad keyword search and Reciprocal Rank Fusion (RRF) scoring.
 
 ### 2. Inference Economy & Hardware-Aware Strategy
-*   **GPU_THRESHOLD Heuristic**: Forces CPU processing for small datasets (under 20 items) to save VRAM, and immediately calls `release_gpu()` upon completion to return resources.
+*   **Auto Hardware Acceleration (Flash-Attention & MPS/CUDA)**: The engine automatically scans the environment to leverage NVidia GPUs (Flash-Attention 2/BF16) or Mac (MPS) for optimal tensor operations.
+*   **GPU_THRESHOLD Heuristic**: Forces CPU processing for small datasets to save VRAM, and immediately calls `release_gpu()` upon completion to return resources.
 *   **Intelligent Performance Throttling (`settings.yaml`)**: Automatically detects system specs on startup and dynamically manages cache cleanup cycles and batch sizes (Dynamic Downscaling) to prevent system crashes.
-*   **Opportunistic Indexing**: Scans project `mtime` the moment an agent calls MCP to track only changed parts, ensuring zero-overhead synchronization hooks.
+*   **Hybrid Synchronization (Resident + Opportunistic)**: A `watchdog`-based resident daemon performs real-time synchronization in the background, while the engine defensively performs opportunistic `mtime` scans during MCP calls as a fallback against daemon failure.
 
 ### 3. Multi-Lane Parallel Execution
 Extends beyond a single global lock to support **Domain (Lane)-based Parallel Locking**. Multiple terminals can work simultaneously in assigned lanes (e.g., `frontend`, `backend`) with safe handoffs using `fcntl`-based exclusive locks.
@@ -132,7 +134,9 @@ Cortex focuses on extreme local optimization and inter-agent reliability, distin
 ├── tasks/          # Task documents for proactive tracking (Todo Manager)
 ├── templates/      # System templates and ignore bundles
 ├── knowledge/      # External knowledge library
-├── venv/           # [Non-Shared] Python virtual environment
+├── pyproject.toml  # uv-based declarative dependencies and GPU groups
+├── .venv/          # [Non-Shared] Python virtual environment (managed by uv)
+├── uv.lock         # Package version lockfile
 ├── .env            # [Non-Shared] Environment variables
 └── settings.yaml   # Global infrastructure settings & tuning parameters
 ```
@@ -146,7 +150,7 @@ Cortex focuses on extreme local optimization and inter-agent reliability, distin
   - `/load`: Pull `.agents` from Google Drive to workspace.
   - `/backup`: Backup local `.agents` state to Google Drive (rclone-based).
   - `/knowledge`: Permanently save major decisions and success patterns.
-  - `python3 .agents/scripts/relay.py status`: Check current Relay/Multi-Lane lock status.
+  - `uv run --project .agents python .agents/scripts/relay.py status`: Check current Relay/Multi-Lane lock status.
 
 ---
 

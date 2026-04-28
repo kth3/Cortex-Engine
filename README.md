@@ -83,15 +83,17 @@ graph TD
 
 ## 🚀 주요 이념 및 특징 (Key Features)
 
-### 1. Hybrid Context Engine (Vector + Graph + RDB)
+### 1. Hybrid Context Engine & AST Parsing
+*   **AST Structural Parsing (`Tree-sitter`)**: 정규식의 한계를 넘어 C#(Unity), TypeScript, Python 등의 코드를 추상 구문 트리(AST) 수준으로 분석하여 클래스, 메서드, 라이프사이클 훅을 정밀하게 추출합니다.
 *   **Vector Search (`sqlite-vec`)**: 무거운 FAISS 등 외부 종속성 없이 로컬 환경에 100% 네이티브로 구동되어 시맨틱 검색을 수초 내에 복원합니다.
 *   **Graph Analysis (`Kuzu DB`)**: Cypher 쿼리를 통해 모듈 간 함수 호출(Calls), 포함 관계(Contains), 외부 라이브러리 참조(External)를 추적하여 입체적인 컨텍스트를 제공합니다.
 *   **FTS5 Text Search**: 키워드 기반 고속 텍스트 검색과 RRF(Reciprocal Rank Fusion) 스코어링을 지원합니다.
 
 ### 2. 추론 경제 & 하드웨어 인지 전략 (Inference Economy)
+*   **하드웨어 자동 가속 (Flash-Attention & MPS/CUDA)**: 엔진이 환경을 스캔하여 NVidia GPU(Flash-Attention 2/BF16) 또는 Mac(MPS)을 자동 감지하고 최적의 텐서 연산을 수행합니다.
 *   **GPU_THRESHOLD 휴리스틱**: VRAM을 아끼기 위해 20건 이내의 소규모 데이터는 강제로 CPU 처리하며, 작업 완료 시 즉각 `release_gpu()`를 호출해 VRAM을 반환합니다.
 *   **지능형 성능 스로틀링 (`settings.yaml`)**: 엔진이 구동 순간 현재 PC 사양을 감지하여 기기 다운을 막기 위해 캐시 정리 주기와 배치 사이즈를 자가 제어(Dynamic Downscaling)합니다.
-*   **기회적 인덱싱 (Opportunistic Indexing)**: 에이전트가 MCP를 호출하는 순간 프로젝트 전체의 `mtime`을 스캔하여 변경분만 추적하는 제로 오버헤드 동기화 훅(Hook)을 사용합니다.
+*   **하이브리드 동기화 (Resident + Opportunistic)**: `watchdog` 기반 상주형 데몬이 백그라운드에서 실시간 동기화를 수행하며, 데몬 유실 등 예외 상황에 대비해 에이전트가 MCP를 호출할 때 방어적으로 `mtime`을 추가 스캔하는 듀얼 동기화 체계를 갖췄습니다.
 
 ### 3. Multi-Lane Parallel Execution
 단일 전역 Lock의 한계를 넘어, **도메인(Lane) 기반의 병렬 락 시스템**을 지원합니다. 여러 터미널에서 동시에 작업하더라도 각자 할당된 레인(예: `frontend`, `backend`)에서 충돌 없이 안전하게 핸드오프가 가능합니다. (`fcntl` 배타적 락 기반)
@@ -118,7 +120,9 @@ graph TD
 ├── tasks/          # 능동적 추적을 위한 작업 문서 (Todo Manager)
 ├── templates/      # 시스템 템플릿 파일 및 ignore 번들
 ├── knowledge/      # 외부 지식 라이브러리
-├── venv/           # [비공유] 파이썬 가상 환경
+├── pyproject.toml  # uv 기반 선언적 의존성 및 GPU 그룹 설정
+├── .venv/          # [비공유] 파이썬 가상 환경 (uv 자동 관리)
+├── uv.lock         # 패키지 버전 잠금 파일
 ├── .env            # [비공유] 환경 변수
 └── settings.yaml   # 인프라 전역 설정 및 튜닝 파라미터
 ```
@@ -132,7 +136,7 @@ graph TD
   - `/로드`: Google Drive에서 `.agents` 폴더를 워크스페이스로 가져오기
   - `/백업`: 현재 `.agents` 로컬 상태를 Google Drive에 백업 (`rclone` 기반)
   - `/지식화`: 주요 결정 사항 및 성공 패턴 영구 저장
-  - `python3 .agents/scripts/relay.py status`: 현재 릴레이(멀티 에이전트 락) 상태 확인
+  - `uv run --project .agents python .agents/scripts/relay.py status`: 현재 릴레이(멀티 에이전트 락) 상태 확인
 
 ---
 
