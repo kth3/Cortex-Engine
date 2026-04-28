@@ -33,9 +33,10 @@ _CS_BUILTIN_TYPES = frozenset({
 # ==============================================================================
 # 지원 확장자 메타데이터 (ParserRegistry 자동 등록)
 # ==============================================================================
-SUPPORTED_EXTENSIONS = {
-    ".cs": ("csharp", lambda file_path, source: parse_csharp_file(file_path, source)),
-}
+# [DEPRECATED] Tree-sitter 파서(treesitter_parser.py)로 이관됨. 롤백 시 아래 주석 해제.
+# SUPPORTED_EXTENSIONS = {
+#     ".cs": ("csharp", lambda file_path, source: parse_csharp_file(file_path, source)),
+# }
 
 # ==============================================================================
 # Unity 특화 판별을 위한 상수

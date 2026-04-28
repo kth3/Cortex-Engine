@@ -8,12 +8,13 @@ import uuid
 # ==============================================================================
 # 지원 확장자 메타데이터
 # ==============================================================================
-SUPPORTED_EXTENSIONS = {
-    ".ts": ("typescript", lambda file_path, source: parse_typescript_file(file_path, source)),
-    ".tsx": ("typescript", lambda file_path, source: parse_typescript_file(file_path, source)),
-    ".js": ("javascript", lambda file_path, source: parse_typescript_file(file_path, source)),
-    ".jsx": ("javascript", lambda file_path, source: parse_typescript_file(file_path, source))
-}
+# [DEPRECATED] Tree-sitter 파서(treesitter_ts_parser.py)로 이관됨. 롤백 시 아래 주석 해제.
+# SUPPORTED_EXTENSIONS = {
+#     ".ts": ("typescript", lambda file_path, source: parse_typescript_file(file_path, source)),
+#     ".tsx": ("typescript", lambda file_path, source: parse_typescript_file(file_path, source)),
+#     ".js": ("javascript", lambda file_path, source: parse_typescript_file(file_path, source)),
+#     ".jsx": ("javascript", lambda file_path, source: parse_typescript_file(file_path, source))
+# }
 
 # ==============================================================================
 # 정규식 패턴
