@@ -10,7 +10,7 @@
 > "[파악한 의도], [구체적인 계획]"
 
 ### 0.2 지식 인용 표기 (Citation Footer)
-응답 작성 중 `pc_memory_search_knowledge` 또는 `pc_memory_read`로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
+응답 작성 중 mcp를 사용해 `pc_memory_search_knowledge` 또는 `pc_memory_read` 등으로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
 > `참조: skill::{name1}, skill::{name2}` (rule 카테고리 동시 참조 시 `rule::{name}` 병기)
 참조하지 않았다면 표기를 생략합니다.
 
