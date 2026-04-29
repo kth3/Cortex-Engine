@@ -16,7 +16,10 @@ from vector_engine import _load_model
 from cortex.logger import get_logger
 
 logger = get_logger("server")
-SOCKET_PATH = "/tmp/cortex.sock"
+
+# IPC: TCP 소켓 (Unix Domain Socket 대체 — Windows 호환)
+ENGINE_HOST = "127.0.0.1"
+ENGINE_PORT = 62384
 
 def start_server():
     from vector_engine import release_gpu
@@ -27,10 +30,6 @@ def start_server():
     model_loaded = False
     current_device = "cpu"
 
-    # 기존 소켓 파일 정리
-    if os.path.exists(SOCKET_PATH):
-        os.remove(SOCKET_PATH)
-
     # 디바이스 감지 로직
     try:
         import torch
@@ -40,7 +39,7 @@ def start_server():
             current_device = "mps"
         elif hasattr(torch, "xpu") and torch.xpu.is_available():
             current_device = "xpu"
-            
+
         # 상시 대기를 위해 시작 시 모델 로드
         model = _load_model(device=current_device)
         model_loaded = True
@@ -50,22 +49,20 @@ def start_server():
         logger.error(f"Critical Error during startup: {e}")
         sys.exit(1)
 
-    # 소켓 서버 생성
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(SOCKET_PATH)
+    # TCP 소켓 서버 생성 (Windows/Linux 공용)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((ENGINE_HOST, ENGINE_PORT))
     server.listen(5)
-    
-    # 누구나 접근 가능하도록 권한 설정 (사용자 편의성)
-    os.chmod(SOCKET_PATH, 0o666)
 
-    sys.stderr.write(f"[cortex-server] [SERVER] Listening on {SOCKET_PATH}\n")
+    sys.stderr.write(f"[cortex-server] [SERVER] Listening on {ENGINE_HOST}:{ENGINE_PORT}\n")
 
     try:
         while True:
             try:
-                server.settimeout(1.0) # 1초마다 루프를 돌아 타임아웃 체크
+                server.settimeout(1.0)  # 1초마다 루프를 돌아 타임아웃 체크
                 conn, _ = server.accept()
-                last_activity = time.time() # 요청이 왔으므로 시간 갱신
+                last_activity = time.time()  # 요청이 왔으므로 시간 갱신
             except socket.timeout:
                 # 유휴 시간 체크
                 if model_loaded and (time.time() - last_activity > IDLE_TIMEOUT):
@@ -82,17 +79,17 @@ def start_server():
                 if not header:
                     continue
                 size = struct.unpack("!I", header)[0]
-                
+
                 data = b""
                 while len(data) < size:
                     chunk = conn.recv(min(size - len(data), 4096))
                     if not chunk:
                         break
                     data += chunk
-                
+
                 request = json.loads(data.decode("utf-8"))
                 cmd = request.get("command", "embed")
-                
+
                 if cmd == "ping":
                     status_str = "alive" if model_loaded else "standby"
                     response = {"status": "ok", "message": f"Cortex Engine is {status_str}"}
@@ -121,20 +118,19 @@ def start_server():
                 # 결과 전송 (길이 헤더 + 바디)
                 resp_data = json.dumps(response).encode("utf-8")
                 conn.sendall(struct.pack("!I", len(resp_data)) + resp_data)
-                
+
             except Exception as e:
                 err_resp = json.dumps({"status": "error", "message": str(e)}).encode("utf-8")
                 try:
                     conn.sendall(struct.pack("!I", len(err_resp)) + err_resp)
-                except:
+                except Exception:
                     pass
             finally:
                 conn.close()
     except KeyboardInterrupt:
         sys.stderr.write("[cortex-server] [SERVER] Shutting down...\n")
     finally:
-        if os.path.exists(SOCKET_PATH):
-            os.remove(SOCKET_PATH)
+        server.close()
 
 if __name__ == "__main__":
     start_server()

@@ -5,13 +5,24 @@ Cortex 벡터 추출 엔진 (Vector Inference Engine)
 """
 import os
 import sys
+import json
+import socket
+import struct
 import numpy as np
+from pathlib import Path
 from dotenv import load_dotenv
 
-ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+# 프로젝트 루트 설정
+CORTEX_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(CORTEX_DIR)))
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(ENV_PATH)
 
 MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+
+# IPC 설정 (Windows/Linux 공용 TCP)
+ENGINE_HOST = "127.0.0.1"
+ENGINE_PORT = 62384
 
 _model = None
 _model_device = None
@@ -35,17 +46,35 @@ def _load_model(device: str = "cpu"):
 
     try:
         from sentence_transformers import SentenceTransformer
+        from huggingface_hub import snapshot_download
         import torch
         from cortex.logger import get_logger
         
         log = get_logger("cortex.vector")
-
         hf_token = os.getenv("HF_TOKEN", "").strip() or None
-        log.info(f"Loading {MODEL_ID} on {device}...")
 
         if sys.platform == "darwin":
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
+        # 1. 모델 명시적 다운로드 (Snapshot 방식)
+        # SentenceTransformer 생성자 내부의 자동 다운로드 로직이 Windows에서 불안정하므로
+        # 명시적으로 먼저 로컬로 받아낸 뒤 경로를 전달한다.
+        log.info(f"Checking model availability: {MODEL_ID}")
+        try:
+            # 타임아웃 넉넉히 설정하여 세션 종료 방지
+            model_path = snapshot_download(
+                repo_id=MODEL_ID,
+                token=hf_token,
+                local_files_only=False,
+                resume_download=True,
+                max_workers=4
+            )
+            log.info(f"Model path verified: {model_path}")
+        except Exception as e:
+            log.warning(f"Snapshot download failed or interrupted: {e}. Trying direct load...")
+            model_path = MODEL_ID
+
+        # 2. 디바이스 데이터 타입 결정
         dtype_choice = torch.float32
         if device == "cuda":
             # [Optimization] Use bfloat16 if supported (Ampere+), else fallback to float16
@@ -63,8 +92,16 @@ def _load_model(device: str = "cpu"):
             "torch_dtype": dtype_choice,
         }
 
-        _model = SentenceTransformer(MODEL_ID, device=device, model_kwargs=model_kwargs, token=hf_token)
+        # 3. 모델 로드 (로컬 경로 우선)
+        log.info(f"Initializing SentenceTransformer on {device}...")
+        _model = SentenceTransformer(
+            model_path, 
+            device=device, 
+            model_kwargs=model_kwargs, 
+            token=hf_token
+        )
         _model.max_seq_length = 4096  # Qwen3 컨텍스트 윈도우 — 모델 토크나이저가 안전하게 truncate
+        
         if device in ["cuda", "mps"]:
             _model.to(dtype_choice)
 
@@ -88,26 +125,14 @@ def release_gpu():
         except Exception:
             pass
 
-import json
-import socket
-import struct
-
-SOCKET_PATH = "/tmp/cortex.sock"
-
 def _send_to_server(request: dict, retries: int = 15) -> dict:
-    """엔진 서버에 요청을 보내고 응답을 받는다. 서버가 로딩 중일 경우 재시도한다."""
+    """엔진 서버에 요청을 보내고 응답을 받는다 (TCP)."""
     import time
     for i in range(retries):
-        if not os.path.exists(SOCKET_PATH):
-            if i < retries - 1:
-                time.sleep(1.0)
-                continue
-            return {"status": "offline"}
-
         try:
-            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(10.0)
-            client.connect(SOCKET_PATH)
+            client.connect((ENGINE_HOST, ENGINE_PORT))
             
             data = json.dumps(request).encode("utf-8")
             client.sendall(struct.pack("!I", len(data)) + data)
@@ -128,7 +153,7 @@ def _send_to_server(request: dict, retries: int = 15) -> dict:
             if i < retries - 1:
                 time.sleep(1.0)
                 continue
-            return {"status": "error", "message": "Server busy or not responding"}
+            return {"status": "offline"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
         finally:
@@ -145,7 +170,7 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
         resp = _send_to_server({"command": "embed", "texts": texts})
         if resp.get("status") == "ok":
             return np.array(resp["embeddings"], dtype=np.float32)
-        
+
         if resp.get("status") == "error":
             sys.stderr.write(f"[cortex-vector] Server Error: {resp.get('message')}. Falling back to local...\n")
 
@@ -157,11 +182,13 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
-            # [Shared Engine Policy] 서버 소켓이 존재한다면, 
+            # [Shared Engine Policy] 서버 소켓이 존재한다면,
             # 로컬에서는 GPU를 점유하지 않고 안전하게 CPU로 폴백하여 중복 방지.
-            if use_gpu is True and os.path.exists(SOCKET_PATH):
-                from cortex.logger import get_logger
-                get_logger("vector").warning("Shared Engine Server exists. Falling back to Local CPU to avoid VRAM conflict.")
+            status = _send_to_server({"command": "ping"}, retries=1)
+            if status.get("status") == "ok":
+                if use_gpu is True:
+                    from cortex.logger import get_logger
+                    get_logger("vector").warning("Shared Engine Server exists. Falling back to Local CPU to avoid VRAM conflict.")
                 device = "cpu"
             elif use_gpu is True:
                 device = "cuda"
