@@ -12,12 +12,12 @@ import time
 import datetime
 import hashlib
 from pathlib import Path
-from cortex.logger import get_logger
-
-log = get_logger("indexer")
 
 # 패키지 내부 임포트
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from cortex.logger import get_logger
+log = get_logger("indexer")
 from cortex import db
 from cortex.parsers import registry as parser_registry
 from cortex.indexer_utils import (
