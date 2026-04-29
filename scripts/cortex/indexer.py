@@ -239,9 +239,6 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
 
         conn.commit()
 
-        # 증분 인덱싱 시에도 unresolved 엣지 즉시 해소
-        _resolve_unresolved_edges(conn)
-
         result = {"status": "updated" if is_update else "created", "nodes": len(nodes_data), "chunks": len(nodes_data)}
         if not vectorize:
             # 배치 모드: 호출자가 일괄 처리하도록 vector_items 반환
@@ -496,6 +493,8 @@ def incremental_index_changed(workspace: str) -> dict:
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)",
                  (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
     conn.commit()
+    
+    _resolve_unresolved_edges(conn)
     conn.close()
     
     log.info("Opportunistic indexing complete: %d files indexed (CPU).", indexed)
@@ -748,6 +747,11 @@ if __name__ == "__main__":
     if args.file:
         # 단일 파일 모드
         result = index_file(args.workspace, args.file)
+        # 단일 파일 처리 후 엣지 해소
+        from cortex import db
+        conn = db.get_connection(args.workspace)
+        _resolve_unresolved_edges(conn)
+        conn.close()
         print(json.dumps(result, indent=2))
     else:
         # 전체 워크스페이스 모드
