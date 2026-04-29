@@ -81,7 +81,7 @@ jobs:
           fi
 
           # total_memories > 0 검증: sync_skills가 dummy-skill을 memories에 저장했는지 확인
-          MEM_COUNT=$(sqlite3 ./test_workspace/.agents/data/memories.db "SELECT COUNT(*) FROM memories WHERE category='skill';")
+          MEM_COUNT=$(python -c "import sqlite3; db=sqlite3.connect('./test_workspace/.agents/data/memories.db'); print(db.execute(\"SELECT COUNT(*) FROM memories WHERE category='skill';\").fetchone()[0])")
           if [ "$MEM_COUNT" -gt 0 ]; then
             echo "✅ Knowledge embedding verified: $MEM_COUNT skill(s) in memories DB"
           else
@@ -90,7 +90,7 @@ jobs:
           fi
 
           # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사
-          EDGE_COUNT=$(sqlite3 ./test_workspace/.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALLS';")
+          EDGE_COUNT=$(python -c "import sqlite3; db=sqlite3.connect('./test_workspace/.agents/data/memories.db'); print(db.execute(\"SELECT count(*) FROM edges WHERE type='CALLS';\").fetchone()[0])")
           if [ "$EDGE_COUNT" -eq 0 ]; then
             echo "❌ AST Parser failed! No CALL edges extracted."
             exit 1
