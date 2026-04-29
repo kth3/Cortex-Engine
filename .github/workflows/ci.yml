@@ -2,13 +2,13 @@ name: Cortex Agents CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "dev", "dev-win" ]
     paths:
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "dev", "dev-win" ]
     paths:
       - 'scripts/**'
       - 'pyproject.toml'
@@ -16,12 +16,21 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    
+    defaults:
+      run:
+        shell: bash
+    
     env:
       PYTHONPATH: scripts
     
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -52,7 +61,6 @@ jobs:
       - name: Test Core Indexing & Embedding Engine
         run: |
           # 1) 테스트용 별도 워크스페이스 및 더미 파일 생성
-          # .agents 저장소 루트에 .agents 폴더가 중첩되지 않도록 분리된 test_workspace 사용
           mkdir -p test_workspace/.agents/skills/dummy-skill
           echo "def inner_func(): return 1" > test_workspace/dummy.py
           echo "def outer_func(): return inner_func()" >> test_workspace/dummy.py
@@ -84,7 +92,7 @@ jobs:
           # sqlite3로 직접 DB를 까서 Tree-sitter 파서가 CALL 관계를 1개 이상 뽑아냈는지 검사
           EDGE_COUNT=$(sqlite3 ./test_workspace/.agents/data/memories.db "SELECT count(*) FROM edges WHERE type='CALLS';")
           if [ "$EDGE_COUNT" -eq 0 ]; then
-            echo "❌ AST Parser failed! No CALL edges extracted. The parser might be degraded (Silent Failure)."
+            echo "❌ AST Parser failed! No CALL edges extracted."
             exit 1
           fi
           echo "✅ AST Parser successfully extracted $EDGE_COUNT CALL edges! (Data Integrity Verified)"
@@ -101,7 +109,6 @@ jobs:
           for tool in "${CRITICAL_TOOLS[@]}"; do
             if [[ "$RESPONSE_LIST" != *"$tool"* ]]; then
               echo "❌ MCP Tool missing from registry: $tool"
-              echo "List Response: $RESPONSE_LIST"
               exit 1
             fi
           done
@@ -114,8 +121,7 @@ jobs:
           if [[ "$RESPONSE_CALL" == *"total_nodes"* ]] && [[ "$RESPONSE_CALL" == *"total_memories"* ]]; then
             echo "✅ MCP Server successfully executed tools/call and read the live database!"
           else
-            echo "❌ MCP Server failed to execute tools/call or could not read the database!"
-            echo "Call Response was: $RESPONSE_CALL"
+            echo "❌ MCP Server failed to execute tools/call!"
             exit 1
           fi
           
