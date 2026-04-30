@@ -12,6 +12,11 @@ import subprocess
 import shlex
 from pathlib import Path
 
+# Windows 호환성을 위한 표준 입출력 UTF-8 강제 설정
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+sys.stdin.reconfigure(encoding='utf-8')
+
 # 경로 설정
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
