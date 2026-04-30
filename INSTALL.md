@@ -75,7 +75,7 @@ claude mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts corte
 **OpenAI Codex CLI (`codex mcp add` 명령어 사용):**
 터미널에서 다음 명령어를 실행하십시오:
 ```bash
-codex mcp add -s user -e PYTHONPATH=/절대/경로/참조/.agents/scripts cortex-mcp -- uv run --project /절대/경로/참조/.agents python /절대/경로/참조/.agents/scripts/cortex_mcp.py
+codex mcp add --env PYTHONPATH=C:/path/to/your/workspace/PROJECT/.agents/scripts cortex-mcp -- uv run --project C:/path/to/your/workspace/PROJECT/.agents python C:/path/to/your/workspace/PROJECT/.agents/scripts/cortex_mcp.py
 ```
 
 ---
