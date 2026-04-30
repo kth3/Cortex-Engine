@@ -120,44 +120,44 @@ def _perform_stop():
     """실제 종료 로직 (락 획득 여부와 상관없이 실행 가능)"""
     logger.info("Stopping all Cortex services...")
 
-    # 1. Server 종료
-    pids = get_pids(str(SERVER_SCRIPT))
-    if pids:
-        for pid in pids:
-            logger.info(f"Terminating Engine Server (PID: {pid})...")
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-    else:
-        logger.info("Engine Server is not running.")
-
-    # 2. Watcher 종료
-    pids = get_pids(str(WATCHER_SCRIPT))
-    if pids:
-        for pid in pids:
-            logger.info(f"Terminating Watcher (PID: {pid})...")
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-    else:
-        logger.info("Watcher is not running.")
-
-    # 3. Local Daemon 종료
+    # 종료 대상 수집 및 SIGTERM 일괄 발송
+    scripts_labels = [(SERVER_SCRIPT, "Engine Server"), (WATCHER_SCRIPT, "Watcher")]
     if LOCAL_DAEMON_SCRIPT:
-        pids = get_pids(str(LOCAL_DAEMON_SCRIPT))
+        scripts_labels.append((LOCAL_DAEMON_SCRIPT, "Local Daemon"))
+
+    all_pids = []
+    for script, label in scripts_labels:
+        pids = get_pids(str(script))
         if pids:
             for pid in pids:
-                logger.info(f"Terminating Local Daemon (PID: {pid})...")
+                logger.info(f"Terminating {label} (PID: {pid})...")
                 try:
                     os.kill(pid, signal.SIGTERM)
+                    all_pids.append(pid)
                 except Exception:
                     pass
         else:
-            logger.info("Local Daemon is not running.")
+            logger.info(f"{label} is not running.")
 
-    # 4. TCP 소켓은 파일이 아니므로 별도 정리 불필요 (SO_REUSEADDR로 즉시 재사용 가능)
+    # SIGTERM 발송 후 실제 종료 확인 (최대 10초)
+    # 종료 확인 없이 즉시 재시작하면 구 프로세스가 VRAM을 점유한 채로 신 프로세스가 뜨는 중복 점유 발생
+    if all_pids:
+        deadline = time.time() + 10
+        for pid in all_pids:
+            remaining = max(0.1, deadline - time.time())
+            try:
+                psutil.Process(pid).wait(timeout=remaining)
+                logger.info(f"PID {pid} terminated.")
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.TimeoutExpired:
+                logger.warning(f"PID {pid} did not terminate in time. Force killing...")
+                try:
+                    psutil.Process(pid).kill()
+                except psutil.NoSuchProcess:
+                    pass
+
+    # TCP 소켓은 파일이 아니므로 별도 정리 불필요 (SO_REUSEADDR로 즉시 재사용 가능)
     logger.info(f"IPC Endpoint: {ENGINE_HOST}:{ENGINE_PORT} (TCP — no file cleanup needed)")
 
     # [CLEANUP] 유령 로그 파일 삭제
