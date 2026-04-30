@@ -11,6 +11,8 @@ import uuid
 import subprocess
 import shlex
 from pathlib import Path
+import threading
+import time
 
 # Windows 호환성을 위한 표준 입출력 UTF-8 강제 설정
 sys.stdout.reconfigure(encoding='utf-8')
@@ -544,7 +546,7 @@ TOOLS = [
 
 def handle_request(req):
     m, p, rid = req.get("method"), req.get("params", {}), req.get("id")
-    if m == "initialize": return {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "Cortex-Hooks", "version": "3.8.0"}}}
+    if m == "initialize": return {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "Cortex-Hooks", "version": "3.8.0"}}}
     if m == "tools/list": return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS}}
     if m == "tools/call":
         n, a = p.get("name"), p.get("arguments") or {}
@@ -647,8 +649,35 @@ def handle_request(req):
     return {"jsonrpc": "2.0", "id": rid, "result": {}} if rid else None
 
 
+def parent_watcher():
+    """부모 프로세스 생존을 감시하는 데드맨 스위치 (다중 실행 시 충돌 방지 위해 직계 부모만 감시)"""
+    try:
+        import psutil
+    except ImportError:
+        return
+
+    try:
+        ppid = os.getppid()
+        parent = psutil.Process(ppid)
+    except Exception:
+        os._exit(0)
+    
+    while True:
+        try:
+            if not parent.is_running() or parent.status() == psutil.STATUS_ZOMBIE:
+                os._exit(0)
+        except Exception:
+            os._exit(0)
+        
+        try:
+            time.sleep(2)
+        except Exception:
+            pass
 
 def serve():
+    watcher = threading.Thread(target=parent_watcher, daemon=True)
+    watcher.start()
+
     try:
         # [Auto-Start] 에디터가 MCP 서버를 올리는 즉시 Cortex 인프라 동기화 (백그라운드)
         import subprocess
