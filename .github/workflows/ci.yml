@@ -7,12 +7,16 @@ on:
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - '!**/*.md'
+      - '!docs/**'
   pull_request:
     branches: [ "main", "dev", "dev-win" ]
     paths:
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - '!**/*.md'
+      - '!docs/**'
 
 jobs:
   build-and-test:
