@@ -47,6 +47,21 @@ def detect_hardware_profile() -> dict:
     Returns:
         {"name": str, "batch_size": int, "max_chars": int, "cache_clear_freq": int}
     """
+    # 1. 서버가 활성화되어 있다면, 클라이언트 프로세스에서는 CUDA Context 생성을 방지하기 위해
+    # torch.cuda.is_available() 호출을 건너뛰고 서버 응답에 맞춰 프로필을 반환합니다.
+    try:
+        from cortex.vector_engine import _send_to_server
+        status = _send_to_server({"command": "ping"}, retries=1)
+        if status.get("status") == "ok":
+            vram = 6.0
+            profile = dict(HARDWARE_PROFILES["cuda_low"])
+            profile["name"] = "cuda_low"
+            profile["vram_gb"] = round(vram, 1)
+            profile["cache_clear_freq"] = 0  # 서버가 처리하므로 로컬 프로세스는 캐시 해제(및 CUDA 초기화) 불필요
+            return profile
+    except Exception:
+        pass
+
     try:
         import torch
         if torch.cuda.is_available():
@@ -71,6 +86,7 @@ def detect_hardware_profile() -> dict:
     profile = dict(HARDWARE_PROFILES["cpu"])
     profile["name"] = "cpu"
     return profile
+
 
 
 # ==============================================================================
@@ -132,14 +148,14 @@ def get_tuning_params(workspace: str = None) -> dict:
         resolved = {
             "batch_size": min(preset["batch_size"], hw_cap["batch_size"]),
             "max_chars": min(preset["max_chars"], hw_cap["max_chars"]),
-            "cache_clear_freq": preset["cache_clear_freq"],
+            "cache_clear_freq": 0 if hw_cap["cache_clear_freq"] == 0 else preset["cache_clear_freq"],
         }
     elif mode == "custom":
         # 개별 오버라이드 (없으면 하드웨어 감지값 fallback)
         resolved = {
             "batch_size": tuning_cfg.get("batch_size", hw_cap["batch_size"]),
             "max_chars": tuning_cfg.get("max_chars", hw_cap["max_chars"]),
-            "cache_clear_freq": tuning_cfg.get("cache_clear_freq", hw_cap["cache_clear_freq"]),
+            "cache_clear_freq": 0 if hw_cap["cache_clear_freq"] == 0 else tuning_cfg.get("cache_clear_freq", hw_cap["cache_clear_freq"]),
         }
     else:
         # auto: 하드웨어 감지 프로필 그대로

@@ -240,8 +240,8 @@ class SkillManager:
 
             if vector_items:
                 try:
-                    import torch
-                    use_gpu = torch.cuda.is_available()
+                    from cortex.vectorizer import detect_gpu
+                    use_gpu = detect_gpu()
                 except ImportError:
                     use_gpu = False
 
