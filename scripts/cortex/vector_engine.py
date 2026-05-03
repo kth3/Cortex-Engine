@@ -164,6 +164,12 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
     if not texts:
         return np.array([])
 
+    # [BUGFIX] Surrogate 문자열 제거 (JSON 직렬화 및 HuggingFace Tokenizer 에러 방지)
+    try:
+        texts = [t.encode('utf-8', 'replace').decode('utf-8') for t in texts]
+    except Exception:
+        pass
+
     # 1. 서버 모드 시도 (상주 중인 GPU 엔진 활용)
     # use_gpu가 False가 아닐 때만 서버(GPU) 시도
     if use_gpu is not False:
