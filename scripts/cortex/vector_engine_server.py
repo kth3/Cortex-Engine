@@ -25,7 +25,24 @@ ROUTER_HOST = "127.0.0.1"
 ROUTER_PORT = 62384
 WORKER_HOST = "127.0.0.1"
 WORKER_PORT = 62385
-IDLE_TIMEOUT = 300  # 운영 환경: 5분 유휴 시 워커 강제 종료 (VRAM 100% 반환)
+
+
+def get_idle_timeout() -> int:
+    try:
+        from cortex.indexer_utils import load_settings
+        project_dir = os.path.dirname(os.path.dirname(SCRIPTS_DIR))
+        settings = load_settings(project_dir)
+        rules = settings.get("indexing_rules", {})
+        timeout = rules.get("idle_timeout") or settings.get("idle_timeout")
+        if timeout is not None:
+            return int(timeout)
+    except Exception:
+        pass
+    return 300
+
+IDLE_TIMEOUT = get_idle_timeout()
+
+
 
 # ==========================================
 # 소켓 통신 유틸리티
@@ -102,8 +119,21 @@ def run_worker():
                     logger.info("[Worker] Received shutdown signal. Gracefully exiting...")
                     send_msg(conn, {"status": "ok", "message": "Shutting down"})
                     conn.close()
-                    # sys.exit(0) 호출로 Python 인터프리터 정상 종료 -> CUDA 컨텍스트 완벽 해제
-                    sys.exit(0)
+                    
+                    # Windows 환경에서 프로세스 종료 지연 및 VRAM 미반환(Deadlock) 방지
+                    try:
+                        del model
+                        import gc
+                        gc.collect()
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception as e:
+                        logger.error(f"[Worker] Cleanup error: {e}")
+                    
+                    # os._exit(0)를 호출하여 Python GC/Atexit 훅을 건너뛰고 즉시 프로세스 종료 (VRAM 즉각 반환)
+                    import os
+                    os._exit(0)
                 elif cmd == "embed":
                     texts = request.get("texts", [])
                     if not texts:
@@ -209,8 +239,9 @@ def idle_monitor():
         with worker_lock:
             is_running = worker_process is not None and worker_process.poll() is None
         if is_running:
-            if time.time() - last_activity_time > IDLE_TIMEOUT:
+            if time.time() - last_activity_time > get_idle_timeout():
                 shutdown_worker()
+
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True

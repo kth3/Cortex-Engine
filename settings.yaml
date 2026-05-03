@@ -35,8 +35,12 @@ project_preferences:
 # 인덱싱 및 하이브리드 검색 설정 (Indexing Rules)
 # ==============================================================================
 indexing_rules:
+  # 유휴 시간(초): 지정된 초 동안 요청이 없으면 GPU VRAM 해제를 위해 워커 자동 종료 (예: 300)
+  idle_timeout: 300
+
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
+
 
   # 인덱싱 범위: 기본적으로 프로젝트 전체를 포함 (블랙리스트 방식)
   # 참고: .gitignore에 등록된 항목은 자동으로 제외됩니다.
@@ -48,7 +52,6 @@ indexing_rules:
   exclude_paths:
     - "tmp/**"
     - "logs/**"
-    - "personal_notes/**"
 
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist:
