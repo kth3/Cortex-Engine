@@ -126,6 +126,12 @@ def hybrid_search(workspace: str, query: str, category: str = None, limit: int =
     multiplier = params["search_multiplier"]
     rrf_k = params["rrf_k"]
 
+    # [BUGFIX] Surrogate 문자열 제거 (sqlite3 및 vector engine 에러 방지)
+    try:
+        query = query.encode('utf-8', 'replace').decode('utf-8')
+    except Exception:
+        pass
+
     # category 대소문자 정규화 ('SKILL' → 'skill')
     if category:
         category = category.lower()
@@ -189,6 +195,12 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = 10, ve_modu
     snippet_len = params["search_snippet_len"]
     multiplier = params["search_multiplier"]
     rrf_k = params["rrf_k"]
+
+    # [BUGFIX] Surrogate 문자열 제거 (sqlite3 및 vector engine 에러 방지)
+    try:
+        query = query.encode('utf-8', 'replace').decode('utf-8')
+    except Exception:
+        pass
 
     conn = get_connection(workspace)
     
