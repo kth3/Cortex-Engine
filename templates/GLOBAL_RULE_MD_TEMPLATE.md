@@ -24,23 +24,12 @@
 - 특정 파일 1개 읽기 또는 내용 설명 — **오직 그 파일의 내용 자체만을 목적으로 할 때에 한함**
 - 언어·라이브러리 문법 질문 (프로젝트 맥락이 불필요한 경우에 한함)
 
-#### 직행 예외 적용 금지 조건 — 아래 중 하나라도 해당하면 예외 없이 Branch 1
-다음 조건 중 **하나라도** 해당하면 직행 예외를 적용할 수 없다. 이유·근거 불문, **무조건 Branch 1**로 처리한다:
-1. 2개 이상의 파일을 비교하거나 교차 검증하는 경우
-2. 읽은 파일 내용을 다른 프로젝트 명세·구조·구현 상태와 대조하는 경우 (정합성·일치 여부 포함)
-3. 프로젝트 전체 구조·관계성·아키텍처에 대한 판단이 필요한 경우
-4. 이전 세션 또는 이전 턴의 맥락을 이어받아 복합 지시가 주어진 경우
-5. "이미 파악한 맥락이 있으므로 Cortex 탐색을 생략해도 된다"는 모델 자체의 판단이 조금이라도 개입하는 경우
-
-> **세션 내 기존 컨텍스트는 Cortex 탐색 생략의 근거가 아니다.** 복합 지시가 새로 주어지면 반드시 Cortex MCP를 재탐색한다.
-
-> 프로젝트 파일·구조·관계성·명세를 참조해야 답할 수 있는 질문은 모두 Branch 1.
-
-**직행 예외 판단이 모호하면 항상 Branch 1. 예외 적용 여부에 고민이 생긴 순간, 그것은 이미 Branch 1이다.**
+#### 직행 예외 적용 금지
+프로젝트 컨텍스트(파일 구조·명세·다중 파일 관계·이전 세션 작업)가 조금이라도 관여하면 이유 불문 **무조건 Branch 1**. 모델 자체의 "이미 파악했으므로 Cortex 생략 가능"이라는 판단이 개입하는 순간도 Branch 1 — 세션 내 기존 컨텍스트는 탐색 생략의 근거가 아니다. 모호하면 항상 Branch 1.
 
 ### Branch 1 (기본 — 코드 수정·의사결정 포함 모든 작업)
 코드 수정·다중파일·리팩토링·아키텍처·이전 세션 맥락·MR 리뷰, 그리고 직행 예외에 명확히 해당하지 않는 모든 작업.
-- 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ③ 본 작업.
+- 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
 
 ### Branch 2 (직행 예외 해당 시에만)
 위 직행 예외 목록에 **명확히** 해당하는 경우에만 즉시 실행.
@@ -52,34 +41,47 @@
   - Read: `pc_memory_search_knowledge` 호출 시 `category: skill` 또는 `rule` 필터를 명시.
   - **Write 금지**: `skill`/`rule` 카테고리로 신규 작성·수정 금지(Anti-Hallucination). 에이전트 메모리는 `insight`/`architecture`/`memory`/`history` 카테고리만 사용.
 
-## 2. 도구 운용 (Tool Operations)
+## 2. 핵심 워크플로우 도구 강제 (Tool Routing Mandates)
+
+> **네이티브 도구 편향 억제**: 아래 조건에 해당하면 플랫폼 기본 도구 대신 반드시 지정 MCP 도구를 사용한다. 예외 없음.
+
+1. **맥락 복원 1순위**: 세션 첫 지시가 모호하거나("이어서 해", "검토해" 등) 이전 작업 맥락이 필요한 경우, 다른 탐색 도구에 앞서 **`pc_auto_context`를 1순위로 호출**하여 이전 세션 동기화 데이터를 복원한다.
+2. **세션 종료 동기화**: 유의미한 작업(코드 수정·설계 결정·탐색 완료)을 마치면 반드시 **`pc_session_sync`를 호출**하여 세션 상태를 저장한다. 호출하지 않으면 다음 세션의 `pc_auto_context` 복원이 불완전해진다.
+3. **코드 편집 네이티브 도구 금지**: 파일 수정 시 플랫폼 네이티브 편집 도구 사용 금지. 순서: ① **`pc_read_with_hash`로 파일 최신 상태 및 원본 텍스트를 정확히 확인** → ② **`pc_strict_replace`로 편집**. 이 순서를 우회하면 시스템 DB 로깅 및 라이프사이클 훅이 트리거되지 않는 '스텔스 수정'이 발생한다.
+4. **관찰 기록 의무**: 코드 수정·설계 결정·버그 발견 등 유의미한 작업 직후 반드시 **`pc_save_observation`을 호출**하여 관찰 내용을 DB에 기록한다. 기록하지 않으면 다른 에이전트와의 협업 맥락 및 이력이 단절된다.
+5. **복합 태스크 선행 계약**: 3개 이상의 파일 변경 또는 아키텍처·설계 관련 작업은 코딩 시작 전 반드시 `pc_create_contract`와 `pc_todo_manager`를 호출하여 작업 명세와 체크리스트를 생성한다. 백그라운드 프로세스 실행은 셸 명령 대신 `pc_run_background_task`를 사용한다.
+
+## 3. 도구 운용 (Tool Operations)
 
 1. **MCP 우선**: Branch 1의 모든 정보 획득(Read·Grep·Glob 포함)은 Cortex MCP 파이프라인을 1차 경로로 사용.
 2. **Git 조회 강제**: `git log` / `git show` / `git diff` 셸 명령 직접 실행 금지. 파일 이력·커밋 확인은 **반드시 `pc_git_log` MCP를 먼저 호출**하고, 실패 시에만 셸로 전환하며 전환 사유를 명시.
 3. **Fallback 조건**: MCP가 **실제로 실패·타임아웃한 경우에만** 쉘 또는 플랫폼 내장 검색(`grep`, `find`, `grep_search`, `glob` 등)으로 전환. **선제적 Fallback 금지** — "느릴 것 같다"는 추측만으로 직행 불가. 검색 시 반드시 `.git`, `.agents` 디렉토리를 **제외**(도구별 자율 문법 — 예: GNU grep `--exclude-dir=...`, ripgrep `--glob '!.git/**'`, 에디터 검색의 ignore 옵션).
-
 4. **Fallback도 실패 시**: 추측 진행 금지 → 오류 로그·원인을 보고하고 사용자 판단을 요청.
 5. **편집 도구 의미론**:
    - 기존 라인 정밀 치환 → **내용 일치 매칭**(라인 번호 의존 금지). 도구 종류는 플랫폼 자동 인지.
    - 신규 파일 생성·전체 재작성 → 네이티브 Write 도구.
 6. **Cognitive Stack**: 정보 결합 시 ① 실시간(세션·파일) → ② MCP 검색 결과 → ③ 영구 기억(DB) 순으로 신뢰.
-7. **위임**: 3+파일 동시 수정 또는 1,000+줄 처리는 직접 수행 대신 `.agents/scripts/` Python 스크립트로 위임.
+7. **위임**: 3+파일 동시 수정 또는 1,000+줄 처리는 직접 수행 대신 스크립트(`.agents/scripts/`)를 생성하여 위임.
+8. **상황별 보조 도구** (조건 충족 시 자율 호출):
+   `pc_impact_graph`(아키텍처 변경 전) / `pc_logic_flow`(복잡 흐름 분석) / `pc_index_status`(탐색 이상 시) / `pc_memory_consolidate`(메모리 중복·과다 시)
 
 
-## 3. 안전망 (Safety First)
+## 4. 안전망 (Safety First)
 
 - **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire` → 종료 시 `release [LANE_ID]` 직접 실행. 읽기 전용은 락 없이 즉시.
-- **Memo Override**: 사용자가 `memo`만 입력 시, 즉시 `.agents/memo.md`를 읽고 최우선 지침으로 채택.
+- **Memo Override**:
+  - **읽기**: 사용자가 `메모`만 입력 시, 즉시 `.agents/memo.md`를 읽고 최우선 지침으로 채택.
+  - **쓰기**: 사용자가 `메모해` 또는 "답변을 메모해" 등 쓰기를 지시 시, 현재 답변·분석 내용을 `.agents/memo.md`에 **덮어쓰기(overwrite)**한다. 기존 내용에 추가(append) 금지.
 - **Zero Path**: 커밋·보고서에 절대 경로(`/home/...`) 금지. 워크스페이스 기준 상대 경로만.
 - **Context Anxiety**: 표준 예산 15턴. 80%(12턴) 소모 시 진행률 <50%면 즉시 중단·요약 후 사용자에게 의견 요청. 동일 에러 3회 반복 시 강행 금지.
 
-## 4. 완료 기준 (Evidence Based)
+## 5. 완료 기준 (Evidence Based)
 
 다음 중 하나 이상의 객관적 증거 없이 작업 완료를 주장하지 마십시오: LSP 무에러 / 빌드 Exit 0 / 관련 테스트 통과 / `pc_todo_manager` 전 항목 `checked`.
 
 **Anti-Patterns**: "수정했습니다"+증거 미제시 / 에러 회피용 테스트 삭제 / `as any`·`@ts-ignore` 남발.
 
-## 5. 외부 참조 포인터 (Pointers)
+## 6. 외부 참조 포인터 (Pointers)
 
 - 복잡 구현·리팩토링: `protocol::ultrawork` (5단계 PLAN→IMPL→VERIFY→REFINE→SHIP)
 - 진척 기록: `protocol::progress-tracking` (Markdown 화이트보드 규격)
