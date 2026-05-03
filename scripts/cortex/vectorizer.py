@@ -145,6 +145,16 @@ def batch_vectorize_memories(conn, use_gpu: bool, workspace: str = None):
 
 def detect_gpu() -> bool:
     """GPU 사용 가능 여부 탐지 (하드웨어 프로필에 맞춰 CUDA 또는 MPS 자동 감지)"""
+    # 1. 서버가 활성화되어 있다면, 클라이언트 프로세스에서는 CUDA Context 생성을 방지하기 위해
+    # torch.cuda.is_available() 호출을 건너뜁니다.
+    try:
+        from cortex.vector_engine import _send_to_server
+        status = _send_to_server({"command": "ping"}, retries=1)
+        if status.get("status") == "ok":
+            return True
+    except Exception:
+        pass
+
     try:
         import torch
         if torch.cuda.is_available():
@@ -154,3 +164,4 @@ def detect_gpu() -> bool:
         return False
     except ImportError:
         return False
+
