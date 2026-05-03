@@ -41,7 +41,6 @@ indexing_rules:
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
 
-
   # 인덱싱 범위: 기본적으로 프로젝트 전체를 포함 (블랙리스트 방식)
   # 참고: .gitignore에 등록된 항목은 자동으로 제외됩니다.
   include_paths:
@@ -52,6 +51,10 @@ indexing_rules:
   exclude_paths:
     - "tmp/**"
     - "logs/**"
+    - ".agents/memo.md"
+    - ".agents/templates/**"
+    - ".agents/settings.yaml"
+    - ".agents/settings.local.yaml"
 
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist:
