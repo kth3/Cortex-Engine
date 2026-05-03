@@ -248,16 +248,37 @@ def should_ignore(path: str, ignore_patterns: list, workspace: str) -> bool:
 
 
 def load_settings(workspace: str) -> dict:
-    """.agents/settings.yaml 파일 로드"""
+    """.agents/settings.yaml 및 settings.local.yaml 파일 로드 및 병합"""
     settings_path = os.path.join(workspace, ".agents", "settings.yaml")
+    local_path = os.path.join(workspace, ".agents", "settings.local.yaml")
+    
+    settings = {}
+    import yaml
     if os.path.exists(settings_path):
         try:
-            import yaml
             with open(settings_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
+                settings = yaml.safe_load(f) or {}
         except Exception:
             pass
-    return {}
+
+    if os.path.exists(local_path):
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                local_settings = yaml.safe_load(f) or {}
+                for k, v in local_settings.items():
+                    if k == "indexing_rules" and isinstance(v, dict) and "indexing_rules" in settings:
+                        for sub_k, sub_v in v.items():
+                            if isinstance(sub_v, list) and sub_k in settings["indexing_rules"] and isinstance(settings["indexing_rules"][sub_k], list):
+                                settings["indexing_rules"][sub_k] = list(set(settings["indexing_rules"][sub_k] + sub_v))
+                            else:
+                                settings["indexing_rules"][sub_k] = sub_v
+                    else:
+                        settings[k] = v
+        except Exception:
+            pass
+            
+    return settings
+
 
 
 def should_include(path: str, workspace: str, settings: dict) -> bool:
