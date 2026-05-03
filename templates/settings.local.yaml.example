@@ -28,23 +28,27 @@
 #     - "Docker"
 
 # ==============================================================================
-# 모노레포 모듈 경로 정의 (내 프로젝트 구조에 맞게 수정)
+# 인덱싱 및 하이브리드 검색 설정 (Indexing Rules)
 # ==============================================================================
-# 팀 공통 구조와 다를 경우, 아래 주석을 해제하고 실제 경로를 입력하세요.
-#
+# 팀 공통 구조와 다를 경우, 아래 주석을 해제하고 실제 경로 및 설정을 입력하세요.
 # indexing_rules:
-#   modules:
-#     backend: ["BE/src/main/java"]
-#     frontend: ["FE/src", "FE/public"]
-#     ai: ["AI/apps", "AI/scripts"]
-#     unity: ["Assets/Scripts"]           # Unity 프로젝트 경로
+#   # 로컬 전용 유휴 시간 설정 (지정된 초 동안 요청이 없으면 워커 자동 종료)
+#   # idle_timeout: 300
 #
-# --- 단일 레포 예시 ---
-# indexing_rules:
-#   modules:
-#     app: ["src"]
+#   # 특정 경로 인덱싱에서 제외
+#   # exclude_paths:
+#   #   - "personal_notes/**"
 #
-# --- 다른 프로젝트와 연동 (linked_workspaces) ---
-# indexing_rules:
-#   linked_workspaces:
-#     - "../other-project"
+#   # 모노레포 모듈 경로 정의 (내 프로젝트 구조에 맞게 수정)
+#   # modules:
+#   #   backend: ["BE/src/main/java"]
+#   #   frontend: ["FE/src", "FE/public"]
+#   #   ai: ["AI/apps", "AI/scripts"]
+#   #   unity: ["Assets/Scripts"]
+#
+#   # 다른 프로젝트와 연동 (linked_workspaces)
+#   # linked_workspaces:
+#   #   - "../other-project"
+
+
+
