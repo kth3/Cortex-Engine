@@ -22,7 +22,7 @@ MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 
 # IPC 설정 (Windows/Linux 공용 TCP)
 ENGINE_HOST = "127.0.0.1"
-ENGINE_PORT = 62384
+ENGINE_PORT = 42384
 
 _model = None
 _model_device = None

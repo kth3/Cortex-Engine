@@ -20,7 +20,7 @@ LOG_DIR = AGENTS_DIR / "history"
 
 # IPC: TCP 소켓 (Unix Domain Socket 대체 — Windows 호환)
 ENGINE_HOST = "127.0.0.1"
-ENGINE_PORT = 62384
+ENGINE_PORT = 42384
 
 # uv 실행 경로 탐색
 UV_BIN = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
@@ -210,13 +210,16 @@ def start():
         _perform_stop()
 
         logger.info("Starting Unified Cortex Services...")
+        
+        # 통합 로그 파일 열기 (Append 모드)
+        cortex_log_fd = open(LOG_DIR / "cortex.log", "a", encoding="utf-8")
 
         # 1. Engine Server 가동
         logger.info("Launching GPU Engine Server...")
         subprocess.Popen(
             _uv_cmd(SERVER_SCRIPT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=cortex_log_fd,
+            stderr=subprocess.STDOUT,
             start_new_session=True
         )
 
@@ -244,8 +247,8 @@ def start():
         logger.info("Launching Watcher Daemon...")
         subprocess.Popen(
             _uv_cmd(WATCHER_SCRIPT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=cortex_log_fd,
+            stderr=subprocess.STDOUT,
             start_new_session=True
         )
 
@@ -254,8 +257,8 @@ def start():
             logger.info(f"Launching Local Daemon: {LOCAL_DAEMON_SCRIPT.name}...")
             subprocess.Popen(
                 _uv_cmd(LOCAL_DAEMON_SCRIPT),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=cortex_log_fd,
+                stderr=subprocess.STDOUT,
                 start_new_session=True
             )
 

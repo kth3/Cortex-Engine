@@ -22,9 +22,9 @@ logger = get_logger("server")
 
 # IPC: TCP 소켓 (Windows 호환)
 ROUTER_HOST = "127.0.0.1"
-ROUTER_PORT = 62384
+ROUTER_PORT = 42384
 WORKER_HOST = "127.0.0.1"
-WORKER_PORT = 62385
+WORKER_PORT = 42385
 
 
 def get_idle_timeout() -> int:
@@ -196,9 +196,11 @@ def ensure_worker_running():
             def _relay_worker_output(proc):
                 try:
                     for line in iter(proc.stdout.readline, b""):
-                        msg = line.decode("utf-8", errors="replace").rstrip()
-                        if msg:
-                            logger.info(f"[Worker-out] {msg}")
+                        text = line.decode("utf-8", errors="replace").rstrip()
+                        for msg in text.split('\r'):
+                            msg = msg.strip()
+                            if msg:
+                                logger.info(f"[Worker-out] {msg}")
                 except Exception:
                     pass
             threading.Thread(target=_relay_worker_output, args=(worker_process,), daemon=True).start()
