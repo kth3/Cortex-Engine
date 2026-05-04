@@ -8,6 +8,7 @@ import argparse
 import threading
 import subprocess
 import socketserver
+import re
 from typing import List
 
 # 프로젝트 루트 및 스크립트 경로 설정 (모듈 인식을 위해 최상단에서 수행)
@@ -214,6 +215,9 @@ def ensure_worker_running():
                 stderr=subprocess.STDOUT
             )
 
+            # 로그 타임스탬프 및 레벨 패턴 (릴레이 시 중복 제거용)
+            LOG_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[[^\]]+\] \[[A-Z]+\]\s*")
+
             def _relay_worker_output(proc):
                 try:
                     for line in iter(proc.stdout.readline, b""):
@@ -221,7 +225,9 @@ def ensure_worker_running():
                         for msg in text.split('\r'):
                             msg = msg.strip()
                             if msg:
-                                logger.info(f"[Worker-out] {msg}")
+                                # 중복 타임스탬프 제거
+                                clean_msg = LOG_CLEAN_PATTERN.sub("", msg)
+                                logger.info(f"[Worker-out] {clean_msg}")
                 except Exception:
                     pass
             threading.Thread(target=_relay_worker_output, args=(worker_process,), daemon=True).start()

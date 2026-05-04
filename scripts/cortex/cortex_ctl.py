@@ -7,6 +7,8 @@ import socket
 import struct
 import json
 import shutil
+import threading
+import re
 from pathlib import Path
 
 import portalocker  # fcntl 대체 (Windows: msvcrt, Linux: fcntl 자동 선택)
@@ -183,6 +185,23 @@ def stop():
     finally:
         release_lock(lock_f)
 
+# 로그 타임스탬프 및 레벨 패턴 (릴레이 시 중복 제거용)
+# 예: [2026-05-04 17:21:15] [cortex.server] [INFO]
+LOG_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[[^\]]+\] \[[A-Z]+\]\s*")
+
+def _relay_subprocess_output(proc, label):
+    """서브프로세스의 stdout/stderr를 부모 로거로 전달 (중복 타임스탬프 제거 및 로테이션 유지)"""
+    try:
+        for line in iter(proc.stdout.readline, b""):
+            msg = line.decode("utf-8", errors="replace").strip()
+            if msg:
+                # 이미 타임스탬프와 레벨이 포함된 로그라면 해당 부분 제거
+                clean_msg = LOG_CLEAN_PATTERN.sub("", msg)
+                # 부모의 로거가 최종적으로 하나의 타임스탬프와 [label]을 붙임
+                logger.info(f"[{label}] {clean_msg}")
+    except Exception:
+        pass
+
 def start():
     # 로그 디렉토리 준비
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -211,22 +230,20 @@ def start():
 
         logger.info("Starting Unified Cortex Services...")
         
-        # 통합 로그 파일 열기 (Append 모드)
-        cortex_log_fd = open(LOG_DIR / "cortex.log", "a", encoding="utf-8")
-
-        # 서브프로세스용 공통 환경변수 (중복 로깅 방지)
+        # 서브프로세스용 공통 환경변수 (자식 프로세스의 중복 파일 쓰기 강제 차단)
         sub_env = os.environ.copy()
         sub_env["CORTEX_NO_FILE_LOG"] = "1"
 
-        # 1. Engine Server 가동
+        # 1. Engine Server 가동 (파이프 방식)
         logger.info("Launching GPU Engine Server...")
-        subprocess.Popen(
+        server_proc = subprocess.Popen(
             _uv_cmd(SERVER_SCRIPT),
-            stdout=cortex_log_fd,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             env=sub_env,
             start_new_session=True
         )
+        threading.Thread(target=_relay_subprocess_output, args=(server_proc, "server"), daemon=True).start()
 
         # 2. 서버 대기 (TCP Ping 확인)
         logger.info("Waiting for Engine Server to initialize GPU...")
@@ -248,29 +265,30 @@ def start():
 
         logger.info("Engine Server is Ready (GPU Shared Mode).")
 
-        # 3. Watcher 가동
+        # 3. Watcher 가동 (파이프 방식)
         logger.info("Launching Watcher Daemon...")
-        subprocess.Popen(
+        watcher_proc = subprocess.Popen(
             _uv_cmd(WATCHER_SCRIPT),
-            stdout=cortex_log_fd,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             env=sub_env,
             start_new_session=True
         )
+        threading.Thread(target=_relay_subprocess_output, args=(watcher_proc, "watcher"), daemon=True).start()
 
-        # 4. Local Daemon 가동
+        # 4. Local Daemon 가동 (파이프 방식)
         if LOCAL_DAEMON_SCRIPT:
             logger.info(f"Launching Local Daemon: {LOCAL_DAEMON_SCRIPT.name}...")
-            subprocess.Popen(
+            local_proc = subprocess.Popen(
                 _uv_cmd(LOCAL_DAEMON_SCRIPT),
-                stdout=cortex_log_fd,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 env=sub_env,
                 start_new_session=True
             )
+            threading.Thread(target=_relay_subprocess_output, args=(local_proc, "local"), daemon=True).start()
 
         logger.info("Cortex services started successfully.")
-        (LOG_DIR / "last_start.txt").write_text(str(time.time()))
     finally:
         release_lock(lock_f)
 
