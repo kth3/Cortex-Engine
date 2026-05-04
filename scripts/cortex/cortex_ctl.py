@@ -229,6 +229,8 @@ def start():
             if _send_minimal_ping():
                 ready = True
                 break
+            if retry > 0 and retry % 5 == 0:
+                logger.warning(f"Engine Server not ready yet (retry {retry}/{max_retries})...")
             time.sleep(1)
             retry += 1
 
