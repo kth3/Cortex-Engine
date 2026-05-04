@@ -75,11 +75,11 @@ def send_msg(sock, msg):
 # 1. 워커(Worker) 모드 (PyTorch 및 모델 로드 전담)
 # ==========================================
 def run_worker():
-    from vector_engine import _load_model
-    import torch
-
     current_device = "cpu"
     try:
+        from vector_engine import _load_model
+        import torch
+
         if torch.cuda.is_available():
             current_device = "cuda"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -87,10 +87,13 @@ def run_worker():
         elif hasattr(torch, "xpu") and torch.xpu.is_available():
             current_device = "xpu"
 
+        logger.info(f"[Worker] Attempting to load model on device: {current_device}")
         model = _load_model(device=current_device)
         logger.info(f"[Worker] Engine Ready on {current_device}.")
     except Exception as e:
+        import traceback
         logger.error(f"[Worker] Critical Error during startup: {e}")
+        logger.error(f"[Worker] Traceback:\n{traceback.format_exc()}")
         sys.exit(1)
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -181,17 +184,35 @@ def ensure_worker_running():
             logger.info("[Router] Starting PyTorch Worker Process...")
             env = os.environ.copy()
             script_path = os.path.abspath(__file__)
-            
-            # 자식 프로세스 기동
+
+            # 자식 프로세스 기동 (stdout/stderr → 로거 릴레이)
             worker_process = subprocess.Popen(
                 [sys.executable, script_path, "--worker"],
-                env=env
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
             )
-            
+
+            def _relay_worker_output(proc):
+                try:
+                    for line in iter(proc.stdout.readline, b""):
+                        msg = line.decode("utf-8", errors="replace").rstrip()
+                        if msg:
+                            logger.info(f"[Worker-out] {msg}")
+                except Exception:
+                    pass
+            threading.Thread(target=_relay_worker_output, args=(worker_process,), daemon=True).start()
+
             # 워커 소켓이 열릴 때까지 최대 20초 폴링 (Cold Start 대기)
             start_time = time.time()
             worker_up = False
             while time.time() - start_time < 20.0:
+                # 프로세스가 먼저 종료됐으면 즉시 실패 처리
+                exit_code = worker_process.poll()
+                if exit_code is not None:
+                    logger.error(f"[Router] Worker process exited prematurely (code={exit_code}).")
+                    worker_up = False
+                    break
                 try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.settimeout(1.0)
@@ -199,12 +220,15 @@ def ensure_worker_running():
                     s.close()
                     worker_up = True
                     break
-                except (ConnectionRefusedError, socket.timeout):
+                except (ConnectionRefusedError, socket.timeout, OSError):
                     time.sleep(0.5)
-            
+
             if not worker_up:
                 logger.error("[Router] Worker failed to start within timeout.")
-                worker_process.kill()
+                try:
+                    worker_process.kill()
+                except Exception:
+                    pass
                 worker_process = None
                 return False
             logger.info("[Router] Worker Process is Ready and listening.")
