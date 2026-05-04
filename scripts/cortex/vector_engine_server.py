@@ -75,35 +75,45 @@ def send_msg(sock, msg):
 # 1. 워커(Worker) 모드 (PyTorch 및 모델 로드 전담)
 # ==========================================
 def run_worker():
+    import torch
     current_device = "cpu"
-    try:
-        from vector_engine import _load_model
-        import torch
+    if torch.cuda.is_available():
+        current_device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        current_device = "mps"
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        current_device = "xpu"
 
-        if torch.cuda.is_available():
-            current_device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            current_device = "mps"
-        elif hasattr(torch, "xpu") and torch.xpu.is_available():
-            current_device = "xpu"
+    model = None
+    model_load_error = None
 
-        logger.info(f"[Worker] Attempting to load model on device: {current_device}")
-        model = _load_model(device=current_device)
-        logger.info(f"[Worker] Engine Ready on {current_device}.")
-    except Exception as e:
-        import traceback
-        logger.error(f"[Worker] Critical Error during startup: {e}")
-        logger.error(f"[Worker] Traceback:\n{traceback.format_exc()}")
-        sys.exit(1)
+    def _load_model_bg():
+        nonlocal model, model_load_error
+        try:
+            from vector_engine import _load_model
+            logger.info(f"[Worker] Background model loading started on {current_device}...")
+            # 실제 모델 로딩 수행 (시간이 걸리는 작업)
+            model = _load_model(device=current_device)
+            logger.info(f"[Worker] Model loading complete. Engine Ready on {current_device}.")
+        except Exception as e:
+            import traceback
+            model_load_error = str(e)
+            logger.error(f"[Worker] Background loading failed: {e}\n{traceback.format_exc()}")
 
+    # [Root Cause Fix] 모델 로딩 전에 소켓 서버부터 바인딩 및 리슨 시작
+    # 이를 통해 라우터가 즉시 연결(Connect)에 성공하여 'Worker failed to start within timeout'을 방지함
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((WORKER_HOST, WORKER_PORT))
     server.listen(5)
+    logger.info(f"[Worker] Server listening on {WORKER_PORT}. Initializing model in background...")
+
+    # 백그라운드 로딩 스레드 시작
+    threading.Thread(target=_load_model_bg, daemon=True).start()
 
     try:
         while True:
-            server.settimeout(1.0) # Graceful shutdown을 위한 짧은 루프
+            server.settimeout(1.0)
             try:
                 conn, _ = server.accept()
             except socket.timeout:
@@ -116,39 +126,49 @@ def run_worker():
                 cmd = request.get("command", "embed")
 
                 if cmd == "ping":
-                    send_msg(conn, {"status": "ok", "message": "Worker is alive"})
+                    if model_load_error:
+                        send_msg(conn, {"status": "error", "message": f"Model load failed: {model_load_error}"})
+                    elif model is None:
+                        send_msg(conn, {"status": "loading", "message": "Model is still loading in background"})
+                    else:
+                        send_msg(conn, {"status": "ok", "message": "Worker is fully ready"})
+                
                 elif cmd == "shutdown":
-                    # 라우터의 종료 시그널 수신
                     logger.info("[Worker] Received shutdown signal. Gracefully exiting...")
                     send_msg(conn, {"status": "ok", "message": "Shutting down"})
                     conn.close()
                     
-                    # Windows 환경에서 프로세스 종료 지연 및 VRAM 미반환(Deadlock) 방지
                     try:
-                        del model
+                        if model:
+                            del model
                         import gc
                         gc.collect()
-                        import torch
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     except Exception as e:
                         logger.error(f"[Worker] Cleanup error: {e}")
                     
-                    # os._exit(0)를 호출하여 Python GC/Atexit 훅을 건너뛰고 즉시 프로세스 종료 (VRAM 즉각 반환)
                     import os
                     os._exit(0)
+                
                 elif cmd == "embed":
-                    texts = request.get("texts", [])
-                    if not texts:
-                        send_msg(conn, {"status": "ok", "embeddings": []})
+                    if model_load_error:
+                        send_msg(conn, {"status": "error", "message": f"Model load failed: {model_load_error}"})
+                    elif model is None:
+                        # 라우터는 이 응답을 받으면 잠시 후 재시도하게 됨
+                        send_msg(conn, {"status": "loading", "message": "Model is not ready yet"})
                     else:
-                        embeddings = model.encode(
-                            texts,
-                            batch_size=16,
-                            normalize_embeddings=True,
-                            show_progress_bar=False,
-                        ).tolist()
-                        send_msg(conn, {"status": "ok", "embeddings": embeddings})
+                        texts = request.get("texts", [])
+                        if not texts:
+                            send_msg(conn, {"status": "ok", "embeddings": []})
+                        else:
+                            embeddings = model.encode(
+                                texts,
+                                batch_size=16,
+                                normalize_embeddings=True,
+                                show_progress_bar=False,
+                            ).tolist()
+                            send_msg(conn, {"status": "ok", "embeddings": embeddings})
                 else:
                     send_msg(conn, {"status": "error", "message": f"Unknown command: {cmd}"})
             except Exception as e:
