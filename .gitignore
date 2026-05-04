@@ -13,6 +13,7 @@ data/
 history/
 !history/inbox.md
 state/
+artifacts/
 memo.md
 
 # Project-Specific Assets (Isolated)
