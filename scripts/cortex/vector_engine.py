@@ -50,7 +50,7 @@ def _load_model(device: str = "cpu"):
         import torch
         from cortex.logger import get_logger
         
-        log = get_logger("cortex.vector")
+        log = get_logger("vector")
         hf_token = os.getenv("HF_TOKEN", "").strip() or None
 
         if sys.platform == "darwin":
