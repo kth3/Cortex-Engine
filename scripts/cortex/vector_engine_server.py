@@ -166,6 +166,7 @@ def run_worker():
 # ==========================================
 worker_process = None
 worker_lock = threading.Lock()
+worker_request_lock = threading.Lock() # 워커에 대한 단일 요청 직렬화 보장
 last_activity_time = time.time()
 
 def ensure_worker_running():
@@ -239,6 +240,11 @@ def idle_monitor():
         with worker_lock:
             is_running = worker_process is not None and worker_process.poll() is None
         if is_running:
+            # [Strict Fix] 현재 요청 처리 중(Lock 획득 상태)이면 유휴 종료를 수행하지 않음
+            if worker_request_lock.locked():
+                last_activity_time = time.time() # 요청 중이면 타이머 갱신
+                continue
+
             if time.time() - last_activity_time > get_idle_timeout():
                 shutdown_worker()
 
@@ -256,51 +262,71 @@ class RouterHandler(socketserver.BaseRequestHandler):
             
         cmd = request.get("command", "embed")
         
-        # 핑 요청은 라우터가 즉시 가짜 응답(Mock)을 반환 (Watcher 헬스체크용)
+        # [Strict Fix] 핑 요청을 라우터가 직접 응답하지 않고 워커까지 확인하도록 수정
+        # (라우터만 떠 있고 워커가 로딩 중일 때 'Ready'로 오판하는 문제 방지)
         if cmd == "ping":
-            send_msg(self.request, {"status": "ok", "message": "Cortex Router is alive and proxying"})
+            # 워커가 실행 중인지 확인 (미실행 시 기동 시도)
+            if not ensure_worker_running():
+                send_msg(self.request, {"status": "error", "message": "Worker process not started"})
+                return
+
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2.0)
+                s.connect((WORKER_HOST, WORKER_PORT))
+                send_msg(s, {"command": "ping"})
+                response = recv_msg(s)
+                s.close()
+                if response and response.get("status") == "ok":
+                    send_msg(self.request, {"status": "ok", "message": "Cortex Engine (Router+Worker) is fully Ready"})
+                else:
+                    send_msg(self.request, {"status": "error", "message": "Worker is up but not responding to ping"})
+            except Exception as e:
+                send_msg(self.request, {"status": "error", "message": f"Worker communication failed: {e}"})
             return
             
         # 실제 작업 요청일 때만 타이머 리셋
         last_activity_time = time.time()
 
-        # 임베딩 등 실제 요청은 워커로 포워딩
-        # 1회 재시도 (총 2회) 허용 로직
-        for attempt in range(2):
-            if not ensure_worker_running():
-                send_msg(self.request, {"status": "error", "message": "Failed to start PyTorch worker process."})
-                return
-            
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(15.0) # 클라이언트 타임아웃(10초)과 균형을 맞춘 대기 시간
-                s.connect((WORKER_HOST, WORKER_PORT))
-                send_msg(s, request)
-                response = recv_msg(s)
-                s.close()
-                
-                if response:
-                    send_msg(self.request, response)
-                    return # 정상 완료 시 루프 종료
-                else:
-                    raise Exception("Empty response from worker (connection dropped)")
-                    
-            except Exception as e:
-                logger.warning(f"[Router] Forwarding to worker failed: {e}. Attempt {attempt+1}/2.")
-                
-                # 워커가 크래시 났다고 간주하고 프로세스 정리
-                global worker_process
-                with worker_lock:
-                    if worker_process is not None:
-                        if worker_process.poll() is None:
-                            worker_process.kill()
-                        worker_process = None
-                
-                # 1회 재시도마저 실패한 경우, 즉시 에러 반환
-                if attempt == 1:
-                    logger.error("[Router] Worker retry failed. Returning error to client -> CPU Fallback triggered.")
-                    send_msg(self.request, {"status": "error", "message": f"Worker crashed repeatedly: {str(e)}"})
+        # [Strict Fix] 워커에 대한 요청을 직렬화하여 동시 접근으로 인한 10054 및 크래시 방지
+        with worker_request_lock:
+            # 임베딩 등 실제 요청은 워커로 포워딩
+            # 1회 재시도 (총 2회) 허용 로직
+            for attempt in range(2):
+                if not ensure_worker_running():
+                    send_msg(self.request, {"status": "error", "message": "Failed to start PyTorch worker process."})
                     return
+                
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(15.0) # 클라이언트 타임아웃(10초)과 균형을 맞춘 대기 시간
+                    s.connect((WORKER_HOST, WORKER_PORT))
+                    send_msg(s, request)
+                    response = recv_msg(s)
+                    s.close()
+                    
+                    if response:
+                        send_msg(self.request, response)
+                        return # 정상 완료 시 루프 종료
+                    else:
+                        raise Exception("Empty response from worker (connection dropped)")
+                        
+                except Exception as e:
+                    logger.warning(f"[Router] Forwarding to worker failed: {e}. Attempt {attempt+1}/2.")
+                    
+                    # 워커가 크래시 났다고 간주하고 프로세스 정리
+                    global worker_process
+                    with worker_lock:
+                        if worker_process is not None:
+                            if worker_process.poll() is None:
+                                worker_process.kill()
+                            worker_process = None
+                    
+                    # 1회 재시도마저 실패한 경우, 즉시 에러 반환
+                    if attempt == 1:
+                        logger.error("[Router] Worker retry failed. Returning error to client -> CPU Fallback triggered.")
+                        send_msg(self.request, {"status": "error", "message": f"Worker crashed repeatedly: {str(e)}"})
+                        return
 
 def run_router():
     # IDLE 감시 스레드 시작
