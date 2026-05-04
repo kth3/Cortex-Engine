@@ -214,12 +214,17 @@ def start():
         # 통합 로그 파일 열기 (Append 모드)
         cortex_log_fd = open(LOG_DIR / "cortex.log", "a", encoding="utf-8")
 
+        # 서브프로세스용 공통 환경변수 (중복 로깅 방지)
+        sub_env = os.environ.copy()
+        sub_env["CORTEX_NO_FILE_LOG"] = "1"
+
         # 1. Engine Server 가동
         logger.info("Launching GPU Engine Server...")
         subprocess.Popen(
             _uv_cmd(SERVER_SCRIPT),
             stdout=cortex_log_fd,
             stderr=subprocess.STDOUT,
+            env=sub_env,
             start_new_session=True
         )
 
@@ -249,6 +254,7 @@ def start():
             _uv_cmd(WATCHER_SCRIPT),
             stdout=cortex_log_fd,
             stderr=subprocess.STDOUT,
+            env=sub_env,
             start_new_session=True
         )
 
@@ -259,6 +265,7 @@ def start():
                 _uv_cmd(LOCAL_DAEMON_SCRIPT),
                 stdout=cortex_log_fd,
                 stderr=subprocess.STDOUT,
+                env=sub_env,
                 start_new_session=True
             )
 

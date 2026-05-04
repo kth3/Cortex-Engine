@@ -203,6 +203,7 @@ def ensure_worker_running():
         if worker_process is None:
             logger.info("[Router] Starting PyTorch Worker Process...")
             env = os.environ.copy()
+            env["CORTEX_NO_FILE_LOG"] = "1"
             script_path = os.path.abspath(__file__)
 
             # 자식 프로세스 기동 (stdout/stderr → 로거 릴레이)

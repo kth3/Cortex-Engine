@@ -34,23 +34,28 @@ def get_logger(module_name: str = None) -> logging.Logger:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     root_logger.setLevel(logging.INFO)
 
-    # 1. 파일 핸들러 (실시간 1MB 로테이션)
-    file_handler = RotatingFileHandler(
-        LOG_FILE, 
-        maxBytes=MAX_BYTES, 
-        backupCount=BACKUP_COUNT, 
-        encoding="utf-8"
-    )
-    file_formatter = logging.Formatter(
+    # 1. 파일 핸들러 (CORTEX_NO_FILE_LOG가 설정되지 않은 경우에만 등록)
+    if os.environ.get("CORTEX_NO_FILE_LOG") != "1":
+        file_handler = RotatingFileHandler(
+            LOG_FILE, 
+            maxBytes=MAX_BYTES, 
+            backupCount=BACKUP_COUNT, 
+            encoding="utf-8"
+        )
+        file_formatter = logging.Formatter(
+            fmt="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+
+    # 2. 스트림 핸들러 (MCP JSON-RPC 통신 규격 보호를 위해 반드시 sys.stderr 사용)
+    # [Format Updated] 파일 로깅과 포맷을 동일하게 맞춰 통합 리다이렉션 시 일관성 유지
+    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_formatter = logging.Formatter(
         fmt="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
-    file_handler.setFormatter(file_formatter)
-    root_logger.addHandler(file_handler)
-
-    # 2. 스트림 핸들러 (MCP JSON-RPC 통신 규격 보호를 위해 반드시 sys.stderr 사용)
-    stream_handler = logging.StreamHandler(sys.stderr)
-    stream_formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
     stream_handler.setFormatter(stream_formatter)
     root_logger.addHandler(stream_handler)
 
