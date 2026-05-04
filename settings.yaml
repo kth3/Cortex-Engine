@@ -55,6 +55,7 @@ indexing_rules:
     - ".agents/templates/**"
     - ".agents/settings.yaml"
     - ".agents/settings.local.yaml"
+    - ".agents/history/cortex.log"
 
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist:
