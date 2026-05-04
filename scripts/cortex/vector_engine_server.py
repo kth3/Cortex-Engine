@@ -290,7 +290,13 @@ class RouterHandler(socketserver.BaseRequestHandler):
         # (라우터만 떠 있고 워커가 로딩 중일 때 'Ready'로 오판하는 문제 방지)
         if cmd == "ping":
             # 워커가 실행 중인지 확인 (미실행 시 기동 시도)
-            if not ensure_worker_running():
+            try:
+                worker_ready = ensure_worker_running()
+            except Exception as e:
+                logger.error(f"[Router] ensure_worker_running() raised exception: {e}")
+                send_msg(self.request, {"status": "error", "message": f"Worker startup exception: {e}"})
+                return
+            if not worker_ready:
                 send_msg(self.request, {"status": "error", "message": "Worker process not started"})
                 return
 
@@ -358,11 +364,11 @@ def run_router():
     monitor_thread.start()
     
     server = ThreadedTCPServer((ROUTER_HOST, ROUTER_PORT), RouterHandler)
-    sys.stderr.write(f"[cortex-server] [ROUTER] Listening on {ROUTER_HOST}:{ROUTER_PORT}\n")
+    logger.info(f"[Router] Listening on {ROUTER_HOST}:{ROUTER_PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        sys.stderr.write("[cortex-server] [ROUTER] Shutting down...\n")
+        logger.info("[Router] Shutting down...")
         shutdown_worker()
     finally:
         server.server_close()
