@@ -25,6 +25,10 @@ def get_logger(module_name: str = None) -> logging.Logger:
     # [Singleton Guard] 기존에 등록된 핸들러가 있다면 중복 방지를 위해 모두 제거
     if root_logger.hasHandlers():
         for handler in root_logger.handlers[:]:
+            try:
+                handler.close()
+            except Exception:
+                pass
             root_logger.removeHandler(handler)
 
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
