@@ -483,6 +483,19 @@ def call_pc_auto_context(args):
                 sections.append(entry)
                 total_chars += len(entry)
 
+        # 추가: HANDOFF 상태 레인의 contract 확인
+        board_path = Path(WORKSPACE) / ".agents" / "data" / "state" / "board.json"
+        if board_path.exists():
+            try:
+                board = json.loads(board_path.read_text(encoding="utf-8"))
+                for lid, lane in board.get("lanes", {}).items():
+                    if lane.get("contract_id"):
+                        entry = f"[contract] lane={lid}: {lane['contract_id']}"
+                        sections.append(entry)
+                        total_chars += len(entry)
+            except Exception:
+                pass
+
         return {
             "context": "\n".join(sections),
             "totalChars": total_chars,
