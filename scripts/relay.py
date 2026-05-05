@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-import fcntl
+import portalocker
 from datetime import datetime, timedelta
 
 # 경로 설정
@@ -36,7 +36,7 @@ def _ensure_dir():
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
 def _locked_transaction(fn):
-    """fcntl 배타적 락으로 board.json 읽기→수정→쓰기를 원자적으로 수행하는 래퍼.
+    """portalocker 배타적 락으로 board.json 읽기→수정→쓰기를 원자적으로 수행하는 래퍼.
     
     fn(board) -> board 를 받아 수정된 보드를 반환하면, 락 안에서 안전하게 저장한다.
     fn이 None을 반환하면 쓰기를 생략한다 (읽기 전용).
@@ -49,7 +49,7 @@ def _locked_transaction(fn):
     os.close(fd)
     
     with open(STATE_FILE, "r+", encoding="utf-8") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        portalocker.lock(f, portalocker.LOCK_EX)
         try:
             # 락 획득 후 파일이 비어있는지 확인 (원자적 초기화)
             f.seek(0, 2)
@@ -84,7 +84,7 @@ def _locked_transaction(fn):
                 return result
             return board
         finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+            portalocker.unlock(f)
 
 def _is_zombie(lane, updated_at_str):
     """레인이 좀비 상태인지 판별 (locked_at 또는 updated_at 기준)"""
@@ -179,6 +179,9 @@ def acquire(agent_id, task, lane_id="default"):
         lane["handoff_message"] = None
         lane["locked_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"[LOCKED] Agent '{agent_id}' acquired lane '{lane_id}' for task '{task}'.")
+        if lane.get("contract_id"):
+            print(f"[CONTRACT] Previous contract on file: {lane['contract_id']}")
+            print(f"           Read it before starting: .agents/artifacts/{lane['contract_id']}")
         return board
     
     _locked_transaction(_acquire)
