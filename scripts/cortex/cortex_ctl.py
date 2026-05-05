@@ -259,7 +259,6 @@ def start():
 
         logger.info("Engine Server is Ready (GPU Shared Mode).")
 
-        logger.info("Engine Server is Ready (GPU Shared Mode).")
         logger.info("Cortex services started successfully.")
     finally:
         release_lock(lock_f)
