@@ -170,7 +170,10 @@ def get_tuning_params(workspace: str = None) -> dict:
     params.update(DEFAULTS)
 
     # 5. 튜닝 리포트 출력
-    _log_tuning_report(params, hw)
+    if not silent and not _TUNING_REPORT_LOGGED:
+        _log_tuning_report(params, hw)
+        _TUNING_REPORT_LOGGED = True
+        
     return params
 
 
