@@ -59,11 +59,21 @@ class DebouncedIndexer(FileSystemEventHandler):
         blacklist = [
             '.git', 'node_modules', '__pycache__', 'venv', '.venv',
             '.agents/data/', '.agents/history/', '.agents/artifacts/',
-            # Unity 내부 캐시 — 인덱싱 불필요
-            'Unity/Library/',
-            'Unity/Temp/',
-            'Unity/Logs/',
-            'Unity/obj/',
+            '/.plastic/', '\\.plastic\\', # Unity Version Control
+            # Unity 내부 캐시 및 빌드 — 인덱싱 불필요 (경로 무관)
+            '/Library/', '\\Library\\',
+            '/Temp/', '\\Temp\\',
+            '/Logs/', '\\Logs\\',
+            '/obj/', '\\obj\\',
+            '/UserSettings/', '\\UserSettings\\',
+            '/Builds/', '\\Builds\\',
+            '/MemoryCaptures/', '\\MemoryCaptures\\',
+            # IDE 설정 및 임시 폴더
+            '/.vs/', '\\.vs\\',
+            '/.idea/', '\\.idea\\',
+            '/.vscode/', '\\.vscode\\',
+            '/dist/', '\\dist\\',
+            '/build/', '\\build\\',
         ]
         if any(x in path_str for x in blacklist):
             return False
