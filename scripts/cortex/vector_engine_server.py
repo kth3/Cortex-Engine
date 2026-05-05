@@ -1,24 +1,27 @@
 import os
 import sys
 import json
-import socket
-import struct
 import time
-import argparse
+import socket
 import threading
 import subprocess
-import socketserver
 import re
-from typing import List
+import struct
+import argparse
+import socketserver
+from pathlib import Path
+from typing import Dict, Any, Optional, List
 
-# 프로젝트 루트 및 스크립트 경로 설정 (모듈 인식을 위해 최상단에서 수행)
-CORTEX_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS_DIR = os.path.dirname(CORTEX_DIR)
+# 경로 설정 및 모듈 임포트
+CORTEX_DIR = Path(__file__).resolve().parent
+WATCHER_SCRIPT = CORTEX_DIR / "watcher.py"
+SCRIPTS_DIR = str(CORTEX_DIR.parent)
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from cortex.logger import get_logger
 
+# 서버는 직접 파일에 로그를 남겨야 함 (ctl이 종료된 후에도 유지되도록)
 logger = get_logger("server")
 
 # IPC: TCP 소켓 (Windows 호환)
@@ -216,7 +219,8 @@ def ensure_worker_running():
             )
 
             # 로그 타임스탬프 및 레벨 패턴 (릴레이 시 중복 제거용)
-            LOG_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[[^\]]+\] \[[A-Z]+\]\s*")
+            # 로그 타임스탬프 및 레벨 패턴 (릴레이 시 중복 제거용)
+            WORKER_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[.*?\] \[.*?\]\s*")
 
             def _relay_worker_output(proc):
                 try:
@@ -226,7 +230,7 @@ def ensure_worker_running():
                             msg = msg.strip()
                             if msg:
                                 # 중복 타임스탬프 제거
-                                clean_msg = LOG_CLEAN_PATTERN.sub("", msg)
+                                clean_msg = WORKER_CLEAN_PATTERN.sub("", msg)
                                 logger.info(f"[Worker-out] {clean_msg}")
                 except Exception:
                     pass
@@ -387,6 +391,44 @@ class RouterHandler(socketserver.BaseRequestHandler):
                         send_msg(self.request, {"status": "error", "message": f"Worker crashed repeatedly: {str(e)}"})
                         return
 
+# 로그 정제용 정규표현식: [YYYY-MM-DD HH:MM:SS] [module] [LEVEL] 형태를 감지
+LOG_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[.*?\] \[.*?\]\s*")
+
+def _relay_subprocess_output(proc, tag):
+    """서브프로세스의 stdout/stderr를 부모 로거로 전달 (중복 타임스탬프 제거) 및 실시간 스트리밍"""
+    try:
+        for line in iter(proc.stdout.readline, b""):
+            # [Inception Guard] 이미 타임스탬프가 있는 경우 제거하여 중복 방지
+            decoded_line = line.decode("utf-8", errors="replace").strip()
+            if decoded_line:
+                clean_line = LOG_CLEAN_PATTERN.sub('', decoded_line)
+                logger.info(f"[{tag}] {clean_line}")
+    except Exception:
+        pass
+
+def main():
+    # 1. Watcher 기동
+    logger.info("Starting Watcher Daemon from Router...")
+    try:
+        # 자식 프로세스는 파일 로깅을 금지하고 stdout만 사용 (서버가 통합 관리)
+        child_env = os.environ.copy()
+        child_env["CORTEX_NO_FILE_LOG"] = "1"
+        child_env["PYTHONUNBUFFERED"] = "1"
+        
+        watcher_proc = subprocess.Popen(
+            [sys.executable, "-u", str(WATCHER_SCRIPT)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=child_env,
+            start_new_session=True
+        )
+        threading.Thread(target=_relay_subprocess_output, args=(watcher_proc, "watcher"), daemon=True).start()
+    except Exception as e:
+        logger.error(f"Failed to launch Watcher: {e}")
+
+    # 2. Worker 가동 및 서버 실행
+    run_router()
+
 def run_router():
     # IDLE 감시 스레드 시작
     monitor_thread = threading.Thread(target=idle_monitor, daemon=True)
@@ -405,9 +447,9 @@ def run_router():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", action="store_true", help="Run as PyTorch Worker process")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args() # router 인자들과 섞이지 않도록
     
     if args.worker:
         run_worker()
     else:
-        run_router()
+        main()
