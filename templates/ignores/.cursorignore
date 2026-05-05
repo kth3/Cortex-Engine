@@ -1,11 +1,13 @@
-# .aiderignore
-# Ignore .agents directory to prevent context bloat in Aider
+# .geminiignore
+# Ignore directories to prevent context bloat in Gemini CLI
 .agents/data/
 .agents/history/
 .agents/knowledge/
+.agents/.venv/
 .agents/venv/
 .agents/docs/
 .agents/.env
+**/__pycache__/
 .agents/PROGRESS.md
 .agents/AGENTS.md
 .agents/INSTALL.md
@@ -13,4 +15,7 @@
 .agents/LICENSE
 .agents/README.md
 .agents/requirements.txt
+
+# Consolidated Context Folder (available via RAG indexing instead)
+.reference/*
 
