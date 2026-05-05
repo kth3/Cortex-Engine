@@ -9,8 +9,6 @@ from watchdog.events import FileSystemEventHandler
 CORTEX_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = str(CORTEX_DIR.parent)
 
-import sys
-import os
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
