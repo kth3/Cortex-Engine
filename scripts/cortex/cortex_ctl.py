@@ -28,15 +28,8 @@ ENGINE_PORT = 42384
 UV_BIN = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
 
 def _uv_cmd(script: Path) -> list:
-    """uv run 기반 실행 명령어를 생성"""
-    if not os.path.exists(UV_BIN):
-        print("\n[ERROR] uv 패키지 관리자를 찾을 수 없습니다.")
-        print("Cortex 엔진은 빠른 속도와 안전한 환경 격리를 위해 uv를 사용합니다.")
-        print("터미널에 아래 명령어를 입력하여 uv를 먼저 설치해 주세요:")
-        print("    curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/Mac")
-        print("    powershell -c 'irm https://astral.sh/uv/install.ps1 | iex'  # Windows\n")
-        sys.exit(1)
-    return [UV_BIN, "run", "--project", str(AGENTS_DIR), "python", str(script)]
+    """현재 실행 중인 Python 인터프리터를 사용하여 자식 프로세스 명령어를 생성 (중복 uv 래핑 방지)"""
+    return [sys.executable, "-u", str(script)]
 
 # 중앙 로거 가져오기
 sys.path.append(str(CORTEX_DIR.parent))
@@ -230,9 +223,10 @@ def start():
 
         logger.info("Starting Unified Cortex Services...")
         
-        # 서브프로세스용 공통 환경변수 (자식 프로세스의 중복 파일 쓰기 강제 차단)
+        # 공통 환경변수 (자식 프로세스의 파일 로깅 중복 방지 및 즉시 출력 보장)
         sub_env = os.environ.copy()
-        sub_env["CORTEX_NO_FILE_LOG"] = "1"
+        # [Centralized Logging] 서버가 직접 파일을 관리하도록 허용
+        sub_env["PYTHONUNBUFFERED"] = "1"
 
         # 1. Engine Server 가동 (파이프 방식)
         logger.info("Launching GPU Engine Server...")
@@ -265,29 +259,7 @@ def start():
 
         logger.info("Engine Server is Ready (GPU Shared Mode).")
 
-        # 3. Watcher 가동 (파이프 방식)
-        logger.info("Launching Watcher Daemon...")
-        watcher_proc = subprocess.Popen(
-            _uv_cmd(WATCHER_SCRIPT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=sub_env,
-            start_new_session=True
-        )
-        threading.Thread(target=_relay_subprocess_output, args=(watcher_proc, "watcher"), daemon=True).start()
-
-        # 4. Local Daemon 가동 (파이프 방식)
-        if LOCAL_DAEMON_SCRIPT:
-            logger.info(f"Launching Local Daemon: {LOCAL_DAEMON_SCRIPT.name}...")
-            local_proc = subprocess.Popen(
-                _uv_cmd(LOCAL_DAEMON_SCRIPT),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=sub_env,
-                start_new_session=True
-            )
-            threading.Thread(target=_relay_subprocess_output, args=(local_proc, "local"), daemon=True).start()
-
+        logger.info("Engine Server is Ready (GPU Shared Mode).")
         logger.info("Cortex services started successfully.")
     finally:
         release_lock(lock_f)
