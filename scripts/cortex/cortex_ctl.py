@@ -11,6 +11,18 @@ import threading
 import re
 from pathlib import Path
 
+# [Safety Net] 가상 환경 실행 여부 검사
+def _check_venv():
+    """가상 환경(venv) 내부에서 실행 중인지 확인하여 시스템 파이썬 오용 방지"""
+    in_venv = hasattr(sys, 'real_prefix') or (sys.base_prefix != sys.prefix)
+    if not in_venv:
+        print("\n[ERROR] Cortex must be run within the virtual environment.")
+        print("💡 Hint: Use 'uv run python scripts/cortex/cortex_ctl.py' or activate .venv first.\n")
+        sys.exit(1)
+
+# 실행 시 최우선 검사
+_check_venv()
+
 import portalocker  # fcntl 대체 (Windows: msvcrt, Linux: fcntl 자동 선택)
 import psutil       # pgrep 대체 (크로스 플랫폼 프로세스 관리)
 
