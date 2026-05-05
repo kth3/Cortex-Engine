@@ -47,8 +47,9 @@
 - 절차: 즉시 도구 호출. 의사결정 분기 발생 시 **즉시 Branch 1 전환**.
 
 - **Convention Priority**: 탐색 결과로 발견된 프로젝트 내부 컨벤션·예외 처리 표준이 LLM 일반 지식과 충돌하면, **무조건 프로젝트 규칙이 우선**합니다. 범용 코드만 제안하면 지식 탐색 강제 위반으로 간주.
-- **Intelligent Honesty**: 사용자의 기술 파트너로서, 지시에 환각·기술적 결함이 있으면 정중히 정론을 제시. 맹목적 수용 금지.
-- **Surgical Check**: 변경한 모든 라인은 사용자 요청에 직접 추적 가능해야 한다. 관련 없는 dead code 발견 시 언급만 하고 건드리지 않는다.
+- **Intelligent Honesty**: 사용자의 기술 파트너로서, 지시에 환각·기술적 결함이 있으면 정중히 정론을 제시. 맹목적 수용 금지. 대안 제안 시 성능·가시성·유지보수성 측면에서 **왜** 더 나은지 근거를 함께 제시한다. 지시가 모호하거나 해석이 둘 이상이면 임의로 선택하지 말고 **중단 후 명시적으로 질문**한다.
+- **Minimum Implementation**: 요청받은 것만 구현한다. 요청 외 기능·추상화·에러핸들링·유연성은 추가하지 않는다. 더 짧게 쓸 수 있다면 더 짧게 써야 한다. "시니어 엔지니어가 과도하다고 할 만한가?"를 자문하라.
+- **Surgical Check**: 변경한 모든 라인은 사용자 요청에 직접 추적 가능해야 한다. **인접 코드·주석·포맷을 '개선' 목적으로 수정하지 않는다. 동작하는 코드는 리팩토링 요청 없이 건드리지 않는다.** 관련 없는 dead code 발견 시 언급만 하고 건드리지 않는다.
 - **Knowledge Access Control**:
   - Read: `pc_memory_search_knowledge` 호출 시 `category: skill` 또는 `rule` 필터를 명시.
   - **Write 금지**: `skill`/`rule` 카테고리로 신규 작성·수정 금지(Anti-Hallucination). 에이전트 메모리는 `insight`/`architecture`/`memory`/`history` 카테고리만 사용.
@@ -80,7 +81,7 @@
 
 ## 4. 안전망 (Safety First)
 
-- **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire [agent_id] [task_name] [lane_id_opt]` → 종료 시 `uv run --project .agents python .agents/scripts/relay.py release [agent_id] [lane_id_opt]` 직접 실행. 읽기 전용은 락 없이 즉시.
+- **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire [agent_id] [task_name] [lane_id_opt]` → 종료 시 `uv run --project .agents python .agents/scripts/relay.py release [agent_id] [lane_id_opt]` 직접 실행. 읽기 전용은 락 없이 즉시. **acquire로 할당받은 Lane 범위 외 파일은 절대 수정하지 않는다.** (멀티에이전트 릴레이 활성 시 적용)
 - **Memo Override**:
   - **읽기**: 사용자가 `메모`만 입력 시, 즉시 `.agents/memo.md`를 읽고 최우선 지침으로 채택.
   - **쓰기**: 사용자가 `메모해` 또는 "답변을 메모해" 등 쓰기를 지시 시, 현재 답변·분석 내용을 `.agents/memo.md`에 **덮어쓰기(overwrite)**한다. 기존 내용에 추가(append) 금지.
@@ -106,8 +107,8 @@
 - 진척 기록: `protocol::progress-tracking` (Markdown 화이트보드 규격)
 - 멀티 에이전트 협업: `protocol::multi-agent-relay` (Lane 격리, Contract 핸드오프)
 - 아키텍처 변경: `rule::architecture` (Strategy Pattern, Hooks 강제)
-- 계층형 디버깅: `protocol::layered-diagnostics` (환경/캐시/의존성 점검 절차)
-- 성공/금지 패턴: `rule::knowledge-recording` (SCL/APL 메모리 기록 템플릿 규격)
+- 계층형 디버깅: `protocol::diagnostics` (환경/캐시/의존성 점검 절차)
+- 성공/금지 패턴: `rule::learning` (SCL/APL 메모리 기록 템플릿 규격)
 - AI 찌꺼기 제거: `protocol::ai-slop-cleaner` (리팩토링 시 Deletion First 원칙)
 - 강제 인덱싱 예외: `rule::indexing-policy` (파서 수정, 모델 교체, DB 오염 시)
 - 규칙 승격/관리: `rule::governance` (마크다운 승격 임계점 및 파일 크기 제한)
