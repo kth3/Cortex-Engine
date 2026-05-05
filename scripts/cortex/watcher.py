@@ -5,30 +5,30 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# 프로젝트 루트 및 스크립트 경로 설정
+# [PATH SETUP] 프로젝트 루트 및 스크립트 경로 설정
 CORTEX_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = str(CORTEX_DIR.parent)
+
+import sys
+import os
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from cortex.logger import get_logger
-
-WORKSPACE = CORTEX_DIR.parent.parent.parent
 logger = get_logger("watcher")
+
+WORKSPACE = CORTEX_DIR.parent.parent.parent # .agents/scripts/cortex -> ... -> PROJECT_ROOT
 
 # ---------------------------------------------------------
 # Resident Engine Initialization
 # ---------------------------------------------------------
-indexer_path = Path(__file__).resolve().parent / "indexer.py"
-scripts_dir = str(indexer_path.parent.parent)
-if scripts_dir not in sys.path:
-    sys.path.insert(0, scripts_dir)
-
 import traceback
 try:
     from cortex import indexer as pc_indexer
     from cortex.vectorizer import detect_gpu
-except ImportError:
+except ImportError as e:
+    logger.error(f"Critical ImportError in Watcher: {e}")
+    traceback.print_exc()
     pc_indexer = None
     detect_gpu = lambda: "unknown"
 
