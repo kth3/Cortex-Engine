@@ -1,3 +1,4 @@
+import fnmatch
 import os
 import sys
 import time
@@ -54,8 +55,21 @@ class DebouncedIndexer(FileSystemEventHandler):
         self.changed_files = set()
         self.last_event_time = 0
         self._delete_cooldown = {}
+        from cortex.indexer_utils import load_settings
+        _settings = load_settings(str(WORKSPACE))
+        _rules = _settings.get("indexing_rules", {})
+        self._exclude_paths = [
+            p.replace('\\', '/').strip('/')
+            for p in _rules.get("exclude_paths", []) if p.strip()
+        ]
 
     def _is_valid_file(self, path_str):
+        path_str = path_str.replace('\\', '/')  # Windows 경로 구분자 정규화
+
+        for pattern in self._exclude_paths:
+            if fnmatch.fnmatch(path_str, pattern):
+                return False
+
         blacklist = [
             '.git', 'node_modules', '__pycache__', 'venv', '.venv',
             '.agents/data/', '.agents/history/', '.agents/artifacts/',
