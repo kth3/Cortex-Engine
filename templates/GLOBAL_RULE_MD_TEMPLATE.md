@@ -24,12 +24,23 @@
 - 특정 파일 1개 읽기 또는 내용 설명 — **오직 그 파일의 내용 자체만을 목적으로 할 때에 한함**
 - 언어·라이브러리 문법 질문 (프로젝트 맥락이 불필요한 경우에 한함)
 
-#### 직행 예외 적용 금지
-프로젝트 컨텍스트(파일 구조·명세·다중 파일 관계·이전 세션 작업)가 조금이라도 관여하면 이유 불문 **무조건 Branch 1**. 모델 자체의 "이미 파악했으므로 Cortex 생략 가능"이라는 판단이 개입하는 순간도 Branch 1 — 세션 내 기존 컨텍스트는 탐색 생략의 근거가 아니다. 모호하면 항상 Branch 1.
+#### 직행 예외 적용 금지 조건 — 아래 중 하나라도 해당하면 예외 없이 Branch 1
+다음 조건 중 **하나라도** 해당하면 직행 예외를 적용할 수 없다. 이유·근거 불문, **무조건 Branch 1**로 처리한다:
+1. 2개 이상의 파일을 비교하거나 교차 검증하는 경우
+2. 읽은 파일 내용을 다른 프로젝트 명세·구조·구현 상태와 대조하는 경우 (정합성·일치 여부 포함)
+3. 프로젝트 전체 구조·관계성·아키텍처에 대한 판단이 필요한 경우
+4. 이전 세션 또는 이전 턴의 맥락을 이어받아 복합 지시가 주어진 경우
+5. "이미 파악한 맥락이 있으므로 Cortex 탐색을 생략해도 된다"는 모델 자체의 판단이 조금이라도 개입하는 경우
+
+> **세션 내 기존 컨텍스트는 Cortex 탐색 생략의 근거가 아니다.** 복합 지시가 새로 주어지면 반드시 Cortex MCP를 재탐색한다.
+
+> 프로젝트 파일·구조·관계성·명세를 참조해야 답할 수 있는 질문은 모두 Branch 1.
+
+**직행 예외 판단이 모호하면 항상 Branch 1. 예외 적용 여부에 고민이 생긴 순간, 그것은 이미 Branch 1이다.**
 
 ### Branch 1 (기본 — 코드 수정·의사결정 포함 모든 작업)
 코드 수정·다중파일·리팩토링·아키텍처·이전 세션 맥락·MR 리뷰, 그리고 직행 예외에 명확히 해당하지 않는 모든 작업.
-- 절차: ① `cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
+- 절차: ① `uv run --project .agents python .agents/scripts/cortex/cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
 
 ### Branch 2 (직행 예외 해당 시에만)
 위 직행 예외 목록에 **명확히** 해당하는 경우에만 즉시 실행.
@@ -69,7 +80,7 @@
 
 ## 4. 안전망 (Safety First)
 
-- **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire` → 종료 시 `release [LANE_ID]` 직접 실행. 읽기 전용은 락 없이 즉시.
+- **Locking**: **쓰기 작업에 한해서만** `uv run --project .agents python .agents/scripts/relay.py acquire [agent_id] [task_name] [lane_id_opt]` → 종료 시 `uv run --project .agents python .agents/scripts/relay.py release [agent_id] [lane_id_opt]` 직접 실행. 읽기 전용은 락 없이 즉시.
 - **Memo Override**:
   - **읽기**: 사용자가 `메모`만 입력 시, 즉시 `.agents/memo.md`를 읽고 최우선 지침으로 채택.
   - **쓰기**: 사용자가 `메모해` 또는 "답변을 메모해" 등 쓰기를 지시 시, 현재 답변·분석 내용을 `.agents/memo.md`에 **덮어쓰기(overwrite)**한다. 기존 내용에 추가(append) 금지.
