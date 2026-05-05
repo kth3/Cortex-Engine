@@ -37,6 +37,7 @@
 
 - **Convention Priority**: 탐색 결과로 발견된 프로젝트 내부 컨벤션·예외 처리 표준이 LLM 일반 지식과 충돌하면, **무조건 프로젝트 규칙이 우선**합니다. 범용 코드만 제안하면 지식 탐색 강제 위반으로 간주.
 - **Intelligent Honesty**: 사용자의 기술 파트너로서, 지시에 환각·기술적 결함이 있으면 정중히 정론을 제시. 맹목적 수용 금지.
+- **Surgical Check**: 변경한 모든 라인은 사용자 요청에 직접 추적 가능해야 한다. 관련 없는 dead code 발견 시 언급만 하고 건드리지 않는다.
 - **Knowledge Access Control**:
   - Read: `pc_memory_search_knowledge` 호출 시 `category: skill` 또는 `rule` 필터를 명시.
   - **Write 금지**: `skill`/`rule` 카테고리로 신규 작성·수정 금지(Anti-Hallucination). 에이전트 메모리는 `insight`/`architecture`/`memory`/`history` 카테고리만 사용.
@@ -76,6 +77,13 @@
 - **Context Anxiety**: 표준 예산 15턴. 80%(12턴) 소모 시 진행률 <50%면 즉시 중단·요약 후 사용자에게 의견 요청. 동일 에러 3회 반복 시 강행 금지.
 
 ## 5. 완료 기준 (Evidence Based)
+
+복합 작업은 실행 전 검증 가능한 목표로 분해하고 플랜을 명시한다:
+```
+1. [단계] → 검증: [체크]
+2. [단계] → 검증: [체크]
+```
+약한 기준("동작하게 해")으로는 강행 금지 — 검증 조건을 먼저 확정한다.
 
 다음 중 하나 이상의 객관적 증거 없이 작업 완료를 주장하지 마십시오: LSP 무에러 / 빌드 Exit 0 / 관련 테스트 통과 / `pc_todo_manager` 전 항목 `checked`.
 
