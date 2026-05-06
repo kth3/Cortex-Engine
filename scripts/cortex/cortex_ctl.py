@@ -237,8 +237,9 @@ def start():
         
         # 공통 환경변수 (자식 프로세스의 파일 로깅 중복 방지 및 즉시 출력 보장)
         sub_env = os.environ.copy()
-        # [Centralized Logging] 서버가 직접 파일을 관리하도록 허용
+        # [Centralized Logging] ctl이 파이프로 로그를 수집하므로 자식은 파일을 직접 열지 않도록 강제
         sub_env["PYTHONUNBUFFERED"] = "1"
+        sub_env["CORTEX_NO_FILE_LOG"] = "1"
 
         # 1. Engine Server 가동 (파이프 방식)
         logger.info("Launching GPU Engine Server...")
