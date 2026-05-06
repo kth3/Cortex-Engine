@@ -164,7 +164,20 @@ def _perform_stop():
                 except psutil.NoSuchProcess:
                     pass
 
-    # TCP 소켓은 파일이 아니므로 별도 정리 불필요 (SO_REUSEADDR로 즉시 재사용 가능)
+    # [Failsafe A] get_pids()가 놓친 좀비 프로세스를 포트 점유 여부로 이중 확인
+    try:
+        for conn in psutil.net_connections(kind='tcp'):
+            if conn.laddr.port == ENGINE_PORT and conn.status == 'LISTEN' and conn.pid:
+                logger.warning(f"Port {ENGINE_PORT} still occupied by PID {conn.pid}. Force killing...")
+                try:
+                    p = psutil.Process(conn.pid)
+                    p.kill()
+                    p.wait(timeout=3)
+                except psutil.NoSuchProcess:
+                    pass
+    except Exception:
+        pass
+
     logger.info(f"IPC Endpoint: {ENGINE_HOST}:{ENGINE_PORT} (TCP — no file cleanup needed)")
 
     # [CLEANUP] 유령 로그 파일 삭제
@@ -251,6 +264,12 @@ def start():
             start_new_session=True
         )
         threading.Thread(target=_relay_subprocess_output, args=(server_proc, "server"), daemon=True).start()
+
+        # [Failsafe B] 프로세스 즉시 종료 감지 (포트 충돌·import 오류 등 조용한 실패 방지)
+        time.sleep(2)
+        if server_proc.poll() is not None:
+            logger.error(f"CRITICAL: Engine Server exited immediately (code={server_proc.returncode}). Port conflict or startup error.")
+            return
 
         # 2. 서버 대기 (TCP Ping 확인)
         logger.info("Waiting for Engine Server to initialize GPU...")
