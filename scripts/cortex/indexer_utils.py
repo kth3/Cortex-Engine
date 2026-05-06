@@ -111,8 +111,11 @@ DEFAULTS = {
     "rrf_k": 60,                   # RRF(Reciprocal Rank Fusion) K 파라미터
 }
 
+_TUNING_REPORT_LOGGED = False
 
-def get_tuning_params(workspace: str = None) -> dict:
+
+def get_tuning_params(workspace: str = None, silent: bool = False) -> dict:
+    global _TUNING_REPORT_LOGGED
     """프리셋 모드 + 하드웨어 프로필 + settings.yaml 오버라이드를 병합하여 반환.
 
     해석 우선순위:
