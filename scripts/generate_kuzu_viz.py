@@ -37,9 +37,9 @@ for etype in ["Imports", "Calls", "Defines", "Contains"]:
                 edges.append({"from": str(row[0]), "to": str(row[1]), "label": etype, "arrows": "to"})
     except: pass
 
-with open(html_path, "w") as f:
+with open(html_path, "w", encoding="utf-8") as f:
     f.write(f'''<!DOCTYPE html><html><head>
-    <script src="./vis-network.min.js"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>body{{margin:0;background:#1a1a1a;color:#fff}}#nw{{width:100vw;height:100vh}}</style></head>
     <body><div id="nw"></div><script>
     var tk = {{nodes: new vis.DataSet({json.dumps(nodes)}), edges: new vis.DataSet({json.dumps(edges)})}};
