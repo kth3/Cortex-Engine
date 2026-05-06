@@ -236,10 +236,10 @@ def ensure_worker_running():
                     pass
             threading.Thread(target=_relay_worker_output, args=(worker_process,), daemon=True).start()
 
-            # 워커 소켓이 열릴 때까지 최대 20초 폴링 (Cold Start 대기)
+            # 워커 소켓이 열릴 때까지 최대 120초 폴링 (Windows 환경 PyTorch 로딩 지연 고려)
             start_time = time.time()
             worker_up = False
-            while time.time() - start_time < 20.0:
+            while time.time() - start_time < 120.0:
                 # 프로세스가 먼저 종료됐으면 즉시 실패 처리
                 exit_code = worker_process.poll()
                 if exit_code is not None:
