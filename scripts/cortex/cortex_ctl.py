@@ -149,11 +149,11 @@ def _perform_stop():
     # SIGTERM 발송 후 실제 종료 확인 (최대 10초)
     # 종료 확인 없이 즉시 재시작하면 구 프로세스가 VRAM을 점유한 채로 신 프로세스가 뜨는 중복 점유 발생
     if all_pids:
-        deadline = time.time() + 10
+        # [Root Cause Fix] 공유 예산(10초/N개) → PID별 개별 5초 타임아웃
+        # 이전 구조: 6개 PID가 10초 예산을 나눠 써서 후순위 PID가 사실상 0.1초만 받음
         for pid in all_pids:
-            remaining = max(0.1, deadline - time.time())
             try:
-                psutil.Process(pid).wait(timeout=remaining)
+                psutil.Process(pid).wait(timeout=5)
                 logger.info(f"PID {pid} terminated.")
             except psutil.NoSuchProcess:
                 pass
@@ -161,14 +161,19 @@ def _perform_stop():
                 logger.warning(f"PID {pid} did not terminate in time. Force killing...")
                 try:
                     psutil.Process(pid).kill()
-                except psutil.NoSuchProcess:
+                    psutil.Process(pid).wait(timeout=3)
+                except (psutil.NoSuchProcess, psutil.TimeoutExpired):
                     pass
+        # CUDA 드라이버 리소스 해제 안정화 대기 (강제 종료 직후 신규 프로세스 CUDA 충돌 방지)
+        time.sleep(2)
 
     # [Failsafe A] get_pids()가 놓친 좀비 프로세스를 포트 점유 여부로 이중 확인
+    # LISTEN뿐 아니라 CLOSE_WAIT/ESTABLISHED 상태도 포함 (비LISTEN 좀비 탈출 방지)
     try:
         TARGET_PORTS = [ENGINE_PORT, 42385]
         for conn in psutil.net_connections(kind='tcp'):
-            if conn.laddr.port in TARGET_PORTS and conn.status == 'LISTEN' and conn.pid:
+            if conn.laddr.port in TARGET_PORTS and conn.pid and conn.pid != os.getpid() \
+                    and conn.status in ('LISTEN', 'CLOSE_WAIT', 'ESTABLISHED'):
                 logger.warning(f"Port {conn.laddr.port} still occupied by PID {conn.pid}. Force killing...")
                 try:
                     p = psutil.Process(conn.pid)
@@ -279,6 +284,10 @@ def start():
         max_retries = 35
         ready = False
         while retry < max_retries:
+            # 재시도 루프 중 서버 프로세스 사망 감지 (Failsafe B가 놓친 지연 크래시 포착)
+            if server_proc.poll() is not None:
+                logger.error(f"CRITICAL: Engine Server crashed during startup (code={server_proc.returncode}).")
+                return
             if _send_minimal_ping():
                 ready = True
                 break

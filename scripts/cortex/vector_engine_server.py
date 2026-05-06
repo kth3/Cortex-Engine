@@ -79,24 +79,25 @@ def send_msg(sock, msg):
 # 1. 워커(Worker) 모드 (PyTorch 및 모델 로드 전담)
 # ==========================================
 def run_worker():
-    import torch
-    current_device = "cpu"
-    if torch.cuda.is_available():
-        current_device = "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        current_device = "mps"
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        current_device = "xpu"
-
     model = None
     model_load_error = None
+    current_device = "cpu"
 
     def _load_model_bg():
-        nonlocal model, model_load_error
+        nonlocal model, model_load_error, current_device
         try:
-            from vector_engine import _load_model
+            # [Root Cause Fix] torch import + CUDA 감지를 배경 스레드에서 실행
+            # → 좀비 프로세스가 CUDA 컨텍스트를 점유 중이어도 소켓 바인딩은 즉시 완료됨
+            # → ensure_worker_running()의 120초 블록 방지
+            import torch
+            if torch.cuda.is_available():
+                current_device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                current_device = "mps"
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                current_device = "xpu"
             logger.info(f"[Worker] Background model loading started on {current_device}...")
-            # 실제 모델 로딩 수행 (시간이 걸리는 작업)
+            from vector_engine import _load_model
             model = _load_model(device=current_device)
             logger.info(f"[Worker] Model loading complete. Engine Ready on {current_device}.")
         except Exception as e:
@@ -104,15 +105,13 @@ def run_worker():
             model_load_error = str(e)
             logger.error(f"[Worker] Background loading failed: {e}\n{traceback.format_exc()}")
 
-    # [Root Cause Fix] 모델 로딩 전에 소켓 서버부터 바인딩 및 리슨 시작
-    # 이를 통해 라우터가 즉시 연결(Connect)에 성공하여 'Worker failed to start within timeout'을 방지함
+    # 소켓 바인딩을 torch import보다 먼저 실행 → 라우터가 즉시 연결 확인 가능
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((WORKER_HOST, WORKER_PORT))
     server.listen(5)
     logger.info(f"[Worker] Server listening on {WORKER_PORT}. Initializing model in background...")
 
-    # 백그라운드 로딩 스레드 시작
     threading.Thread(target=_load_model_bg, daemon=True).start()
 
     try:
@@ -236,10 +235,10 @@ def ensure_worker_running():
                     pass
             threading.Thread(target=_relay_worker_output, args=(worker_process,), daemon=True).start()
 
-            # 워커 소켓이 열릴 때까지 최대 120초 폴링 (Windows 환경 PyTorch 로딩 지연 고려)
+            # 워커 소켓이 열릴 때까지 최대 30초 폴링 (소켓 바인딩은 torch import 전에 완료됨)
             start_time = time.time()
             worker_up = False
-            while time.time() - start_time < 120.0:
+            while time.time() - start_time < 30.0:
                 # 프로세스가 먼저 종료됐으면 즉시 실패 처리
                 exit_code = worker_process.poll()
                 if exit_code is not None:
