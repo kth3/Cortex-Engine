@@ -166,16 +166,18 @@ def _perform_stop():
 
     # [Failsafe A] get_pids()가 놓친 좀비 프로세스를 포트 점유 여부로 이중 확인
     try:
+        TARGET_PORTS = [ENGINE_PORT, 42385]
         for conn in psutil.net_connections(kind='tcp'):
-            if conn.laddr.port == ENGINE_PORT and conn.status == 'LISTEN' and conn.pid:
-                logger.warning(f"Port {ENGINE_PORT} still occupied by PID {conn.pid}. Force killing...")
+            if conn.laddr.port in TARGET_PORTS and conn.status == 'LISTEN' and conn.pid:
+                logger.warning(f"Port {conn.laddr.port} still occupied by PID {conn.pid}. Force killing...")
                 try:
                     p = psutil.Process(conn.pid)
                     p.kill()
                     p.wait(timeout=3)
-                except psutil.NoSuchProcess:
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Port cleanup exception (non-critical): {e}")
         pass
 
     logger.info(f"IPC Endpoint: {ENGINE_HOST}:{ENGINE_PORT} (TCP — no file cleanup needed)")
