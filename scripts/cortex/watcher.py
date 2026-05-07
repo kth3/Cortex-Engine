@@ -103,6 +103,9 @@ class DebouncedIndexer(FileSystemEventHandler):
         if event.is_directory:
             return
         self.handle_event(event.src_path)
+        # FileMovedEvent: dest_path(이동 후 경로)도 큐에 추가
+        if hasattr(event, 'dest_path') and event.dest_path:
+            self.handle_event(event.dest_path)
 
     def handle_event(self, src_path):
         rel_path = os.path.relpath(src_path, str(WORKSPACE))
