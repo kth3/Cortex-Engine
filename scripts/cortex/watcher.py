@@ -157,12 +157,12 @@ class DebouncedIndexer(FileSystemEventHandler):
             except Exception as e:
                 logger.error(f"     [ERROR] {f}: {str(e)}")
 
-        if indexed:
-            logger.info(f"Debounce triggered. {len(indexed)} indexed, {skipped_count} skipped.")
-            for status, f, chunks, elapsed in indexed:
-                logger.info(f"     [{status}] {f} ({chunks} chunks, {elapsed:.1f}ms)")
-            logger.info("✅ [ALL UPDATES SYNCED] Batch complete.")
-            logger.info("================================================")
+        # 인덱싱 대상 유무와 무관하게 항상 배치 결과를 출력
+        logger.info(f"Debounce triggered. {len(indexed)} indexed, {skipped_count} skipped.")
+        for status, f, chunks, elapsed in indexed:
+            logger.info(f"     [{status}] {f} ({chunks} chunks, {elapsed:.1f}ms)")
+        logger.info("✅ [ALL UPDATES SYNCED] Batch complete.")
+        logger.info("================================================")
 
 from dotenv import load_dotenv
 
