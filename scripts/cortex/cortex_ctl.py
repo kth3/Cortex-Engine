@@ -156,16 +156,37 @@ def _perform_stop():
                 psutil.Process(pid).wait(timeout=5)
                 logger.info(f"PID {pid} terminated.")
             except psutil.NoSuchProcess:
-                pass
+                logger.info(f"PID {pid} already gone.")
             except psutil.TimeoutExpired:
                 logger.warning(f"PID {pid} did not terminate in time. Force killing...")
                 try:
                     psutil.Process(pid).kill()
                     psutil.Process(pid).wait(timeout=3)
-                except (psutil.NoSuchProcess, psutil.TimeoutExpired):
-                    pass
+                    logger.info(f"PID {pid} force killed.")
+                except psutil.NoSuchProcess:
+                    logger.info(f"PID {pid} already gone after kill.")
+                except psutil.TimeoutExpired:
+                    logger.error(f"PID {pid} could not be killed. Port may still be occupied.")
         # CUDA 드라이버 리소스 해제 안정화 대기 (강제 종료 직후 신규 프로세스 CUDA 충돌 방지)
         time.sleep(2)
+
+        # [Root Cause Fix] 포트 해제까지 추가 대기 (TCP TIME_WAIT 대응)
+        # kill 후에도 OS 소켓이 TIME_WAIT 상태로 포트를 점유할 수 있어 새 바인딩이 실패함
+        TARGET_PORTS = [ENGINE_PORT, 42385]
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            occupied = []
+            try:
+                for conn in psutil.net_connections(kind='tcp'):
+                    if conn.laddr.port in TARGET_PORTS and conn.status in ('LISTEN', 'CLOSE_WAIT', 'ESTABLISHED', 'TIME_WAIT'):
+                        if conn.pid and conn.pid != os.getpid():
+                            occupied.append((conn.laddr.port, conn.pid, conn.status))
+            except Exception:
+                pass
+            if not occupied:
+                break
+            logger.warning(f"포트 아직 점유 중: {occupied}. 재확인 대기...")
+            time.sleep(1.0)
 
     # [Failsafe A] get_pids()가 놓친 좀비 프로세스를 포트 점유 여부로 이중 확인
     # LISTEN뿐 아니라 CLOSE_WAIT/ESTABLISHED 상태도 포함 (비LISTEN 좀비 탈출 방지)
