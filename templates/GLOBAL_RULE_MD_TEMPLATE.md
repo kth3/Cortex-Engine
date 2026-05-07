@@ -101,7 +101,13 @@
 
 **Anti-Patterns**: "수정했습니다"+증거 미제시 / 에러 회피용 테스트 삭제 / `as any`·`@ts-ignore` 남발.
 
-## 6. 외부 참조 포인터 (Pointers)
+## 6. 진단 행동 원칙 (Diagnosis)
+
+- 증상 발생 시: "왜"보다 상태(프로세스 생사·포트·락 점유)를 먼저 측정한다.
+- 살아있는 프로세스의 무응답: 출력 경로 문제보다 Blocking(무엇을 기다리는가)을 먼저 추적한다.
+- 다중 객체 버그: 개별 내부보다 상호작용 경계(누가 누구를 기다리는가)를 먼저 확인한다.
+
+## 7. 외부 참조 포인터 (Pointers)
 
 - 복잡 구현·리팩토링: `protocol::ultrawork` (5단계 PLAN→IMPL→VERIFY→REFINE→SHIP)
 - 진척 기록: `protocol::progress-tracking` (Markdown 화이트보드 규격)
