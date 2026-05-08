@@ -57,6 +57,10 @@ def batch_vectorize_nodes(conn, items_by_prefix: dict, use_gpu: bool,
             continue
         # 동일 FQN 노드 중복 제거 (마지막 항목 우선)
         deduped = list({item["id"]: item for item in items}.values())
+        
+        file_list = list({item.get("meta", {}).get("file", "unknown") for item in deduped})
+        log.info("Embedding %d nodes from files: %s", len(deduped), ", ".join(file_list)[:200])
+        
         for i in tqdm(range(0, len(deduped), batch_size), desc=f"Nodes [{prefix}]", unit="batch"):
             batch = deduped[i:i + batch_size]
             texts = [item["text"] for item in batch]
@@ -125,6 +129,10 @@ def batch_vectorize_memories(conn, use_gpu: bool, workspace: str = None):
     counter = 0
     for i in tqdm(range(0, len(memory_vector_items), batch_size), desc="Memories", unit="batch"):
         batch = memory_vector_items[i:i + batch_size]
+        
+        key_list = [item["id"] for item in batch]
+        log.info("Embedding %d memories: %s", len(batch), ", ".join(key_list)[:200])
+        
         # 하드웨어 프로필에 따라 동적으로 텍스트 길이 제한
         texts = [item["text"][:max_chars] for item in batch]
         embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
