@@ -276,22 +276,23 @@ def start():
 
         logger.info("Starting Unified Cortex Services...")
         
-        # 공통 환경변수 (자식 프로세스의 파일 로깅 중복 방지 및 즉시 출력 보장)
+        # 공통 환경변수
         sub_env = os.environ.copy()
-        # [Centralized Logging] ctl이 파이프로 로그를 수집하므로 자식은 파일을 직접 열지 않도록 강제
+        # [Centralized Logging] 서버 프로세스가 메인 데몬으로서 파일에 직접 기록
+        if "CORTEX_NO_FILE_LOG" in sub_env:
+            del sub_env["CORTEX_NO_FILE_LOG"]
         sub_env["PYTHONUNBUFFERED"] = "1"
-        sub_env["CORTEX_NO_FILE_LOG"] = "1"
 
-        # 1. Engine Server 가동 (파이프 방식)
+        # 1. Engine Server 가동 (백그라운드 독립)
         logger.info("Launching GPU Engine Server...")
         server_proc = subprocess.Popen(
             _uv_cmd(SERVER_SCRIPT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             env=sub_env,
             start_new_session=True
         )
-        threading.Thread(target=_relay_subprocess_output, args=(server_proc, "server"), daemon=True).start()
+
 
         # [Failsafe B] 프로세스 즉시 종료 감지 (포트 충돌·import 오류 등 조용한 실패 방지)
         # Router가 포트 bind 재시도(최대 20초)를 수용하도록 5초 대기
