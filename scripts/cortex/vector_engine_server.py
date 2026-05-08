@@ -432,8 +432,23 @@ def run_router():
     # IDLE 감시 스레드 시작
     monitor_thread = threading.Thread(target=idle_monitor, daemon=True)
     monitor_thread.start()
-    
-    server = ThreadedTCPServer((ROUTER_HOST, ROUTER_PORT), RouterHandler)
+
+    # [Root Cause Fix] Windows에서 SO_REUSEADDR가 TIME_WAIT를 완전히 해제하지 못함.
+    # 포트 bind 실패 시 최대 20초간 재시도하여 OS가 소켓을 반환할 때까지 대기.
+    bind_deadline = time.time() + 20.0
+    server = None
+    while time.time() < bind_deadline:
+        try:
+            server = ThreadedTCPServer((ROUTER_HOST, ROUTER_PORT), RouterHandler)
+            break
+        except OSError as e:
+            remaining = bind_deadline - time.time()
+            if remaining <= 0:
+                logger.error(f"[Router] Failed to bind {ROUTER_HOST}:{ROUTER_PORT} after 20s: {e}")
+                raise
+            logger.warning(f"[Router] Port {ROUTER_PORT} not yet released ({e}). Retrying ({remaining:.0f}s left)...")
+            time.sleep(0.5)
+
     logger.info(f"[Router] Listening on {ROUTER_HOST}:{ROUTER_PORT}")
     try:
         server.serve_forever()

@@ -294,7 +294,8 @@ def start():
         threading.Thread(target=_relay_subprocess_output, args=(server_proc, "server"), daemon=True).start()
 
         # [Failsafe B] 프로세스 즉시 종료 감지 (포트 충돌·import 오류 등 조용한 실패 방지)
-        time.sleep(2)
+        # Router가 포트 bind 재시도(최대 20초)를 수용하도록 5초 대기
+        time.sleep(5)
         if server_proc.poll() is not None:
             logger.error(f"CRITICAL: Engine Server exited immediately (code={server_proc.returncode}). Port conflict or startup error.")
             return
