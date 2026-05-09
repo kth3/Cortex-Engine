@@ -145,6 +145,26 @@ def _create_history_tables(conn: sqlite3.Connection):
         new_snippet     TEXT,
         detected_at     INTEGER NOT NULL
     );
+
+    -- v2: Cortex MCP 편집 이벤트 로그 적재용 시계열 테이블
+    CREATE TABLE IF NOT EXISTS file_edit_events (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path     TEXT NOT NULL,
+        before_hash   TEXT NOT NULL,
+        after_hash    TEXT NOT NULL,
+        line_range    TEXT,
+        tool_name     TEXT,
+        event_sources TEXT NOT NULL,
+        session_id    TEXT NOT NULL,
+        edit_summary  TEXT,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        UNIQUE(file_path, before_hash, after_hash, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fee_path_updated
+        ON file_edit_events(file_path, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_fee_session_updated
+        ON file_edit_events(session_id, updated_at DESC);
     """)
 
 def _create_memory_tables(conn: sqlite3.Connection):
@@ -317,10 +337,15 @@ def init_schema(conn: sqlite3.Connection):
     # 초기화 및 마이그레이션
     _apply_migrations(conn)
     
-    # 메타 정보 초기화
+    # 메타 정보 초기화 + 버전 갱신
+    # v1 → v2: file_edit_events 테이블 추가 (Cortex MCP 편집 이벤트 로그)
     conn.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)",
-        ("schema_version", "1")
+        ("schema_version", "2")
+    )
+    conn.execute(
+        "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?",
+        ("2", "2")
     )
     conn.commit()
 

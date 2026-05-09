@@ -35,7 +35,7 @@ from cortex import hooks_manager as pc_hooks
 from cortex.persistent_memory import PersistentMemoryManager
 from cortex.skill_manager import SkillManager
 from cortex.orchestrator import manage_todo, create_contract
-from cortex.edit_engine import read_with_hash, strict_replace
+from cortex.edit_engine import read_with_hash, strict_replace, record_edit_event
 from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
 
@@ -82,13 +82,53 @@ def call_todo_manager(args):
     return manage_todo(WORKSPACE, args["action"], args.get("task"), args.get("task_id"))
 
 def call_strict_replace(args):
-    res = strict_replace(WORKSPACE, args["file_path"], args["old_content"], args["new_content"])
+    file_path = args["file_path"]
+    try:
+        full_path_obj = (Path(WORKSPACE) / file_path).resolve()
+        full_path_obj.relative_to(Path(WORKSPACE).resolve())
+        full_path = str(full_path_obj)
+    except Exception as e:
+        return {"error": f"File path validation failed before edit: {e}"}
+
+    before_content = None
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            before_content = f.read()
+    except Exception as e:
+        return {"error": f"File read before edit failed: {e}"}
+
+    res = strict_replace(WORKSPACE, file_path, args["old_content"], args["new_content"])
     if "success" in res:
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                after_content = f.read()
+            conn = pc_db.get_connection(WORKSPACE)
+            try:
+                pc_db.init_schema(conn)
+                record_edit_event(
+                    conn,
+                    workspace=WORKSPACE,
+                    file_path=file_path,
+                    before_content=before_content,
+                    after_content=after_content,
+                    session_id=SESSION_ID,
+                    event_source="cortex_mcp",
+                    tool_name="pc_strict_replace",
+                    edit_summary=f"Strict edit: {file_path}",
+                )
+            finally:
+                conn.close()
+        except Exception as e:
+            # 편집은 이미 디스크에 반영된 뒤이므로, 감사/관측용 DB 기록 실패를 편집 실패로
+            # 되돌리면 실제 상태와 응답이 어긋난다. success는 유지하고 별도 필드로 노출해
+            # 운영자가 로깅 경로 문제만 분리해서 추적할 수 있게 한다.
+            res["event_log_error"] = str(e)
+
         # [Lifecycle Hook] After Edit Hook 실행
-        hook_feedback = pc_hooks.dispatch(WORKSPACE, "after_edit", os.path.join(WORKSPACE, args["file_path"]))
+        hook_feedback = pc_hooks.dispatch(WORKSPACE, "after_edit", os.path.join(WORKSPACE, file_path))
         if hook_feedback: res["hook_feedback"] = hook_feedback
         
-        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "edit", f"Strict edit: {args['file_path']}", [args['file_path']])
+        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "edit", f"Strict edit: {file_path}", [file_path])
         
         # [Lifecycle Hook] After Save Observation (자동 추출)
         pc_hooks.dispatch(WORKSPACE, "after_save_observation")
@@ -144,31 +184,53 @@ def call_pc_memory_write(args):
     return {"success": ok, "key": key, "auto_promoted_to": target_file}
 
 def call_pc_memory_consolidate(args):
+    """파편 메모리 병합. dry_run 기본 True — 사용자 승인 없는 자동 삭제 방지."""
     new_key = args["new_key"]
     category = args["category"]
     content = args["content"]
     old_keys = args["old_keys"]
-    st = get_storage()
-    deleted_count = st.delete_many("default", old_keys)
-    data = {
+    dry_run = args.get("dry_run", True)
+
+    would_delete = list(old_keys)
+    would_write = {
         "key": new_key,
         "category": category,
         "content": content,
         "tags": args.get("tags", []),
         "relationships": args.get("relationships", {}),
     }
-    ok = st.write("default", data)
     target_file = None
     if category in ["decision", "architecture"]:
         target_file = "decisions.md"
     elif category in ["pattern", "convention", "rule"]:
         target_file = "patterns.md"
+
+    if dry_run:
+        return {
+            "executed": False,
+            "would_delete": would_delete,
+            "would_write": would_write,
+            "auto_promoted_to": target_file,
+            "note": "dry_run=true (default). 실제 병합·삭제 없음. 실행하려면 dry_run=false 명시.",
+        }
+
+    st = get_storage()
+    deleted_count = st.delete_many("default", old_keys)
+    ok = st.write("default", would_write)
     if target_file and ok:
         import datetime
         now_str = datetime.datetime.now().strftime("%Y-%m-%d")
         log_line = f"\n### [{now_str}] {new_key} (Consolidated from {len(old_keys)} items)\n- **Category**: {category}\n- **Content**: {content}\n"
         _append_markdown_with_archive(target_file, log_line)
-    return {"success": ok, "consolidated_key": new_key, "deleted_old_fragments": deleted_count, "auto_promoted_to": target_file}
+    return {
+        "executed": True,
+        "success": ok,
+        "consolidated_key": new_key,
+        "deleted_old_fragments": deleted_count,
+        "auto_promoted_to": target_file,
+        "would_delete": would_delete,
+        "would_write": would_write,
+    }
 
 def call_pc_session_sync(args):
     import re
@@ -265,31 +327,53 @@ def call_pc_memory_write(args):
     return {"success": ok, "key": key, "auto_promoted_to": target_file}
 
 def call_pc_memory_consolidate(args):
+    """파편 메모리 병합. dry_run 기본 True — 사용자 승인 없는 자동 삭제 방지."""
     new_key = args["new_key"]
     category = args["category"]
     content = args["content"]
     old_keys = args["old_keys"]
-    st = get_storage()
-    deleted_count = st.delete_many("default", old_keys)
-    data = {
+    dry_run = args.get("dry_run", True)
+
+    would_delete = list(old_keys)
+    would_write = {
         "key": new_key,
         "category": category,
         "content": content,
         "tags": args.get("tags", []),
         "relationships": args.get("relationships", {}),
     }
-    ok = st.write("default", data)
     target_file = None
     if category in ["decision", "architecture"]:
         target_file = "decisions.md"
     elif category in ["pattern", "convention", "rule"]:
         target_file = "patterns.md"
+
+    if dry_run:
+        return {
+            "executed": False,
+            "would_delete": would_delete,
+            "would_write": would_write,
+            "auto_promoted_to": target_file,
+            "note": "dry_run=true (default). 실제 병합·삭제 없음. 실행하려면 dry_run=false 명시.",
+        }
+
+    st = get_storage()
+    deleted_count = st.delete_many("default", old_keys)
+    ok = st.write("default", would_write)
     if target_file and ok:
         import datetime
         now_str = datetime.datetime.now().strftime("%Y-%m-%d")
         log_line = f"\n### [{now_str}] {new_key} (Consolidated from {len(old_keys)} items)\n- **Category**: {category}\n- **Content**: {content}\n"
         _append_markdown_with_archive(target_file, log_line)
-    return {"success": ok, "consolidated_key": new_key, "deleted_old_fragments": deleted_count, "auto_promoted_to": target_file}
+    return {
+        "executed": True,
+        "success": ok,
+        "consolidated_key": new_key,
+        "deleted_old_fragments": deleted_count,
+        "auto_promoted_to": target_file,
+        "would_delete": would_delete,
+        "would_write": would_write,
+    }
 
 def call_pc_session_sync(args):
     import re
@@ -350,7 +434,8 @@ def call_pc_session_sync(args):
 def call_pc_impact_graph(args):
     fqn = args["fqn"]
     direction = args.get("direction", "both")
-    max_depth = args.get("max_depth", 3)
+    max_depth = args.get("max_depth", 2)
+    max_nodes = args.get("max_nodes", 50)
     conn = pc_db.get_connection(WORKSPACE)
     try:
         node = pc_db.get_node_by_fqn(conn, fqn)
@@ -359,30 +444,44 @@ def call_pc_impact_graph(args):
         visited = set()
         queue = [(node, 0)]
         impact_nodes = {node["id"]: node}
+        total_seen = 1   # 발견된 모든 후보 노드 수 (limit 초과 포함)
+        truncated = False
         while queue:
             curr, depth = queue.pop(0)
             if depth >= max_depth or curr["id"] in visited:
                 continue
             visited.add(curr["id"])
+            neighbors = []
             if direction in ["callers", "both"]:
-                callers = pc_db.get_callers(conn, curr["id"])
-                for caller in callers:
-                    if caller["id"] not in impact_nodes:
-                        impact_nodes[caller["id"]] = caller
-                        queue.append((caller, depth + 1))
+                neighbors.extend(pc_db.get_callers(conn, curr["id"]))
             if direction in ["callees", "both"]:
-                callees = pc_db.get_callees(conn, curr["id"])
-                for callee in callees:
-                    if callee["id"] not in impact_nodes:
-                        impact_nodes[callee["id"]] = callee
-                        queue.append((callee, depth + 1))
-        return {"fqn": fqn, "impact_nodes": [n["fqn"] for n in impact_nodes.values()]}
+                neighbors.extend(pc_db.get_callees(conn, curr["id"]))
+            for nb in neighbors:
+                if nb["id"] in impact_nodes:
+                    continue
+                total_seen += 1
+                if len(impact_nodes) >= max_nodes:
+                    truncated = True
+                    continue
+                impact_nodes[nb["id"]] = nb
+                queue.append((nb, depth + 1))
+        returned = [n["fqn"] for n in impact_nodes.values()]
+        return {
+            "fqn": fqn,
+            "impact_nodes": returned,
+            "truncated": truncated,
+            "limit": max_nodes,
+            "returned_count": len(returned),
+            "total_seen": total_seen,
+        }
     finally:
         conn.close()
 
 def call_pc_logic_flow(args):
     from_fqn = args["from_fqn"]
     to_fqn = args["to_fqn"]
+    max_depth = args.get("max_depth", 6)
+    max_nodes = args.get("max_nodes", 200)
     conn = pc_db.get_connection(WORKSPACE)
     try:
         start_node = pc_db.get_node_by_fqn(conn, from_fqn)
@@ -391,18 +490,41 @@ def call_pc_logic_flow(args):
             return {"error": "Start or end symbol not found."}
         queue = [[start_node["id"]]]
         visited = set()
+        total_seen = 1
+        truncated = False
         while queue:
             path = queue.pop(0)
             curr = path[-1]
             if curr == end_node["id"]:
                 path_nodes = [pc_db.get_node_by_id(conn, pid) for pid in path]
-                return {"path": [n["fqn"] for n in path_nodes]}
-            if curr not in visited:
-                visited.add(curr)
-                callees = pc_db.get_callees(conn, curr)
-                for callee in callees:
-                    queue.append(path + [callee["id"]])
-        return {"path": []}
+                returned = [n["fqn"] for n in path_nodes]
+                return {
+                    "path": returned,
+                    "truncated": False,
+                    "limit": max_nodes,
+                    "returned_count": len(returned),
+                    "total_seen": total_seen,
+                }
+            if len(path) - 1 >= max_depth:
+                truncated = True
+                continue
+            if curr in visited:
+                continue
+            visited.add(curr)
+            if len(visited) >= max_nodes:
+                truncated = True
+                continue
+            callees = pc_db.get_callees(conn, curr)
+            for callee in callees:
+                total_seen += 1
+                queue.append(path + [callee["id"]])
+        return {
+            "path": [],
+            "truncated": truncated,
+            "limit": max_nodes,
+            "returned_count": 0,
+            "total_seen": total_seen,
+        }
     finally:
         conn.close()
 
@@ -413,12 +535,67 @@ def call_pc_git_log(args):
     except Exception as e:
         return {"error": str(e)}
 
+def call_pc_capsule(args):
+    """pc_capsule 통합 진입점. auto_chain=true 시 기존 pc_auto_explore 부수효과 보존.
+
+    부수효과 (auto_chain=true 한정):
+      1. capsule 길이 < 1500 chars 시 impact_graph + memory 자동 체이닝
+      2. save_observation에 'Auto-explored: <query>' 기록
+    auto_chain=false (기본) 시: 단순 capsule 생성 + chars/tokens 메타만.
+    """
+    query = args["query"]
+    auto_chain = args.get("auto_chain", False)
+    token_budget = args.get("token_budget", 4000)
+
+    capsule_str = pc_capsule_mod.generate_context_capsule(WORKSPACE, query, token_budget=token_budget)
+    chars = len(capsule_str)
+    result = {
+        "capsule": capsule_str,
+        "chars_used": chars,
+        "tokens_estimated": chars // 4,
+        "token_budget": token_budget,
+    }
+
+    if not auto_chain:
+        return result
+
+    # auto_chain=true 부수효과 — pc_auto_explore에서 인라인화
+    if chars < 1500:
+        result["reasoning"] = f"Generated capsule was relatively short ({chars} chars). Autonomously chaining impact graph and memories..."
+        conn = pc_db.get_connection(WORKSPACE)
+        try:
+            first_match = pc_db.search_nodes_fts(conn, query, limit=1)
+            if first_match:
+                impact = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
+                result["chained_impact"] = impact.get("impact_nodes", [])[:10]
+        finally:
+            conn.close()
+
+        if hasattr(pc_mem_mod, "search_memory"):
+            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
+            result["chained_memories"] = mem
+    else:
+        result["reasoning"] = f"Generated capsule is robust ({chars} chars). No further chaining required."
+
+    try:
+        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {query}", [])
+    except Exception:
+        pass  # observation 기록 실패가 capsule 응답을 차단해서는 안 됨
+
+    return result
+
+
 def call_pc_run_pipeline(args):
     query = args["query"]
+    limit = args.get("limit", 5)
     try:
-        # 1. 통합 교차 검색 수행
-        unified = unified_pipeline_search(WORKSPACE, query, limit=5, ve_module=ve)
-        
+        # 1. 통합 교차 검색 수행 (limit + 1로 truncated 추정)
+        probe_limit = limit + 1
+        unified_full = unified_pipeline_search(WORKSPACE, query, limit=probe_limit, ve_module=ve)
+        truncated = len(unified_full) > limit
+        unified = unified_full[:limit]
+        total_seen = len(unified_full)
+
         # 2. 코드 도메인 1위 항목 FQN 추출 및 Impact Graph 스킵 처리
         code_results = [r for r in unified if r["domain"] == "code"]
         impact = []
@@ -427,14 +604,18 @@ def call_pc_run_pipeline(args):
             if fqn:
                 impact_res = call_pc_impact_graph({"fqn": fqn, "direction": "both", "max_depth": 2})
                 impact = impact_res.get("impact_nodes", [])[:10]
-        
+
         # 3. 보완용 상세 코드 캡슐 생성 (Option B)
         capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
-        
+
         return {
             "unified_context": unified,
             "capsule": capsule,
-            "impact_summary": impact
+            "impact_summary": impact,
+            "truncated": truncated,
+            "limit": limit,
+            "returned_count": len(unified),
+            "total_seen": total_seen,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -504,45 +685,19 @@ def call_pc_auto_context(args):
     finally:
         conn.close()
 
-def call_pc_auto_explore(args):
-    query = args["query"]
-    token_budget = args.get("token_budget", 15000)
-    # pc_capsule_mod uses token_budget conditionally or might not have it, let's pass securely
-    capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
-    result = {"capsule": capsule}
-    if len(capsule) < 1500:
-        result["reasoning"] = f"Generated capsule was relatively short ({len(capsule)} chars). Autonomously chaining impact graph and memories..."
-        conn = pc_db.get_connection(WORKSPACE)
-        try:
-            first_match = pc_db.search_nodes_fts(conn, query, limit=1)
-            if first_match:
-                impact = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
-                result["chained_impact"] = impact.get("impact_nodes", [])[:10]
-        finally:
-            conn.close()
-        
-        if hasattr(pc_mem_mod, "search_memory"):
-            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
-            result["chained_memories"] = mem
-    else:
-        result["reasoning"] = f"Generated capsule is robust ({len(capsule)} chars). No further chaining required."
-    pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {query}", [])
-    return result
-
 # ==============================================================================
 # TOOL REGISTRY
 # ==============================================================================
 
 TOOLS = [
-    {"name": "pc_reindex", "description": "인덱싱 실행", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean"}}}},
+    {"name": "pc_reindex", "description": "⚠️ DESTRUCTIVE — 인덱스 전체 재구성. 일상 워크플로에서는 watcher 기반 증분 인덱싱이 자동 동작하므로 호출 불필요. 파서 수정·DB 오염·스키마 마이그레이션 같은 명시적 사유가 있을 때만 사용. force=true는 file_cache 전체 무효화 + 모든 파일 재파싱·재임베딩(GPU 비용) 발생.", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean", "description": "⚠️ destructive. 호출 시 사유(파서 수정/DB 오염 등)를 명시할 것"}}}},
     {"name": "pc_index_status", "description": "인덱스 상태", "inputSchema": {"type": "object"}},
-    {"name": "pc_capsule", "description": "1순위 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "pc_capsule", "description": "1순위 검색. token_budget는 chars/4 추정 기반(정확한 토크나이저 아님). auto_chain=true 시 짧은 capsule 감지 후 impact_graph+memory 자동 체이닝 + observation 기록 (구 pc_auto_explore 흡수). 응답에 chars_used/tokens_estimated 포함.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "token_budget": {"type": "integer", "description": "토큰 예산 (approximate via chars/4)", "default": 4000}, "auto_chain": {"type": "boolean", "description": "짧은 capsule 시 자동 체이닝 활성화", "default": False}}, "required": ["query"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
-    {"name": "pc_auto_explore", "description": "AI 내재화 자율 탐색기. 캡슐 텍스트 길이를 판별해 필요 시 추가 도구를 스크립트가 알아서 체이닝합니다.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "검색 쿼리"}, "token_budget": {"type": "integer", "description": "토큰 제한", "default": 15000}}, "required": ["query"]}},
-    {"name": "pc_impact_graph", "description": "영향 범위 추적.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 3}}, "required": ["fqn"]}},
-    {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}}, "required": ["from_fqn", "to_fqn"]}},
+    {"name": "pc_impact_graph", "description": "영향 범위 추적. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 2}, "max_nodes": {"type": "integer", "description": "최대 반환 노드 수", "default": 50}}, "required": ["fqn"]}},
+    {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}, "max_depth": {"type": "integer", "description": "경로 최대 깊이", "default": 6}, "max_nodes": {"type": "integer", "description": "탐색 최대 노드 수", "default": 200}}, "required": ["from_fqn", "to_fqn"]}},
     {"name": "pc_git_log", "description": "특정 파일의 상세 Git 수정 이력 조회.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "limit": {"type": "integer", "description": "최대 로그 수", "default": 5}}, "required": ["file_path"]}},
-    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}}, "required": ["query"]}},
+    {"name": "pc_run_pipeline", "description": "캡슐+임팩트+메모리 통합 검색 (고급 종합 탐색 진입점). 코드+그래프+메모리 종합 맥락이 필요한 경우 사용. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "통합 검색 쿼리"}, "limit": {"type": "integer", "description": "unified_context 항목 수 제한", "default": 5}}, "required": ["query"]}},
     {"name": "pc_auto_context", "description": "세션 시작 시 최신 결정사항과 인기 지식을 요약하여 제공 (맥락 복원).", "inputSchema": {"type": "object", "properties": {"token_budget": {"type": "integer", "description": "토큰 예산", "default": 2000}}}},
     {"name": "pc_read_with_hash", "description": "해시 포함 읽기", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}},
     {"name": "pc_strict_replace", "description": "정밀 편집", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_content": {"type": "string"}, "new_content": {"type": "string"}}, "required": ["file_path", "old_content", "new_content"]}},
@@ -550,7 +705,7 @@ TOOLS = [
     {"name": "pc_todo_manager", "description": "Todo 관리", "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "description": "add | check | clear"}, "task": {"type": "string", "description": "add 시 등록할 태스크 내용"}, "task_id": {"type": "string", "description": "check 시 완료 표시할 태스크 ID"}}, "required": ["action"]}},
     {"name": "pc_session_sync", "description": "작업 종료 시 Git 상태와 변경 파일을 스캔하여 세션 메모리를 자동 동기화합니다.", "inputSchema": {"type": "object", "properties": {"task_desc": {"type": "string", "description": "작업 요약"}}, "required": ["task_desc"]}},
     {"name": "pc_memory_write", "description": "지식 저장 및 마크다운 승격(decisions/patterns.md)", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["key", "category", "content"]}},
-    {"name": "pc_memory_consolidate", "description": "파편화된 과거 지식을 하나의 새로운 규칙으로 병합.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}}, "required": ["new_key", "category", "content", "old_keys"]}},
+    {"name": "pc_memory_consolidate", "description": "파편화된 과거 지식을 하나의 새로운 규칙으로 병합. dry_run=true 기본 — 후보만 반환(would_delete/would_write/executed=false). 실행하려면 dry_run=false 명시. 자동 트리거 금지.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}, "dry_run": {"type": "boolean", "description": "기본 true. false 명시 시에만 실제 삭제·병합 수행", "default": True}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "지식 조회", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_save_observation", "description": "인사이트 저장", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}},
     {"name": "pc_memory_search_knowledge", "description": "영구 지식, 규칙 및 스킬 하이브리드 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}, "required": ["query"]}},
@@ -582,9 +737,8 @@ def handle_request(req):
             if n == "pc_reindex": r = pc_indexer.index_workspace(WORKSPACE, force=a.get("force", False))
             elif n == "pc_index_status": 
                 conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
-            elif n == "pc_capsule": r = pc_capsule_mod.generate_context_capsule(WORKSPACE, a["query"])
+            elif n == "pc_capsule": r = call_pc_capsule(a)
             elif n == "pc_skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
-            elif n == "pc_auto_explore": r = call_pc_auto_explore(a)
             elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
             elif n == "pc_logic_flow": r = call_pc_logic_flow(a)
             elif n == "pc_git_log": r = call_pc_git_log(a)
