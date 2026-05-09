@@ -93,7 +93,10 @@ class DebouncedIndexer(FileSystemEventHandler):
             return False
 
         if '.agents/' in path_str:
-            return any(x in path_str for x in ['/rules/', '/knowledge/', '/skills/', '/docs/'])
+            return any(x in path_str for x in [
+                '/rules/', '/knowledge/', '/skills/', '/docs/',
+                '/scripts/',  # cortex 엔진 자체 + cortex_mcp.py/relay.py 메타개발 지원
+            ])
 
         allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json', '.pdf', '.cs', '.asset', '.prefab', '.meta', '.inputsettings']
         return any(path_str.endswith(ext) for ext in allowed_exts)
@@ -178,10 +181,16 @@ def main():
     print_ready_banner()
 
     observer.start()
+    last_heartbeat = 0
+    HEARTBEAT_INTERVAL = 60
     try:
         while True:
             time.sleep(1)
             event_handler.process_queue()
+            now = time.time()
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                logger.info(f"[heartbeat] Watcher alive. Queue: {len(event_handler.changed_files)} pending.")
+                last_heartbeat = now
     except KeyboardInterrupt:
         observer.stop()
     observer.join()

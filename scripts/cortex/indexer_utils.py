@@ -396,5 +396,15 @@ def scan_files(workspace: str, supported_extensions: dict) -> list:
         if os.path.exists(abs_doc_dir):
             for path in Path(abs_doc_dir).rglob("*.md"):
                 files.append(os.path.relpath(str(path), workspace))
-                        
+
+    # Cortex 엔진 및 운영 스크립트 강제 포함 (메타개발 지원)
+    # 대상: .agents/scripts/cortex/**/*.py + cortex_mcp.py, relay.py 등 직속 스크립트
+    cortex_scripts_dir = os.path.join(workspace, ".agents", "scripts")
+    if os.path.exists(cortex_scripts_dir):
+        for path in Path(cortex_scripts_dir).rglob("*.py"):
+            spath = str(path)
+            if any(x in spath for x in ["__pycache__", ".venv", "site-packages"]):
+                continue
+            files.append(os.path.relpath(spath, workspace))
+
     return sorted(list(set(files)))
