@@ -146,8 +146,12 @@ def run_worker():
                             del model
                         import gc
                         gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
+                        try:
+                            import torch
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        except ImportError:
+                            pass
                     except Exception as e:
                         logger.error(f"[Worker] Cleanup error: {e}")
                     
@@ -310,7 +314,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 class RouterHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        global last_activity_time
+        global last_activity_time, worker_process
         
         request = recv_msg(self.request)
         if not request:
@@ -321,30 +325,26 @@ class RouterHandler(socketserver.BaseRequestHandler):
         # [Strict Fix] 핑 요청을 라우터가 직접 응답하지 않고 워커까지 확인하도록 수정
         # (라우터만 떠 있고 워커가 로딩 중일 때 'Ready'로 오판하는 문제 방지)
         if cmd == "ping":
-            # 워커가 실행 중인지 확인 (미실행 시 기동 시도)
-            try:
-                worker_ready = ensure_worker_running()
-            except Exception as e:
-                logger.error(f"[Router] ensure_worker_running() raised exception: {e}")
-                send_msg(self.request, {"status": "error", "message": f"Worker startup exception: {e}"})
-                return
-            if not worker_ready:
-                send_msg(self.request, {"status": "error", "message": "Worker process not started"})
+            # 워커 생사 확인 (lock 범위 최소화)
+            with worker_lock:
+                worker_alive = worker_process is not None and worker_process.poll() is None
+            if not worker_alive:
+                # 비차단: 기동은 백그라운드에 위임하고 즉시 LOADING 반환
+                threading.Thread(target=ensure_worker_running, daemon=True).start()
+                send_msg(self.request, {"status": "loading", "message": "Worker is being started"})
                 return
 
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(2.0)
+                s.settimeout(1.5)
                 s.connect((WORKER_HOST, WORKER_PORT))
                 send_msg(s, {"command": "ping"})
                 response = recv_msg(s)
                 s.close()
-                if response and response.get("status") == "ok":
-                    send_msg(self.request, {"status": "ok", "message": "Cortex Engine (Router+Worker) is fully Ready"})
-                else:
-                    send_msg(self.request, {"status": "error", "message": "Worker is up but not responding to ping"})
+                # Worker의 ok/loading/error 응답을 의미 손실 없이 그대로 전달
+                send_msg(self.request, response or {"status": "error", "message": "Empty response from worker"})
             except Exception as e:
-                send_msg(self.request, {"status": "error", "message": f"Worker communication failed: {e}"})
+                send_msg(self.request, {"status": "loading", "message": f"Worker not yet listening: {e}"})
             return
             
         # 실제 작업 요청일 때만 타이머 리셋
@@ -377,7 +377,6 @@ class RouterHandler(socketserver.BaseRequestHandler):
                     logger.warning(f"[Router] Forwarding to worker failed: {e}. Attempt {attempt+1}/2.")
                     
                     # 워커가 크래시 났다고 간주하고 프로세스 정리
-                    global worker_process
                     with worker_lock:
                         if worker_process is not None:
                             if worker_process.poll() is None:
@@ -394,16 +393,33 @@ class RouterHandler(socketserver.BaseRequestHandler):
 LOG_CLEAN_PATTERN = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[.*?\] \[.*?\]\s*")
 
 def _relay_subprocess_output(proc, tag):
-    """서브프로세스의 stdout/stderr를 부모 로거로 전달 (중복 타임스탬프 제거) 및 실시간 스트리밍"""
-    try:
-        for line in iter(proc.stdout.readline, b""):
-            # [Inception Guard] 이미 타임스탬프가 있는 경우 제거하여 중복 방지
-            decoded_line = line.decode("utf-8", errors="replace").strip()
-            if decoded_line:
-                clean_line = LOG_CLEAN_PATTERN.sub('', decoded_line)
-                logger.info(f"[{tag}] {clean_line}")
-    except Exception:
-        pass
+    """서브프로세스의 stdout/stderr를 부모 로거로 전달 + 생사 감시 (watchdog)"""
+    last_msg_time = [time.time()]
+
+    def _reader():
+        try:
+            for line in iter(proc.stdout.readline, b""):
+                decoded_line = line.decode("utf-8", errors="replace").strip()
+                if decoded_line:
+                    last_msg_time[0] = time.time()
+                    clean_line = LOG_CLEAN_PATTERN.sub('', decoded_line)
+                    logger.info(f"[{tag}] {clean_line}")
+        except Exception:
+            pass
+
+    def _watchdog():
+        WATCHDOG_TIMEOUT = 90  # heartbeat(60s)보다 여유 있게
+        while True:
+            time.sleep(15)
+            if proc.poll() is not None:
+                logger.error(f"[{tag}] Subprocess exited with code {proc.returncode}.")
+                return
+            if time.time() - last_msg_time[0] > WATCHDOG_TIMEOUT:
+                logger.warning(f"[{tag}] No output for {WATCHDOG_TIMEOUT}s. Possible deadlock.")
+                last_msg_time[0] = time.time()
+
+    threading.Thread(target=_reader, daemon=True).start()
+    threading.Thread(target=_watchdog, daemon=True).start()
 
 def main():
     # 1. Watcher 기동

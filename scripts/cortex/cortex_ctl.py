@@ -69,8 +69,8 @@ if env_path.exists():
     except Exception:
         pass
 
-def _send_minimal_ping() -> bool:
-    """엔진 서버에 최소한의 핑을 보내 살아있는지 확인 (TCP)"""
+def _send_minimal_ping_status() -> str:
+    """엔진 서버 ping 후 status 문자열 반환: 'ok' | 'loading' | 'error' | 'unreachable'"""
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(2.0)
@@ -79,26 +79,35 @@ def _send_minimal_ping() -> bool:
         client.sendall(struct.pack("!I", len(data)) + data)
         header = client.recv(4)
         if not header:
-            return False
+            return "unreachable"
         size = struct.unpack("!I", header)[0]
         resp = client.recv(size).decode("utf-8")
-        return json.loads(resp).get("status") == "ok"
+        return json.loads(resp).get("status", "error")
     except Exception:
-        return False
+        return "unreachable"
     finally:
         try:
             client.close()
         except Exception:
             pass
 
+def _send_minimal_ping() -> bool:
+    """호환성 wrapper — 기존 start() 재시도 루프에서 사용."""
+    return _send_minimal_ping_status() == "ok"
+
 def get_pids(script_name: str):
-    """psutil로 크로스 플랫폼 프로세스 탐색 (pgrep -f 대체)"""
+    """절대경로 토큰 정확 매칭으로 false positive 차단 (pgrep -f 대체)"""
+    target = os.path.normcase(os.path.abspath(script_name))
     result = []
     for proc in psutil.process_iter(['pid', 'cmdline']):
         try:
-            cmdline = " ".join(proc.info['cmdline'] or [])
-            if script_name in cmdline:
-                result.append(proc.info['pid'])
+            for tok in (proc.info['cmdline'] or []):
+                try:
+                    if os.path.normcase(os.path.abspath(tok)) == target:
+                        result.append(proc.info['pid'])
+                        break
+                except (ValueError, OSError):
+                    continue
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return result
@@ -332,17 +341,20 @@ def start():
 def status():
     server_pids = get_pids(str(SERVER_SCRIPT))
     watcher_pids = get_pids(str(WATCHER_SCRIPT))
-    ping_ok = _send_minimal_ping()
+    ping_status = _send_minimal_ping_status()
+
+    label = {"ok": "[READY]", "loading": "[LOADING]", "error": "[ERROR]"}.get(ping_status, "[UNREACHABLE]")
 
     print("\n--- Cortex Status Report (Resident Mode) ---")
-    print(f"Engine Server : {'RUNNING' if server_pids else 'STOPPED'} (PIDs: {server_pids}) {'[READY]' if ping_ok else '[LOADING/ERROR]'}")
+    print(f"Engine Server : {'RUNNING' if server_pids else 'STOPPED'} (PIDs: {server_pids}) {label}")
     print(f"Watcher Daemon: {'RUNNING' if watcher_pids else 'STOPPED'} (PIDs: {watcher_pids})")
 
     if LOCAL_DAEMON_SCRIPT:
         local_pids = get_pids(str(LOCAL_DAEMON_SCRIPT))
         print(f"Local Daemon  : {'RUNNING' if local_pids else 'STOPPED'} (PIDs: {local_pids}) [{LOCAL_DAEMON_SCRIPT.name}]")
 
-    print(f"IPC Endpoint  : {'[OK]' if ping_ok else '[UNREACHABLE]'} {ENGINE_HOST}:{ENGINE_PORT} (TCP)")
+    ipc_ok = ping_status in ("ok", "loading")
+    print(f"IPC Endpoint  : {'[OK]' if ipc_ok else '[UNREACHABLE]'} {ENGINE_HOST}:{ENGINE_PORT} (TCP)")
     print(f"Log Path      : {LOG_DIR}/cortex.log")
     print("--------------------------------------------\n")
 
