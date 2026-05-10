@@ -56,6 +56,13 @@ from cortex.mcp.tools.indexing import (
     call_pc_index_roots_add,
     call_pc_index_roots_remove,
 )
+from cortex.mcp.tools.search import (
+    call_pc_capsule,
+    call_pc_skeleton,
+    call_pc_impact_graph,
+    call_pc_logic_flow,
+    call_pc_run_pipeline,
+)
 
 CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
 
@@ -435,194 +442,7 @@ def call_pc_session_sync(args):
             pass
     return {"success": ok, "key": key, "extracted_relationships": relationships, "markdown_synced": True}
 
-def call_pc_impact_graph(args):
-    fqn = args["fqn"]
-    direction = args.get("direction", "both")
-    max_depth = args.get("max_depth", 2)
-    max_nodes = args.get("max_nodes", 50)
-    conn = pc_db.get_connection(WORKSPACE)
-    try:
-        node = pc_db.get_node_by_fqn(conn, fqn)
-        if not node:
-            return {"error": f"Symbol not found: {fqn}"}
-        visited = set()
-        queue = [(node, 0)]
-        impact_nodes = {node["id"]: node}
-        total_seen = 1   # 발견된 모든 후보 노드 수 (limit 초과 포함)
-        truncated = False
-        while queue:
-            curr, depth = queue.pop(0)
-            if depth >= max_depth or curr["id"] in visited:
-                continue
-            visited.add(curr["id"])
-            neighbors = []
-            if direction in ["callers", "both"]:
-                neighbors.extend(pc_db.get_callers(conn, curr["id"]))
-            if direction in ["callees", "both"]:
-                neighbors.extend(pc_db.get_callees(conn, curr["id"]))
-            for nb in neighbors:
-                if nb["id"] in impact_nodes:
-                    continue
-                total_seen += 1
-                if len(impact_nodes) >= max_nodes:
-                    truncated = True
-                    continue
-                impact_nodes[nb["id"]] = nb
-                queue.append((nb, depth + 1))
-        returned = [n["fqn"] for n in impact_nodes.values()]
-        return {
-            "fqn": fqn,
-            "impact_nodes": returned,
-            "truncated": truncated,
-            "limit": max_nodes,
-            "returned_count": len(returned),
-            "total_seen": total_seen,
-        }
-    finally:
-        conn.close()
 
-def call_pc_logic_flow(args):
-    from_fqn = args["from_fqn"]
-    to_fqn = args["to_fqn"]
-    max_depth = args.get("max_depth", 6)
-    max_nodes = args.get("max_nodes", 200)
-    conn = pc_db.get_connection(WORKSPACE)
-    try:
-        start_node = pc_db.get_node_by_fqn(conn, from_fqn)
-        end_node = pc_db.get_node_by_fqn(conn, to_fqn)
-        if not start_node or not end_node:
-            return {"error": "Start or end symbol not found."}
-        queue = [[start_node["id"]]]
-        visited = set()
-        total_seen = 1
-        truncated = False
-        while queue:
-            path = queue.pop(0)
-            curr = path[-1]
-            if curr == end_node["id"]:
-                path_nodes = [pc_db.get_node_by_id(conn, pid) for pid in path]
-                returned = [n["fqn"] for n in path_nodes]
-                return {
-                    "path": returned,
-                    "truncated": False,
-                    "limit": max_nodes,
-                    "returned_count": len(returned),
-                    "total_seen": total_seen,
-                }
-            if len(path) - 1 >= max_depth:
-                truncated = True
-                continue
-            if curr in visited:
-                continue
-            visited.add(curr)
-            if len(visited) >= max_nodes:
-                truncated = True
-                continue
-            callees = pc_db.get_callees(conn, curr)
-            for callee in callees:
-                total_seen += 1
-                queue.append(path + [callee["id"]])
-        return {
-            "path": [],
-            "truncated": truncated,
-            "limit": max_nodes,
-            "returned_count": 0,
-            "total_seen": total_seen,
-        }
-    finally:
-        conn.close()
-
-def call_pc_git_log(args):
-    try:
-        history = pc_git_mod.get_file_history(WORKSPACE, args["file_path"], args.get("limit", 5))
-        return history
-    except Exception as e:
-        return {"error": str(e)}
-
-def call_pc_capsule(args):
-    """pc_capsule 통합 진입점. auto_chain=true 시 통합 탐색 부수효과를 함께 수행한다.
-
-    부수효과 (auto_chain=true 한정):
-      1. capsule 길이 < 1500 chars 시 impact_graph + memory 자동 체이닝
-      2. save_observation에 'Auto-explored: <query>' 기록
-    auto_chain=false (기본) 시: 단순 capsule 생성 + chars/tokens 메타만.
-    """
-    query = args["query"]
-    auto_chain = args.get("auto_chain", False)
-    token_budget = args.get("token_budget", 4000)
-
-    capsule_str = pc_capsule_mod.generate_context_capsule(WORKSPACE, query, token_budget=token_budget)
-    chars = len(capsule_str)
-    result = {
-        "capsule": capsule_str,
-        "chars_used": chars,
-        "tokens_estimated": chars // 4,
-        "token_budget": token_budget,
-    }
-
-    if not auto_chain:
-        return result
-
-    # auto_chain=true 부수효과 — 통합 탐색 흐름 인라인 처리
-    if chars < 1500:
-        result["reasoning"] = f"Generated capsule was relatively short ({chars} chars). Autonomously chaining impact graph and memories..."
-        conn = pc_db.get_connection(WORKSPACE)
-        try:
-            first_match = pc_db.search_nodes_fts(conn, query, limit=1)
-            if first_match:
-                impact = call_pc_impact_graph({"fqn": first_match[0]["fqn"], "direction": "both", "max_depth": 2})
-                result["chained_impact"] = impact.get("impact_nodes", [])[:10]
-        finally:
-            conn.close()
-
-        if hasattr(pc_mem_mod, "search_memory"):
-            mem = pc_mem_mod.search_memory(WORKSPACE, query, limit=3)
-            result["chained_memories"] = mem
-    else:
-        result["reasoning"] = f"Generated capsule is robust ({chars} chars). No further chaining required."
-
-    try:
-        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "insight", f"Auto-explored: {query}", [])
-    except Exception:
-        pass  # observation 기록 실패가 capsule 응답을 차단해서는 안 됨
-
-    return result
-
-
-def call_pc_run_pipeline(args):
-    query = args["query"]
-    limit = args.get("limit", 5)
-    try:
-        # 1. 통합 교차 검색 수행 (limit + 1로 truncated 추정)
-        probe_limit = limit + 1
-        unified_full = unified_pipeline_search(WORKSPACE, query, limit=probe_limit, ve_module=ve)
-        truncated = len(unified_full) > limit
-        unified = unified_full[:limit]
-        total_seen = len(unified_full)
-
-        # 2. 코드 도메인 1위 항목 FQN 추출 및 Impact Graph 스킵 처리
-        code_results = [r for r in unified if r["domain"] == "code"]
-        impact = []
-        if code_results:
-            fqn = code_results[0].get("key")
-            if fqn:
-                impact_res = call_pc_impact_graph({"fqn": fqn, "direction": "both", "max_depth": 2})
-                impact = impact_res.get("impact_nodes", [])[:10]
-
-        # 3. 보완용 상세 코드 캡슐 생성 (Option B)
-        capsule = pc_capsule_mod.generate_context_capsule(WORKSPACE, query)
-
-        return {
-            "unified_context": unified,
-            "capsule": capsule,
-            "impact_summary": impact,
-            "truncated": truncated,
-            "limit": limit,
-            "returned_count": len(unified),
-            "total_seen": total_seen,
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 def call_pc_auto_context(args):
     token_budget = args.get("token_budget", 2000)
@@ -722,12 +542,12 @@ def handle_request(req):
             elif n == "pc_index_roots_list": r = call_pc_index_roots_list(CTX, a)
             elif n == "pc_index_roots_add": r = call_pc_index_roots_add(CTX, a)
             elif n == "pc_index_roots_remove": r = call_pc_index_roots_remove(CTX, a)
-            elif n == "pc_capsule": r = call_pc_capsule(a)
-            elif n == "pc_skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
-            elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
-            elif n == "pc_logic_flow": r = call_pc_logic_flow(a)
+            elif n == "pc_capsule": r = call_pc_capsule(CTX, a)
+            elif n == "pc_skeleton": r = call_pc_skeleton(CTX, a)
+            elif n == "pc_impact_graph": r = call_pc_impact_graph(CTX, a)
+            elif n == "pc_logic_flow": r = call_pc_logic_flow(CTX, a)
             elif n == "pc_git_log": r = call_pc_git_log(a)
-            elif n == "pc_run_pipeline": r = call_pc_run_pipeline(a)
+            elif n == "pc_run_pipeline": r = call_pc_run_pipeline(CTX, a)
             elif n == "pc_auto_context": r = call_pc_auto_context(a)
             elif n == "pc_read_with_hash": r = read_with_hash(WORKSPACE, a["file_path"])
             elif n == "pc_strict_replace": r = call_strict_replace(a)
