@@ -29,7 +29,6 @@ from cortex import indexer as pc_indexer
 from cortex import capsule as pc_capsule_mod
 from cortex import graph_db as pc_graph_db
 from cortex import skeleton as pc_skeleton_mod
-from cortex import git_analyzer as pc_git_mod
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks
 from cortex.persistent_memory import PersistentMemoryManager
@@ -66,6 +65,7 @@ from cortex.mcp.tools.edit import (
     call_pc_read_with_hash,
     call_strict_replace,
 )
+from cortex.mcp.tools.git import call_pc_git_log
 
 CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
 
@@ -394,12 +394,7 @@ def call_pc_session_sync(args):
 
 
 
-def call_pc_git_log(args):
-    try:
-        history = pc_git_mod.get_file_history(WORKSPACE, args["file_path"], args.get("limit", 5))
-        return history
-    except Exception as e:
-        return {"error": str(e)}
+
 
 def call_pc_auto_context(args):
     token_budget = args.get("token_budget", 2000)
@@ -503,7 +498,7 @@ def handle_request(req):
             elif n == "pc_skeleton": r = call_pc_skeleton(CTX, a)
             elif n == "pc_impact_graph": r = call_pc_impact_graph(CTX, a)
             elif n == "pc_logic_flow": r = call_pc_logic_flow(CTX, a)
-            elif n == "pc_git_log": r = call_pc_git_log(a)
+            elif n == "pc_git_log": r = call_pc_git_log(CTX, a)
             elif n == "pc_run_pipeline": r = call_pc_run_pipeline(CTX, a)
             elif n == "pc_auto_context": r = call_pc_auto_context(a)
             elif n == "pc_read_with_hash": r = call_pc_read_with_hash(CTX, a)
