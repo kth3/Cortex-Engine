@@ -71,11 +71,13 @@ jobs:
                   py_compile.compile(str(path), doraise=True)
           PY
 
-      - name: Run Focused Regression Tests
+      - name: Run Comprehensive Regression Tests
         run: |
-          # 운영 DB를 건드리지 않는 격리형 회귀 테스트
+          # Cortex 핵심 기능 회귀 테스트
           uv run python scripts/cortex/tests/test_file_edit_events.py
           uv run python scripts/cortex/tests/test_path_index_roots.py
+          uv run python scripts/cortex/tests/test_mcp_smoke.py
+          uv run python scripts/cortex/tests/test_concurrency.py
 
       - name: Test Core Indexing & Embedding Engine
         run: |
