@@ -8,8 +8,6 @@ import json
 import traceback
 import os
 import uuid
-import subprocess
-import shlex
 from pathlib import Path
 import threading
 import time
@@ -141,51 +139,6 @@ def handle_request(req):
             elif n == "pc_memory_read": r = call_pc_memory_read(CTX, a)
             elif n == "pc_save_observation": r = call_save_observation(CTX, a)
             elif n == "pc_memory_search_knowledge": r = call_pc_memory_search_knowledge(CTX, a)
-            elif n == "pc_run_background_task":
-                cmd = a["command"]
-                lid = a["lane_id"]
-                tname = a["task_name"]
-                relay_script = SCRIPTS_DIR / "relay.py"
-
-                # Fix #5: relay acquire
-                acq_result = subprocess.run(
-                    [sys.executable, str(relay_script), "acquire", SESSION_ID, tname, lid],
-                    capture_output=True, text=True
-                )
-                if acq_result.returncode != 0:
-                    r = {"status": "error", "reason": f"relay acquire failed: {acq_result.stdout.strip()}"}
-                else:
-                    # Fix #5: shlex.quote 적용 및 release 인자 순서 정상화
-                    # relay.py release [aid] [lid] [hto] [msg] [cid]
-                    release_cmd = " ".join([
-                        shlex.quote(sys.executable),
-                        shlex.quote(str(relay_script)),
-                        "release",
-                        shlex.quote(SESSION_ID),
-                        shlex.quote(lid),
-                        "''", # handoff_to
-                        "''", # message
-                        "''"  # contract_id
-                    ])
-                    wrapped_cmd = f"( {cmd} ); {release_cmd}"
-                    # Fix: PIPE 버퍼(64KB) 초과 → 프로세스 Hang → 좀비 락 연쇄 문제 해결
-                    # stdout/stderr를 로그 파일로 리디렉션하여 버퍼 막힘을 원천 차단
-                    # (PIPE는 읽지 않으면 64KB에서 블로킹 → 백그라운드 Hang → 락 반환 불가)
-                    import datetime as _dt
-                    _log_dir = pc_paths.history_dir(WORKSPACE)
-                    _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    _log_path = _log_dir / f"task_{lid}_{_ts}.log"
-                    with open(_log_path, "w", encoding="utf-8") as _log_fh:
-                        proc = subprocess.Popen(
-                            wrapped_cmd,
-                            shell=True,
-                            stdout=_log_fh,
-                            stderr=_log_fh,
-                            start_new_session=True,
-                        )
-                    r = {"status": "started", "pid": proc.pid, "lane": lid,
-                         "log": f".agents/history/task_{lid}_{_ts}.log",
-                         "note": "relay lock will be auto-released on completion"}
             else: return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": f"Unknown tool: {n}"}}
             
             return create_text_response(rid, r, hook_msg)

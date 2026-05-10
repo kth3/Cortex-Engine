@@ -20,8 +20,7 @@ TOOLS = [
     {"name": "pc_memory_consolidate", "description": "파편화된 과거 지식을 하나의 새로운 규칙으로 병합. dry_run=true 기본 — 후보만 반환(would_delete/would_write/executed=false). 실행하려면 dry_run=false 명시. 자동 트리거 금지.", "inputSchema": {"type": "object", "properties": {"new_key": {"type": "string"}, "category": {"type": "string"}, "content": {"type": "string"}, "old_keys": {"type": "array", "items": {"type": "string"}}, "tags": {"type": "array", "items": {"type": "string"}}, "relationships": {"type": "object"}, "dry_run": {"type": "boolean", "description": "기본 true. false 명시 시에만 실제 삭제·병합 수행", "default": True}}, "required": ["new_key", "category", "content", "old_keys"]}},
     {"name": "pc_memory_read", "description": "지식 조회", "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}},
     {"name": "pc_save_observation", "description": "인사이트 저장", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}},
-    {"name": "pc_memory_search_knowledge", "description": "영구 지식, 규칙 및 스킬 하이브리드 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}, "required": ["query"]}},
-    {"name": "pc_run_background_task", "description": "백그라운드 태스크 실행", "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "lane_id": {"type": "string"}, "task_name": {"type": "string"}}, "required": ["command", "lane_id", "task_name"]}}
+    {"name": "pc_memory_search_knowledge", "description": "영구 지식, 규칙 및 스킬 하이브리드 검색", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}, "required": ["query"]}}
 ]
 
 def list_tools():
