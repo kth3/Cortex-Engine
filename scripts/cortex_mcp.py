@@ -31,7 +31,6 @@ from cortex import graph_db as pc_graph_db
 from cortex import skeleton as pc_skeleton_mod
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks
-from cortex.persistent_memory import PersistentMemoryManager
 from cortex.skill_manager import SkillManager
 from cortex.orchestrator import manage_todo, create_contract
 from cortex.search_engine import unified_pipeline_search
@@ -66,17 +65,23 @@ from cortex.mcp.tools.edit import (
     call_strict_replace,
 )
 from cortex.mcp.tools.git import call_pc_git_log
+from cortex.mcp.tools.memory import (
+    call_save_observation,
+    call_pc_memory_write,
+    call_pc_memory_consolidate,
+    call_pc_memory_read,
+    call_pc_memory_search_knowledge,
+)
+from cortex.mcp.tools.session import (
+    call_pc_auto_context,
+    call_pc_session_sync,
+)
 
 CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
 
 # 싱글톤 인스턴스
 _storage = None
 _skills = None
-
-def get_storage():
-    global _storage
-    if _storage is None: _storage = PersistentMemoryManager(WORKSPACE)
-    return _storage
 
 def get_skills():
     global _skills
@@ -97,222 +102,7 @@ def call_create_contract(args):
     pc_hooks.dispatch(WORKSPACE, "after_save_observation")
     return res
 
-def call_save_observation(args):
-    res = pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, args.get("obs_type", "insight"), args["content"], args.get("file_paths", []))
-    pc_hooks.dispatch(WORKSPACE, "after_save_observation")
-    return res
 
-def _append_markdown_with_archive(target_filename, content):
-    import datetime
-    import shutil
-    md_path = str(pc_paths.history_dir(WORKSPACE) / target_filename)
-    if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
-        archive_dir = str(pc_paths.history_dir(WORKSPACE) / "archive")
-        os.makedirs(archive_dir, exist_ok=True)
-        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        name_part, ext = os.path.splitext(target_filename)
-        archive_path = os.path.join(archive_dir, f"{name_part}_{now_str}{ext}")
-        shutil.move(md_path, archive_path)
-    with open(md_path, "a", encoding="utf-8") as f:
-        f.write(content)
-
-def call_pc_memory_write(args):
-    key = args["key"]
-    category = args["category"]
-    content = args["content"]
-    data = {
-        "key": key,
-        "category": category,
-        "content": content,
-        "tags": args.get("tags", []),
-        "relationships": args.get("relationships", {}),
-    }
-    ok = get_storage().write("default", data)
-    target_file = None
-    if category in ["decision", "architecture"]:
-        target_file = "decisions.md"
-    elif category in ["pattern", "convention", "rule", "protocol"]:
-        target_file = "patterns.md"
-    if target_file and ok:
-        import datetime
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        log_line = f"\n### [{now_str}] {key}\n- **Category**: {category}\n- **Content**: {content}\n"
-        _append_markdown_with_archive(target_file, log_line)
-    return {"success": ok, "key": key, "auto_promoted_to": target_file}
-
-def call_pc_memory_consolidate(args):
-    """파편 메모리 병합. dry_run 기본 True — 사용자 승인 없는 자동 삭제 방지."""
-    new_key = args["new_key"]
-    category = args["category"]
-    content = args["content"]
-    old_keys = args["old_keys"]
-    dry_run = args.get("dry_run", True)
-
-    would_delete = list(old_keys)
-    would_write = {
-        "key": new_key,
-        "category": category,
-        "content": content,
-        "tags": args.get("tags", []),
-        "relationships": args.get("relationships", {}),
-    }
-    target_file = None
-    if category in ["decision", "architecture"]:
-        target_file = "decisions.md"
-    elif category in ["pattern", "convention", "rule"]:
-        target_file = "patterns.md"
-
-    if dry_run:
-        return {
-            "executed": False,
-            "would_delete": would_delete,
-            "would_write": would_write,
-            "auto_promoted_to": target_file,
-            "note": "dry_run=true (default). 실제 병합·삭제 없음. 실행하려면 dry_run=false 명시.",
-        }
-
-    st = get_storage()
-    deleted_count = st.delete_many("default", old_keys)
-    ok = st.write("default", would_write)
-    if target_file and ok:
-        import datetime
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        log_line = f"\n### [{now_str}] {new_key} (Consolidated from {len(old_keys)} items)\n- **Category**: {category}\n- **Content**: {content}\n"
-        _append_markdown_with_archive(target_file, log_line)
-    return {
-        "executed": True,
-        "success": ok,
-        "consolidated_key": new_key,
-        "deleted_old_fragments": deleted_count,
-        "auto_promoted_to": target_file,
-        "would_delete": would_delete,
-        "would_write": would_write,
-    }
-
-def call_pc_session_sync(args):
-    import re
-    import yaml
-    task_desc = args["task_desc"]
-    branch = "unknown"
-    jira_issues = []
-    try:
-        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=WORKSPACE).decode().strip()
-        match = re.search(r'([A-Z0-9]+-\d+)', branch)
-        if match:
-            jira_issues.append(match.group(1))
-    except:
-        pass
-    modified_files = []
-    try:
-        status1 = subprocess.check_output(["git", "diff", "--name-only", "HEAD"], cwd=WORKSPACE).decode().strip().split('\n')
-        status2 = subprocess.check_output(["git", "log", "-n", "3", "--name-only", "--pretty=format:"], cwd=WORKSPACE).decode().strip().split('\n')
-        combined = [f for f in status1 + status2 if f]
-        seen = set()
-        for f in combined:
-            if f not in seen:
-                seen.add(f)
-                modified_files.append(f)
-    except:
-        pass
-    relationships = {
-        "jira_issues": jira_issues,
-        "modifies": modified_files[:10],
-        "branch": branch
-    }
-    key = f"session-sync-{SESSION_ID}"
-    data = {
-        "key": key,
-        "category": "decision",
-        "content": task_desc,
-        "tags": ["session-sync", "auto-generated", "autonomous-rag"],
-        "relationships": relationships
-    }
-    ok = get_storage().write("default", data)
-    import datetime
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f"\n- [CONFIRMED] **[SESSION_SYNC]** {now_str} | Branch: {branch} | Issue: {jira_issues}\n  - 📝 {task_desc}\n  - 📂 Modifies: {len(modified_files)} files\n"
-    _append_markdown_with_archive("inbox.md", log_line)
-    yaml_path = str(pc_paths.history_dir(WORKSPACE) / "memory.yaml")
-    if os.path.exists(yaml_path):
-        try:
-            with open(yaml_path, 'r', encoding='utf-8') as yf:
-                yaml_data = yaml.safe_load(yf) or {}
-            yaml_data['active_branch'] = branch
-            yaml_data['last_sync'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            with open(yaml_path, 'w', encoding='utf-8') as yf:
-                yaml.dump(yaml_data, yf, allow_unicode=True, sort_keys=False)
-        except Exception:
-            pass
-    return {"success": ok, "key": key, "extracted_relationships": relationships, "markdown_synced": True}
-
-
-
-
-
-def call_pc_auto_context(args):
-    token_budget = args.get("token_budget", 2000)
-    conn = pc_db.get_connection(WORKSPACE)
-    try:
-        sections = []
-        total_chars = 0
-        
-        # 1. 최신 decisions
-        rows = conn.execute(
-            "SELECT key, content, updated_at FROM memories WHERE category = 'decision' ORDER BY updated_at DESC LIMIT 5"
-        ).fetchall()
-        for r in rows:
-            d = dict(r)
-            snippet = d["content"][:150]
-            entry = f"[decision] {d['key']}: {snippet}"
-            if total_chars + len(entry) > token_budget: break
-            sections.append(entry)
-            total_chars += len(entry)
-
-        # 2. 최신 patterns
-        rows = conn.execute(
-            "SELECT key, content, updated_at FROM memories WHERE category = 'pattern' ORDER BY updated_at DESC LIMIT 3"
-        ).fetchall()
-        for r in rows:
-            d = dict(r)
-            snippet = d["content"][:150]
-            entry = f"[pattern] {d['key']}: {snippet}"
-            if total_chars + len(entry) > token_budget: break
-            sections.append(entry)
-            total_chars += len(entry)
-
-        # 3. 인기 항목 (access_count)
-        rows = conn.execute(
-            "SELECT key, category, content, access_count FROM memories WHERE access_count > 0 ORDER BY access_count DESC LIMIT 5"
-        ).fetchall()
-        for r in rows:
-            d = dict(r)
-            snippet = d["content"][:100]
-            entry = f"[{d['category']}] {d['key']} (hits:{d['access_count']}): {snippet}"
-            if total_chars + len(entry) > token_budget: break
-            if not any(d["key"] in s for s in sections):
-                sections.append(entry)
-                total_chars += len(entry)
-
-        # 추가: HANDOFF 상태 레인의 contract 확인
-        board_path = pc_paths.data_dir(WORKSPACE) / "state" / "board.json"
-        if board_path.exists():
-            try:
-                board = json.loads(board_path.read_text(encoding="utf-8"))
-                for lid, lane in board.get("lanes", {}).items():
-                    if lane.get("contract_id"):
-                        entry = f"[contract] lane={lid}: {lane['contract_id']}"
-                        sections.append(entry)
-                        total_chars += len(entry)
-            except Exception:
-                pass
-
-        return {
-            "context": "\n".join(sections),
-            "totalChars": total_chars,
-            "itemCount": len(sections)
-        }
-    finally:
-        conn.close()
 
 # ==============================================================================
 # TOOL REGISTRY
@@ -353,20 +143,17 @@ def handle_request(req):
             elif n == "pc_logic_flow": r = call_pc_logic_flow(CTX, a)
             elif n == "pc_git_log": r = call_pc_git_log(CTX, a)
             elif n == "pc_run_pipeline": r = call_pc_run_pipeline(CTX, a)
-            elif n == "pc_auto_context": r = call_pc_auto_context(a)
+            elif n == "pc_auto_context": r = call_pc_auto_context(CTX, a)
             elif n == "pc_read_with_hash": r = call_pc_read_with_hash(CTX, a)
             elif n == "pc_strict_replace": r = call_strict_replace(CTX, a)
             elif n == "pc_create_contract": r = call_create_contract(a)
             elif n == "pc_todo_manager": r = call_todo_manager(a)
-            elif n == "pc_session_sync": r = call_pc_session_sync(a)
-            elif n == "pc_memory_write": r = call_pc_memory_write(a)
-            elif n == "pc_memory_consolidate": r = call_pc_memory_consolidate(a)
-            elif n == "pc_memory_read": r = get_storage().read("default", a["key"])
-            elif n == "pc_save_observation": r = call_save_observation(a)
-            elif n == "pc_memory_search_knowledge":
-                from cortex import vector_engine as ve
-                raw_res = get_storage().search_knowledge(a["query"], category=a.get("category"), limit=5, ve_module=ve)
-                r = json.dumps(raw_res, ensure_ascii=False, indent=2)
+            elif n == "pc_session_sync": r = call_pc_session_sync(CTX, a)
+            elif n == "pc_memory_write": r = call_pc_memory_write(CTX, a)
+            elif n == "pc_memory_consolidate": r = call_pc_memory_consolidate(CTX, a)
+            elif n == "pc_memory_read": r = call_pc_memory_read(CTX, a)
+            elif n == "pc_save_observation": r = call_save_observation(CTX, a)
+            elif n == "pc_memory_search_knowledge": r = call_pc_memory_search_knowledge(CTX, a)
             elif n == "pc_run_background_task":
                 cmd = a["command"]
                 lid = a["lane_id"]
