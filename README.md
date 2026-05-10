@@ -1,6 +1,6 @@
 [English Version Available](README.en.md)
 
-# 🌌 Cortex Agent Infrastructure (`.agents`)
+# 🌌 Cortex Agent Infrastructure (`.cortex`)
 
 **"The Bridge between Human Intent and Agent Intelligence."**
 
@@ -109,7 +109,7 @@ graph TD
 ## 📂 디렉토리 구조 (Directory Structure)
 
 ```
-.agents/
+.cortex/
 ├── data/           # [비공유] 상태 및 하이브리드 DB (Kuzu, sqlite-vec)
 ├── docs/           # [비공유] 인프라 관련 문서 (구조만 공유)
 ├── history/        # [비공유] 세션별 작업 이력 및 관찰 기록
@@ -133,10 +133,10 @@ graph TD
 
 - **상세 가이드**: [INSTALL.md](./INSTALL.md)
 - **핵심 커맨드**:
-  - `/로드`: Google Drive에서 `.agents` 폴더를 워크스페이스로 가져오기
-  - `/백업`: 현재 `.agents` 로컬 상태를 Google Drive에 백업 (`rclone` 기반)
+  - `/로드`: Google Drive에서 `.cortex` 폴더를 워크스페이스로 가져오기
+  - `/백업`: 현재 `.cortex` 로컬 상태를 Google Drive에 백업 (`rclone` 기반)
   - `/지식화`: 주요 결정 사항 및 성공 패턴 영구 저장
-  - `uv run --project .agents python .agents/scripts/relay.py status`: 현재 릴레이(멀티 에이전트 락) 상태 확인
+  - `uv run --project .cortex python .cortex/scripts/relay.py status`: 현재 릴레이(멀티 에이전트 락) 상태 확인
 
 ---
 

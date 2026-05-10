@@ -1,6 +1,6 @@
 [Korean Version Available](README.md)
 
-# 🌌 Cortex Agent Infrastructure (`.agents`)
+# 🌌 Cortex Agent Infrastructure (`.cortex`)
 
 **"The Bridge between Human Intent and Agent Intelligence."**
 
@@ -123,7 +123,7 @@ Cortex focuses on extreme local optimization and inter-agent reliability, distin
 ## 📂 Directory Structure
 
 ```
-.agents/
+.cortex/
 ├── data/           # [Non-Shared] State & Hybrid DBs (Kuzu, sqlite-vec)
 ├── docs/           # [Non-Shared] Infra Documentation (Structure only)
 ├── history/        # [Non-Shared] Session history & Observation logs
@@ -147,10 +147,10 @@ Cortex focuses on extreme local optimization and inter-agent reliability, distin
 
 - **Detailed Guide**: [INSTALL.md](./INSTALL.md)
 - **Key Commands**:
-  - `/load`: Pull `.agents` from Google Drive to workspace.
-  - `/backup`: Backup local `.agents` state to Google Drive (rclone-based).
+  - `/load`: Pull `.cortex` from Google Drive to workspace.
+  - `/backup`: Backup local `.cortex` state to Google Drive (rclone-based).
   - `/knowledge`: Permanently save major decisions and success patterns.
-  - `uv run --project .agents python .agents/scripts/relay.py status`: Check current Relay/Multi-Lane lock status.
+  - `uv run --project .cortex python .cortex/scripts/relay.py status`: Check current Relay/Multi-Lane lock status.
 
 ---
 

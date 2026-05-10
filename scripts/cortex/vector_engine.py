@@ -13,9 +13,27 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 프로젝트 루트 설정
-CORTEX_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(CORTEX_DIR)))
-ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+def _resolve_env_path() -> Path:
+    explicit = os.getenv("CORTEX_ENV_PATH")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+
+    home = os.getenv("CORTEX_HOME")
+    if home:
+        return Path(home).expanduser().resolve() / ".env"
+
+    capsule_root = Path(__file__).resolve().parents[2]
+    candidate = capsule_root / ".env"
+    if candidate.exists():
+        return candidate
+
+    cwd_candidate = Path.cwd().resolve() / ".env"
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return candidate
+
+ENV_PATH = _resolve_env_path()
 load_dotenv(ENV_PATH)
 
 MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
