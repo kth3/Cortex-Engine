@@ -6,9 +6,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-AGENTS_ROOT = Path(__file__).resolve().parents[3]
-WS = AGENTS_ROOT.parent
-MCP = AGENTS_ROOT / "scripts" / "cortex_mcp.py"
+ROOT = Path(__file__).resolve().parents[3]
+if ROOT.name == ".agents":
+    AGENTS_HOME = ROOT
+    WS = ROOT.parent
+elif (ROOT / "scripts" / "cortex_mcp.py").exists():
+    AGENTS_HOME = ROOT
+    WS = ROOT
+else:
+    AGENTS_HOME = ROOT / ".agents"
+    WS = ROOT
+MCP = AGENTS_HOME / "scripts" / "cortex_mcp.py"
+MCP_FQN_PREFIX = ".agents\\scripts" if AGENTS_HOME.name == ".agents" else "scripts"
+INDEX_ROOTS_TEST_PATH = (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
 
 requests = [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -26,12 +36,12 @@ requests = [
     # T4: pc_impact_graph max_nodes 메타필드
     {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
      "params": {"name": "pc_impact_graph",
-                "arguments": {"fqn": ".agents\\scripts\\cortex_mcp.py::call_pc_capsule",
+                "arguments": {"fqn": f"{MCP_FQN_PREFIX}\\cortex_mcp.py::call_pc_capsule",
                               "max_nodes": 10, "max_depth": 2}}},
     # T5: index_roots dry-run tool
     {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
      "params": {"name": "pc_index_roots_add",
-                "arguments": {"path": ".agents/scripts/cortex/tests", "dry_run": True}}},
+                "arguments": {"path": INDEX_ROOTS_TEST_PATH, "dry_run": True}}},
 ]
 
 payload = "\n".join(json.dumps(r) for r in requests) + "\n"
@@ -149,7 +159,7 @@ if isinstance(ir_res, dict):
 # 후속 검증: DB에 smoke_dryrun_2026이 실제로 없어야 함 (dry_run 안전성)
 print()
 import sqlite3
-conn = sqlite3.connect(str(WS / ".agents" / "data" / "memories.db"))
+conn = sqlite3.connect(str(AGENTS_HOME / "data" / "memories.db"))
 row = conn.execute("SELECT key FROM memories WHERE key='smoke_dryrun_2026'").fetchone()
 check("dry_run did not write memory row", not bool(row))
 conn.close()
