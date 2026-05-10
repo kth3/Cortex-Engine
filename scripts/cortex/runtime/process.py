@@ -110,3 +110,18 @@ def launch_background_process(script: Path, env: dict[str, str]) -> subprocess.P
         env=env,
         start_new_session=True,
     )
+
+
+def launch_logged_process(
+    command: list[str],
+    env: dict[str, str],
+    *,
+    start_new_session: bool = False,
+) -> subprocess.Popen:
+    return subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        start_new_session=start_new_session,
+    )
