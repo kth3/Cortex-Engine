@@ -46,6 +46,20 @@ def get_idle_timeout() -> int:
 IDLE_TIMEOUT = get_idle_timeout()
 
 
+def is_worker_alive() -> bool:
+    return worker_process is not None and worker_process.poll() is None
+
+
+def build_child_env(*, file_log: bool = False) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    if file_log:
+        env.pop("CORTEX_NO_FILE_LOG", None)
+    else:
+        env["CORTEX_NO_FILE_LOG"] = "1"
+    return env
+
+
 def ensure_worker_running(worker_entrypoint: Path) -> bool:
     global worker_process
     with worker_lock:
@@ -55,12 +69,9 @@ def ensure_worker_running(worker_entrypoint: Path) -> bool:
 
         if worker_process is None:
             logger.info("[Router] Starting PyTorch Worker Process...")
-            env = os.environ.copy()
-            env["CORTEX_NO_FILE_LOG"] = "1"
-
             worker_process = launch_logged_process(
                 [sys.executable, str(worker_entrypoint), "--worker"],
-                env,
+                build_child_env(),
             )
 
             threading.Thread(
@@ -102,24 +113,26 @@ def ensure_worker_running(worker_entrypoint: Path) -> bool:
 def shutdown_worker() -> None:
     global worker_process
     with worker_lock:
-        if worker_process is not None and worker_process.poll() is None:
-            logger.info(f"[Router] IDLE Timeout ({IDLE_TIMEOUT}s) reached. Sending shutdown to worker...")
-            try:
-                send_request(
-                    {"command": "shutdown"},
-                    host=WORKER_HOST,
-                    port=WORKER_PORT,
-                    timeout=3.0,
-                )
-                worker_process.wait(timeout=5.0)
-            except Exception:
-                pass
-            finally:
-                if worker_process.poll() is None:
-                    logger.warning("[Router] Worker did not exit gracefully. Force killing...")
-                    worker_process.kill()
-                worker_process = None
-                logger.info("[Router] VRAM fully released (Worker terminated). Standing by.")
+        if not is_worker_alive():
+            return
+
+        logger.info(f"[Router] IDLE Timeout ({IDLE_TIMEOUT}s) reached. Sending shutdown to worker...")
+        try:
+            send_request(
+                {"command": "shutdown"},
+                host=WORKER_HOST,
+                port=WORKER_PORT,
+                timeout=3.0,
+            )
+            worker_process.wait(timeout=5.0)
+        except Exception:
+            pass
+        finally:
+            if worker_process and worker_process.poll() is None:
+                logger.warning("[Router] Worker did not exit gracefully. Force killing...")
+                worker_process.kill()
+            worker_process = None
+            logger.info("[Router] VRAM fully released (Worker terminated). Standing by.")
 
 
 def idle_monitor() -> None:
@@ -127,14 +140,16 @@ def idle_monitor() -> None:
     while True:
         time.sleep(10)
         with worker_lock:
-            is_running = worker_process is not None and worker_process.poll() is None
-        if is_running:
-            if worker_request_lock.locked():
-                last_activity_time = time.time()
-                continue
+            running = is_worker_alive()
+        if not running:
+            continue
 
-            if time.time() - last_activity_time > get_idle_timeout():
-                shutdown_worker()
+        if worker_request_lock.locked():
+            last_activity_time = time.time()
+            continue
+
+        if time.time() - last_activity_time > get_idle_timeout():
+            shutdown_worker()
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -159,8 +174,7 @@ class RouterHandler(socketserver.BaseRequestHandler):
 
         if cmd == "ping":
             with worker_lock:
-                worker_alive = worker_process is not None and worker_process.poll() is not None
-                worker_alive = worker_process is not None and worker_process.poll() is None
+                worker_alive = is_worker_alive()
             if not worker_alive:
                 threading.Thread(target=ensure_worker_running, args=(self.worker_entrypoint,), daemon=True).start()
                 send_msg(self.request, {"status": "loading", "message": "Worker is being started"})
@@ -223,13 +237,9 @@ class RouterHandler(socketserver.BaseRequestHandler):
 def launch_watcher() -> None:
     logger.info("Starting Watcher Daemon from Router...")
     try:
-        child_env = os.environ.copy()
-        child_env["CORTEX_NO_FILE_LOG"] = "1"
-        child_env["PYTHONUNBUFFERED"] = "1"
-
         watcher_proc = launch_logged_process(
             [sys.executable, "-u", str(WATCHER_SCRIPT)],
-            child_env,
+            build_child_env(),
             start_new_session=True,
         )
         threading.Thread(
@@ -258,6 +268,9 @@ def run_router(worker_entrypoint: Path) -> None:
                 raise
             logger.warning(f"[Router] Port {ROUTER_PORT} not yet released ({exc}). Retrying ({remaining:.0f}s left)...")
             time.sleep(0.5)
+
+    if server is None:
+        raise RuntimeError(f"Router failed to bind {ROUTER_HOST}:{ROUTER_PORT}")
 
     logger.info(f"[Router] Listening on {ROUTER_HOST}:{ROUTER_PORT}")
     try:
