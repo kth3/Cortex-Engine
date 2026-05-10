@@ -32,7 +32,6 @@ from cortex import skeleton as pc_skeleton_mod
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks
 from cortex.skill_manager import SkillManager
-from cortex.orchestrator import manage_todo, create_contract
 from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
 from cortex import paths as pc_paths
@@ -76,6 +75,10 @@ from cortex.mcp.tools.session import (
     call_pc_auto_context,
     call_pc_session_sync,
 )
+from cortex.mcp.tools.orchestration import (
+    call_todo_manager,
+    call_create_contract,
+)
 
 CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
 
@@ -87,22 +90,6 @@ def get_skills():
     global _skills
     if _skills is None: _skills = SkillManager(WORKSPACE)
     return _skills
-
-
-# ==============================================================================
-# MCP TOOL HANDLERS (Delegation with Hooks)
-# ==============================================================================
-
-def call_todo_manager(args):
-    return manage_todo(WORKSPACE, args["action"], args.get("task"), args.get("task_id"))
-
-def call_create_contract(args):
-    res = create_contract(WORKSPACE, SESSION_ID, args["lane_id"], args["task_name"], args["instructions"], args.get("files_to_modify"))
-    pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "decision", f"Contract created: {res['contract_id']}", [res['path']])
-    pc_hooks.dispatch(WORKSPACE, "after_save_observation")
-    return res
-
-
 
 # ==============================================================================
 # TOOL REGISTRY
@@ -146,8 +133,8 @@ def handle_request(req):
             elif n == "pc_auto_context": r = call_pc_auto_context(CTX, a)
             elif n == "pc_read_with_hash": r = call_pc_read_with_hash(CTX, a)
             elif n == "pc_strict_replace": r = call_strict_replace(CTX, a)
-            elif n == "pc_create_contract": r = call_create_contract(a)
-            elif n == "pc_todo_manager": r = call_todo_manager(a)
+            elif n == "pc_create_contract": r = call_create_contract(CTX, a)
+            elif n == "pc_todo_manager": r = call_todo_manager(CTX, a)
             elif n == "pc_session_sync": r = call_pc_session_sync(CTX, a)
             elif n == "pc_memory_write": r = call_pc_memory_write(CTX, a)
             elif n == "pc_memory_consolidate": r = call_pc_memory_consolidate(CTX, a)
