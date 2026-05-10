@@ -615,7 +615,7 @@ def call_pc_git_log(args):
         return {"error": str(e)}
 
 def call_pc_capsule(args):
-    """pc_capsule 통합 진입점. auto_chain=true 시 기존 pc_auto_explore 부수효과 보존.
+    """pc_capsule 통합 진입점. auto_chain=true 시 통합 탐색 부수효과를 함께 수행한다.
 
     부수효과 (auto_chain=true 한정):
       1. capsule 길이 < 1500 chars 시 impact_graph + memory 자동 체이닝
@@ -638,7 +638,7 @@ def call_pc_capsule(args):
     if not auto_chain:
         return result
 
-    # auto_chain=true 부수효과 — pc_auto_explore에서 인라인화
+    # auto_chain=true 부수효과 — 통합 탐색 흐름 인라인 처리
     if chars < 1500:
         result["reasoning"] = f"Generated capsule was relatively short ({chars} chars). Autonomously chaining impact graph and memories..."
         conn = pc_db.get_connection(WORKSPACE)
@@ -774,7 +774,7 @@ TOOLS = [
     {"name": "pc_index_roots_list", "description": "현재 인덱싱 루트 설정 조회", "inputSchema": {"type": "object"}},
     {"name": "pc_index_roots_add", "description": "settings.local.yaml에 인덱싱 루트 추가. 기본 dry_run=true로 스캔 수만 계산.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "워크스페이스 기준 상대 경로 또는 워크스페이스 내부 절대 경로"}, "dry_run": {"type": "boolean", "default": True}}, "required": ["path"]}},
     {"name": "pc_index_roots_remove", "description": "settings.local.yaml의 인덱싱 루트 제거. 기본 dry_run=true로 스캔 수만 계산.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "제거할 인덱싱 루트"}, "dry_run": {"type": "boolean", "default": True}}, "required": ["path"]}},
-    {"name": "pc_capsule", "description": "1순위 검색. token_budget는 chars/4 추정 기반(정확한 토크나이저 아님). auto_chain=true 시 짧은 capsule 감지 후 impact_graph+memory 자동 체이닝 + observation 기록 (구 pc_auto_explore 흡수). 응답에 chars_used/tokens_estimated 포함.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "token_budget": {"type": "integer", "description": "토큰 예산 (approximate via chars/4)", "default": 4000}, "auto_chain": {"type": "boolean", "description": "짧은 capsule 시 자동 체이닝 활성화", "default": False}}, "required": ["query"]}},
+    {"name": "pc_capsule", "description": "1순위 검색. token_budget는 chars/4 추정 기반(정확한 토크나이저 아님). auto_chain=true 시 짧은 capsule 감지 후 impact_graph+memory 자동 체이닝 + observation 기록을 수행한다. 응답에 chars_used/tokens_estimated 포함.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "token_budget": {"type": "integer", "description": "토큰 예산 (approximate via chars/4)", "default": 4000}, "auto_chain": {"type": "boolean", "description": "짧은 capsule 시 자동 체이닝 활성화", "default": False}}, "required": ["query"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
     {"name": "pc_impact_graph", "description": "영향 범위 추적. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 2}, "max_nodes": {"type": "integer", "description": "최대 반환 노드 수", "default": 50}}, "required": ["fqn"]}},
     {"name": "pc_logic_flow", "description": "두 기능 간 실행 경로 탐색. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"from_fqn": {"type": "string", "description": "시작 지점 FQN"}, "to_fqn": {"type": "string", "description": "종료 지점 FQN"}, "max_depth": {"type": "integer", "description": "경로 최대 깊이", "default": 6}, "max_nodes": {"type": "integer", "description": "탐색 최대 노드 수", "default": 200}}, "required": ["from_fqn", "to_fqn"]}},

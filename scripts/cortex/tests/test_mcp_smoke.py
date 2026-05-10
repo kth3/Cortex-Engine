@@ -13,7 +13,7 @@ MCP = AGENTS_ROOT / "scripts" / "cortex_mcp.py"
 requests = [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize",
      "params": {"protocolVersion": "2025-11-25", "capabilities": {}}},
-    # T1: tools/list — pc_auto_explore 부재 + 새 schema 확인
+    # T1: tools/list — 핵심 도구 및 schema 확인
     {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     # T2: pc_index_status — schema_version='2'
     {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -75,7 +75,6 @@ for line in out.decode("utf-8", errors="replace").splitlines():
 tl = results.get(2, {}).get("result", {}).get("tools", [])
 tool_names = [t["name"] for t in tl]
 print(f"[T1] tools/list count={len(tool_names)}")
-check("pc_auto_explore removed", 'pc_auto_explore' not in tool_names)
 check("pc_capsule present", 'pc_capsule' in tool_names)
 check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
 check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)

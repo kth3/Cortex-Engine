@@ -2,13 +2,13 @@
 """
 Cortex Local Concurrency Stress Test
 =====================================
-relay.py의 fcntl 파일 락과 orchestrator.py의 _FileLock이
+relay.py의 파일 락과 orchestrator.py의 _FileLock이
 다중 프로세스 환경에서 Race Condition과 데이터 오염을 방어하는지 검증.
 
 LLM API 호출 없음 — 로컬 디스크 I/O와 락 메커니즘만 테스트합니다.
 
 Usage:
-    cd .agents && ./venv/bin/python3 scripts/test_concurrency.py
+    uv run --project .agents python .agents/scripts/cortex/tests/test_concurrency.py
 """
 import json
 import os
@@ -19,10 +19,11 @@ import tempfile
 import shutil
 import traceback
 from multiprocessing import Pool
+from pathlib import Path
 
 # 프로젝트 scripts/ 경로
-SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPTS_DIR)
+SCRIPTS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(SCRIPTS_DIR))
 
 # ─── 테스트 설정 ───
 NUM_WORKERS = 20
@@ -58,7 +59,7 @@ def _relay_init(state_path):
 
 def relay_worker(worker_id):
     """각 워커는 고유 레인에서 acquire→sleep→release를 반복.
-    20개 워커가 동일 board.json 파일에 동시 쓰기하여 fcntl 락을 스트레스 테스트.
+    20개 워커가 동일 board.json 파일에 동시 쓰기하여 파일 락을 스트레스 테스트.
     """
     import relay
 
@@ -101,7 +102,7 @@ def run_scenario_a():
     print("\n" + "=" * 60)
     print("  SCENARIO A: Relay Lock Deathmatch")
     print(f"  {NUM_WORKERS} workers × {CYCLES_PER_WORKER} cycles = {TOTAL} transactions")
-    print("  Target: board.json (fcntl.LOCK_EX)")
+    print("  Target: board.json")
     print("=" * 60)
 
     state_path = os.path.join(TMP_DIR, "state", "board.json")
@@ -160,7 +161,7 @@ def run_scenario_a():
 def todo_worker(args):
     """워커가 manage_todo("add")를 반복 호출하여 동시 쓰기 테스트"""
     worker_id, workspace = args
-    sys.path.insert(0, SCRIPTS_DIR)
+    sys.path.insert(0, str(SCRIPTS_DIR))
     from cortex.orchestrator import manage_todo
 
     successes = 0
@@ -234,14 +235,10 @@ def run_scenario_b():
     return True
 
 
-# ═══════════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════════
-
 def main():
     print("\n╔══════════════════════════════════════════════════════════╗")
     print("║  Cortex Local Concurrency Stress Test                   ║")
-    print("║  fcntl (relay.py) + _FileLock (orchestrator.py)         ║")
+    print("║  relay.py + orchestrator.py lock behavior               ║")
     print("║  LLM API: NONE — pure disk I/O only                    ║")
     print("╚══════════════════════════════════════════════════════════╝")
 

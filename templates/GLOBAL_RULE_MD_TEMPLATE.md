@@ -40,7 +40,7 @@
 
 ### Branch 1 (기본 — 코드 수정·의사결정 포함 모든 작업)
 코드 수정·다중파일·리팩토링·아키텍처·이전 세션 맥락·MR 리뷰, 그리고 직행 예외에 명확히 해당하지 않는 모든 작업.
-- 절차: ① `uv run --project .agents python .agents/scripts/cortex/cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_auto_explore`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
+- 절차: ① `uv run --project .agents python .agents/scripts/cortex/cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
 
 ### Branch 2 (직행 예외 해당 시에만)
 위 직행 예외 목록에 **명확히** 해당하는 경우에만 즉시 실행.

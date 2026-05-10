@@ -150,9 +150,6 @@ jobs:
               exit 1
             fi
           done
-          if [[ "$RESPONSE_LIST" == *"pc_auto_explore"* ]]; then
-            echo "Legacy alias detected: pc_auto_explore (allowed)"
-          fi
           echo "All critical MCP tools are registered."
 
           # 2) tools/call API (pc_index_status) 호출 -> 실제 DB 연동 작동 여부 검증
