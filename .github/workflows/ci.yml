@@ -76,7 +76,6 @@ jobs:
           # Cortex 핵심 기능 회귀 테스트
           uv run python scripts/cortex/tests/test_file_edit_events.py
           uv run python scripts/cortex/tests/test_path_index_roots.py
-          uv run python scripts/cortex/tests/test_mcp_smoke.py
           uv run python scripts/cortex/tests/test_concurrency.py
 
       - name: Test Core Indexing & Embedding Engine
@@ -141,71 +140,8 @@ jobs:
         env:
           CORTEX_WORKSPACE: ${{ github.workspace }}/test_workspace
         run: |
-          # 1) tools/list API 호출 (현재 도구 레지스트리 검증)
-          echo '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}' > mcp_list.json
-          RESPONSE_LIST=$(uv run python scripts/cortex_mcp.py < mcp_list.json)
-          
-          CRITICAL_TOOLS=("pc_reindex" "pc_index_status" "pc_capsule" "pc_skeleton" "pc_impact_graph" "pc_logic_flow" "pc_git_log" "pc_run_pipeline" "pc_auto_context" "pc_read_with_hash" "pc_strict_replace" "pc_create_contract" "pc_todo_manager" "pc_session_sync" "pc_memory_write" "pc_memory_consolidate" "pc_memory_read" "pc_save_observation" "pc_memory_search_knowledge" "pc_run_background_task" "pc_index_roots_list" "pc_index_roots_add" "pc_index_roots_remove")
-          for tool in "${CRITICAL_TOOLS[@]}"; do
-            if [[ "$RESPONSE_LIST" != *"$tool"* ]]; then
-              echo "MCP Tool missing from registry: $tool"
-              exit 1
-            fi
-          done
-          echo "All critical MCP tools are registered."
-
-          # 2) tools/call API (pc_index_status) 호출 -> 실제 DB 연동 작동 여부 검증
-          echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 2, "params": {"name": "pc_index_status", "arguments": {}}}' > mcp_call.json
-          RESPONSE_CALL=$(uv run python scripts/cortex_mcp.py < mcp_call.json)
-          
-          if [[ "$RESPONSE_CALL" != *"total_nodes"* ]] || [[ "$RESPONSE_CALL" != *"total_memories"* ]]; then
-            echo "MCP Server failed to execute pc_index_status."
-            echo "Response: $RESPONSE_CALL"
-            exit 1
-          fi
-          echo "MCP pc_index_status verified."
-
-          # 3) index_roots 관리 도구의 조회/dry-run 동작 검증
-          echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 3, "params": {"name": "pc_index_roots_list", "arguments": {}}}' > mcp_roots_list.json
-          RESPONSE_ROOTS_LIST=$(uv run python scripts/cortex_mcp.py < mcp_roots_list.json)
-          ROOTS_COUNT=$(echo "$RESPONSE_ROOTS_LIST" | jq -r '.result.content[0].text' | jq '[.index_roots[]?] | length')
-          if [ "$ROOTS_COUNT" -eq 0 ]; then
-            echo "pc_index_roots_list returned no roots."
-            echo "Response: $RESPONSE_ROOTS_LIST"
-            exit 1
-          fi
-
-          echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 4, "params": {"name": "pc_index_roots_add", "arguments": {"path": ".agents/skills", "dry_run": true}}}' > mcp_roots_add.json
-          RESPONSE_ROOTS_ADD=$(uv run python scripts/cortex_mcp.py < mcp_roots_add.json)
-          ADD_EXECUTED=$(echo "$RESPONSE_ROOTS_ADD" | jq -r '.result.content[0].text' | jq -r '.executed')
-          ADD_SCAN_COUNT=$(echo "$RESPONSE_ROOTS_ADD" | jq -r '.result.content[0].text' | jq -r '.scan_count')
-          if [ "$ADD_EXECUTED" != "false" ] || [ "$ADD_SCAN_COUNT" -lt 1 ]; then
-            echo "pc_index_roots_add dry-run failed."
-            echo "Response: $RESPONSE_ROOTS_ADD"
-            exit 1
-          fi
-          echo "MCP index_roots dry-run verified."
-          
-          # 4) tools/call API (pc_run_pipeline) 호출 -> 실제 RRF 파이프라인 구조 검증
-          echo '{"jsonrpc": "2.0", "method": "tools/call", "id": 5, "params": {"name": "pc_run_pipeline", "arguments": {"query": "func"}}}' > mcp_pipeline.json
-          RESPONSE_PIPELINE=$(uv run python scripts/cortex_mcp.py < mcp_pipeline.json)
-
-          ERROR_MSG=$(echo "$RESPONSE_PIPELINE" | jq -r '.error // empty')
-          if [ -n "$ERROR_MSG" ]; then
-            echo "Pipeline failed with error: $ERROR_MSG"
-            exit 1
-          fi
-
-          RESULT_COUNT=$(echo "$RESPONSE_PIPELINE" \
-            | jq -r '.result.content[0].text' \
-            | jq '[.unified_context[]?] | length')
-
-          if [ "$RESULT_COUNT" -le 0 ]; then
-            echo "MCP Pipeline returned empty unified_context."
-            echo "Response: $RESPONSE_PIPELINE"
-            exit 1
-          fi
-          echo "MCP Pipeline Search returned $RESULT_COUNT results via RRF."
+          # 인덱싱이 끝난 test_workspace를 기준으로 MCP 엔드투엔드 스모크 검증
+          uv run python scripts/cortex/tests/test_mcp_smoke.py
 
 
 

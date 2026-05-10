@@ -2,6 +2,8 @@
 재시작 후 변경된 도구 동작 검증용.
 """
 import json
+import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +20,26 @@ else:
     WS = ROOT
 MCP = AGENTS_HOME / "scripts" / "cortex_mcp.py"
 MCP_FQN_PREFIX = ".agents\\scripts" if AGENTS_HOME.name == ".agents" else "scripts"
-INDEX_ROOTS_TEST_PATH = (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
+RUNTIME_WORKSPACE = Path(os.environ.get("CORTEX_WORKSPACE", str(WS))).resolve()
+DB_PATH = RUNTIME_WORKSPACE / ".agents" / "data" / "memories.db"
+INDEX_ROOTS_TEST_PATH = "src" if (RUNTIME_WORKSPACE / "src").exists() else (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
+
+
+def detect_impact_fqn():
+    if DB_PATH.exists():
+        conn = sqlite3.connect(str(DB_PATH))
+        try:
+            row = conn.execute(
+                "SELECT fqn FROM nodes WHERE fqn IS NOT NULL AND fqn != '' ORDER BY LENGTH(fqn) DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+        if row and row[0]:
+            return row[0]
+    return f"{MCP_FQN_PREFIX}\\cortex_mcp.py::call_pc_capsule"
+
+
+IMPACT_FQN = detect_impact_fqn()
 
 requests = [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -36,7 +57,7 @@ requests = [
     # T4: pc_impact_graph max_nodes 메타필드
     {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
      "params": {"name": "pc_impact_graph",
-                "arguments": {"fqn": f"{MCP_FQN_PREFIX}\\cortex_mcp.py::call_pc_capsule",
+                "arguments": {"fqn": IMPACT_FQN,
                               "max_nodes": 10, "max_depth": 2}}},
     # T5: index_roots dry-run tool
     {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
@@ -158,8 +179,7 @@ if isinstance(ir_res, dict):
 
 # 후속 검증: DB에 smoke_dryrun_2026이 실제로 없어야 함 (dry_run 안전성)
 print()
-import sqlite3
-conn = sqlite3.connect(str(AGENTS_HOME / "data" / "memories.db"))
+conn = sqlite3.connect(str(DB_PATH))
 row = conn.execute("SELECT key FROM memories WHERE key='smoke_dryrun_2026'").fetchone()
 check("dry_run did not write memory row", not bool(row))
 conn.close()

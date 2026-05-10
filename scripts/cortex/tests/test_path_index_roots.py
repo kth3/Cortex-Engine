@@ -25,16 +25,16 @@ class PathResolverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             self.assertEqual(
-                db.get_db_path(str(ws)),
-                str(ws / ".agents" / "data" / "memories.db"),
+                Path(db.get_db_path(str(ws))).resolve(),
+                (ws / ".agents" / "data" / "memories.db").resolve(),
             )
             self.assertEqual(
-                db.get_db_path(str(ws / ".agents")),
-                str(ws / ".agents" / "data" / "memories.db"),
+                Path(db.get_db_path(str(ws / ".agents"))).resolve(),
+                (ws / ".agents" / "data" / "memories.db").resolve(),
             )
             self.assertEqual(
-                get_graph_db_path(str(ws)),
-                str(ws / ".agents" / "data" / "graph_db_store"),
+                Path(get_graph_db_path(str(ws))).resolve(),
+                (ws / ".agents" / "data" / "graph_db_store").resolve(),
             )
 
     def test_settings_paths_follow_cortex_home(self):
@@ -42,9 +42,9 @@ class PathResolverTests(unittest.TestCase):
             ws = Path(tmp)
             home = resolve_cortex_home(ws / ".agents" / "scripts")
             settings, local = settings_paths(ws)
-            self.assertEqual(home, ws / ".agents")
-            self.assertEqual(settings, ws / ".agents" / "settings.yaml")
-            self.assertEqual(local, ws / ".agents" / "settings.local.yaml")
+            self.assertEqual(home.resolve(), (ws / ".agents").resolve())
+            self.assertEqual(settings.resolve(), (ws / ".agents" / "settings.yaml").resolve())
+            self.assertEqual(local.resolve(), (ws / ".agents" / "settings.local.yaml").resolve())
 
 
 class IndexRootsTests(unittest.TestCase):
