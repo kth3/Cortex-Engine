@@ -3,8 +3,9 @@ import os
 import sys
 import time
 from pathlib import Path
-from watchdog.observers import Observer
+
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 # [PATH SETUP] 프로젝트 루트 및 스크립트 경로 설정
 CORTEX_DIR = Path(__file__).resolve().parent
@@ -14,14 +15,18 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from cortex.logger import get_logger
+from cortex.paths import resolve_cortex_home, resolve_workspace
+
 logger = get_logger("watcher")
 
-WORKSPACE = CORTEX_DIR.parent.parent.parent # .agents/scripts/cortex -> ... -> PROJECT_ROOT
+WORKSPACE = resolve_workspace(CORTEX_DIR)
+CORTEX_HOME = resolve_cortex_home(WORKSPACE)
 
 # ---------------------------------------------------------
 # Resident Engine Initialization
 # ---------------------------------------------------------
 import traceback
+
 try:
     from cortex import indexer as pc_indexer
     from cortex.vectorizer import detect_gpu
@@ -30,6 +35,7 @@ except ImportError as e:
     traceback.print_exc()
     pc_indexer = None
     detect_gpu = lambda: "unknown"
+
 
 def print_ready_banner():
     is_gpu = detect_gpu()
@@ -44,8 +50,9 @@ def print_ready_banner():
 - Monitoring: Active (5s debounce)
 ================================================
 """
-    for line in banner.strip().split('\n'):
+    for line in banner.strip().split("\n"):
         logger.info(line)
+
 
 class DebouncedIndexer(FileSystemEventHandler):
     DUPLICATE_DELETE_TTL = 120
@@ -55,59 +62,102 @@ class DebouncedIndexer(FileSystemEventHandler):
         self.changed_files = set()
         self.last_event_time = 0
         self._delete_cooldown = {}
+
         from cortex.indexer_utils import load_settings
-        _settings = load_settings(str(WORKSPACE))
-        _rules = _settings.get("indexing_rules", {})
+
+        settings = load_settings(str(WORKSPACE))
+        rules = settings.get("indexing_rules", {})
         self._exclude_paths = [
-            p.replace('\\', '/').strip('/')
-            for p in _rules.get("exclude_paths", []) if p.strip()
+            p.replace("\\", "/").strip("/")
+            for p in rules.get("exclude_paths", [])
+            if p.strip()
         ]
 
     def _is_valid_file(self, path_str):
-        path_str = path_str.replace('\\', '/')  # Windows 경로 구분자 정규화
+        path_str = path_str.replace("\\", "/")
 
         for pattern in self._exclude_paths:
             if fnmatch.fnmatch(path_str, pattern):
                 return False
 
         blacklist = [
-            '.git', 'node_modules', '__pycache__', 'venv', '.venv',
-            '.agents/data/', '.agents/history/', '.agents/artifacts/',
-            '/.plastic/', '\\.plastic\\', # Unity Version Control
-            # Unity 내부 캐시 및 빌드 — 인덱싱 불필요 (경로 무관)
-            '/Library/', '\\Library\\',
-            '/Temp/', '\\Temp\\',
-            '/Logs/', '\\Logs\\',
-            '/obj/', '\\obj\\',
-            '/UserSettings/', '\\UserSettings\\',
-            '/Builds/', '\\Builds\\',
-            '/MemoryCaptures/', '\\MemoryCaptures\\',
-            # IDE 설정 및 임시 폴더
-            '/.vs/', '\\.vs\\',
-            '/.idea/', '\\.idea\\',
-            '/.vscode/', '\\.vscode\\',
-            '/dist/', '\\dist\\',
-            '/build/', '\\build\\',
+            ".git",
+            "node_modules",
+            "__pycache__",
+            "venv",
+            ".venv",
+            ".cortex/data/",
+            ".cortex/history/",
+            ".cortex/artifacts/",
+            ".agents/data/",
+            ".agents/history/",
+            ".agents/artifacts/",
+            "/.plastic/",
+            "\\.plastic\\",
+            "/Library/",
+            "\\Library\\",
+            "/Temp/",
+            "\\Temp\\",
+            "/Logs/",
+            "\\Logs\\",
+            "/obj/",
+            "\\obj\\",
+            "/UserSettings/",
+            "\\UserSettings\\",
+            "/Builds/",
+            "\\Builds\\",
+            "/MemoryCaptures/",
+            "\\MemoryCaptures\\",
+            "/.vs/",
+            "\\.vs\\",
+            "/.idea/",
+            "\\.idea\\",
+            "/.vscode/",
+            "\\.vscode\\",
+            "/dist/",
+            "\\dist\\",
+            "/build/",
+            "\\build\\",
         ]
         if any(x in path_str for x in blacklist):
             return False
 
-        if '.agents/' in path_str:
-            return any(x in path_str for x in [
-                '/rules/', '/knowledge/', '/skills/', '/docs/',
-                '/scripts/',  # cortex 엔진 자체 + cortex_mcp.py/relay.py 메타개발 지원
-            ])
+        if ".agents/" in path_str or ".cortex/" in path_str:
+            return any(
+                x in path_str
+                for x in [
+                    "/rules/",
+                    "/knowledge/",
+                    "/skills/",
+                    "/docs/",
+                    "/scripts/",
+                ]
+            )
 
-        allowed_exts = ['.py', '.md', '.txt', '.js', '.ts', '.json', '.pdf', '.cs', '.asset', '.prefab', '.meta', '.inputsettings']
+        allowed_exts = [
+            ".py",
+            ".md",
+            ".txt",
+            ".js",
+            ".ts",
+            ".json",
+            ".pdf",
+            ".cs",
+            ".asset",
+            ".prefab",
+            ".meta",
+            ".inputsettings",
+        ]
         return any(path_str.endswith(ext) for ext in allowed_exts)
 
     def on_any_event(self, event):
         """Atomic Save 대응을 위해 모든 이벤트를 수신"""
         if event.is_directory:
             return
+
         self.handle_event(event.src_path)
-        # FileMovedEvent: dest_path(이동 후 경로)도 큐에 추가
-        if hasattr(event, 'dest_path') and event.dest_path:
+
+        if hasattr(event, "dest_path") and event.dest_path:
             self.handle_event(event.dest_path)
 
     def handle_event(self, src_path):
@@ -136,41 +186,42 @@ class DebouncedIndexer(FileSystemEventHandler):
 
         skipped_count = 0
         indexed = []
-        for f in actual_changes:
-            # .meta나 .inputsettings는 인덱싱에서 제외
-            if f.endswith(('.meta', '.inputsettings')):
+        for file_path in actual_changes:
+            if file_path.endswith((".meta", ".inputsettings")):
                 skipped_count += 1
                 continue
+
             try:
                 start_t = time.time()
-                result = pc_indexer.index_file(str(WORKSPACE), f)
+                result = pc_indexer.index_file(str(WORKSPACE), file_path)
                 elapsed = (time.time() - start_t) * 1000
 
                 if isinstance(result, dict) and "error" in result:
-                    logger.warning(f"     [FAIL] {f}: {result['error']}")
+                    logger.warning(f"     [FAIL] {file_path}: {result['error']}")
                 else:
                     status = result.get("status", "ok").upper()
                     chunks = result.get("chunks", 0)
                     if status == "SKIPPED":
                         skipped_count += 1
                     else:
-                        indexed.append((status, f, chunks, elapsed))
+                        indexed.append((status, file_path, chunks, elapsed))
                         if status == "DELETED":
-                            self._delete_cooldown[f] = time.time()
-            except Exception as e:
-                logger.error(f"     [ERROR] {f}: {str(e)}")
+                            self._delete_cooldown[file_path] = time.time()
+            except Exception as exc:
+                logger.error(f"     [ERROR] {file_path}: {str(exc)}")
 
-        # 인덱싱 대상 유무와 무관하게 항상 배치 결과를 출력
         logger.info(f"Debounce triggered. {len(indexed)} indexed, {skipped_count} skipped.")
-        for status, f, chunks, elapsed in indexed:
-            logger.info(f"     [{status}] {f} ({chunks} chunks, {elapsed:.1f}ms)")
+        for status, file_path, chunks, elapsed in indexed:
+            logger.info(f"     [{status}] {file_path} ({chunks} chunks, {elapsed:.1f}ms)")
         logger.info("✅ [ALL UPDATES SYNCED] Batch complete.")
         logger.info("================================================")
 
+
 from dotenv import load_dotenv
 
+
 def main():
-    env_file = WORKSPACE / ".agents" / ".env"
+    env_file = CORTEX_HOME / ".env"
     if env_file.exists():
         load_dotenv(str(env_file))
 
@@ -182,18 +233,24 @@ def main():
 
     observer.start()
     last_heartbeat = 0
-    HEARTBEAT_INTERVAL = 60
+    heartbeat_interval = 60
+
     try:
         while True:
             time.sleep(1)
             event_handler.process_queue()
+
             now = time.time()
-            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                logger.info(f"[heartbeat] Watcher alive. Queue: {len(event_handler.changed_files)} pending.")
+            if now - last_heartbeat >= heartbeat_interval:
+                logger.info(
+                    f"[heartbeat] Watcher alive. Queue: {len(event_handler.changed_files)} pending."
+                )
                 last_heartbeat = now
     except KeyboardInterrupt:
         observer.stop()
+
     observer.join()
+
 
 if __name__ == "__main__":
     main()
