@@ -38,23 +38,11 @@ from cortex.orchestrator import manage_todo, create_contract
 from cortex.edit_engine import read_with_hash, strict_replace, record_edit_event
 from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
+from cortex import paths as pc_paths
+from cortex.indexer_utils import load_settings, scan_files
 
 def _find_real_workspace(start_path):
-    # 환경변수 우선 오버라이드 (CI 등 외부 주입 시 사용)
-    env_ws = os.environ.get("CORTEX_WORKSPACE")
-    if env_ws:
-        return str(Path(env_ws).resolve())
-    curr = start_path.resolve()
-    parts = curr.parts
-    if ".agents" in parts:
-        idx = parts.index(".agents")
-        return str(Path(*parts[:idx]))
-    for _ in range(5):
-        if (curr / ".git").exists() or (curr / ".agents").exists():
-            return str(curr)
-        if curr.parent == curr: break
-        curr = curr.parent
-    return str(SCRIPTS_DIR.parent.parent)
+    return str(pc_paths.resolve_workspace(start_path))
 
 WORKSPACE = _find_real_workspace(SCRIPTS_DIR)
 SESSION_ID = str(uuid.uuid4())[:8]
@@ -145,12 +133,103 @@ def call_save_observation(args):
     pc_hooks.dispatch(WORKSPACE, "after_save_observation")
     return res
 
+
+def _read_local_settings():
+    import yaml
+    _, local_path = pc_paths.settings_paths(WORKSPACE)
+    if not local_path.exists():
+        return {}, local_path
+    with open(local_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}, local_path
+
+
+def _write_local_settings(data, local_path):
+    import yaml
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(local_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
+def _effective_index_roots(settings):
+    rules = settings.get("indexing_rules", {}) or {}
+    roots = rules.get("index_roots")
+    if roots is None:
+        roots = ["."]
+    if isinstance(roots, str):
+        roots = [roots]
+    return list(dict.fromkeys(roots or []))
+
+
+def _validated_index_root(raw_path):
+    if not raw_path or not str(raw_path).strip():
+        raise ValueError("index root path is required")
+    if any(ch in str(raw_path) for ch in "*?"):
+        raise ValueError("glob patterns are not allowed for index_roots")
+
+    ws = Path(WORKSPACE).resolve()
+    raw = Path(str(raw_path).strip()).expanduser()
+    target = raw.resolve() if raw.is_absolute() else (ws / raw).resolve()
+    target.relative_to(ws)
+    rel = target.relative_to(ws)
+    rel_text = "." if str(rel) == "." else str(rel).replace("\\", "/")
+
+    dangerous = {".git", "node_modules", "library", "temp"}
+    parts = {p.lower() for p in Path(rel_text).parts}
+    if rel_text != "." and parts & dangerous:
+        raise ValueError("dangerous index root rejected")
+    return rel_text
+
+
+def _index_roots_scan_count(candidate_roots):
+    settings = load_settings(WORKSPACE)
+    settings.setdefault("indexing_rules", {})["index_roots"] = candidate_roots
+    return len(scan_files(WORKSPACE, pc_indexer.SUPPORTED_EXTENSIONS, settings_override=settings))
+
+
+def call_pc_index_roots_list(args):
+    settings = load_settings(WORKSPACE)
+    roots = _effective_index_roots(settings)
+    ws = Path(WORKSPACE).resolve()
+    resolved = []
+    for root in roots:
+        target = ws if root == "." else (ws / root).resolve()
+        resolved.append({"path": root, "absolute": str(target), "exists": target.exists()})
+    _, local_path = pc_paths.settings_paths(WORKSPACE)
+    return {"index_roots": roots, "resolved": resolved, "settings_local": str(local_path)}
+
+
+def call_pc_index_roots_add(args):
+    dry_run = args.get("dry_run", True)
+    root = _validated_index_root(args["path"])
+    local_settings, local_path = _read_local_settings()
+    roots = _effective_index_roots(load_settings(WORKSPACE))
+    if root not in roots:
+        roots.append(root)
+    scan_count = _index_roots_scan_count(roots)
+    if not dry_run:
+        local_settings.setdefault("indexing_rules", {})["index_roots"] = roots
+        _write_local_settings(local_settings, local_path)
+    return {"executed": not dry_run, "index_roots": roots, "scan_count": scan_count, "settings_local": str(local_path)}
+
+
+def call_pc_index_roots_remove(args):
+    dry_run = args.get("dry_run", True)
+    root = _validated_index_root(args["path"])
+    local_settings, local_path = _read_local_settings()
+    roots = [r for r in _effective_index_roots(load_settings(WORKSPACE)) if r != root]
+    scan_count = _index_roots_scan_count(roots)
+    if not dry_run:
+        local_settings.setdefault("indexing_rules", {})["index_roots"] = roots
+        _write_local_settings(local_settings, local_path)
+    return {"executed": not dry_run, "index_roots": roots, "scan_count": scan_count, "settings_local": str(local_path)}
+
+
 def _append_markdown_with_archive(target_filename, content):
     import datetime
     import shutil
-    md_path = os.path.join(WORKSPACE, ".agents", "history", target_filename)
+    md_path = str(pc_paths.history_dir(WORKSPACE) / target_filename)
     if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
-        archive_dir = os.path.join(WORKSPACE, ".agents", "history", "archive")
+        archive_dir = str(pc_paths.history_dir(WORKSPACE) / "archive")
         os.makedirs(archive_dir, exist_ok=True)
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         name_part, ext = os.path.splitext(target_filename)
@@ -275,7 +354,7 @@ def call_pc_session_sync(args):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"\n- [CONFIRMED] **[SESSION_SYNC]** {now_str} | Branch: {branch} | Issue: {jira_issues}\n  - 📝 {task_desc}\n  - 📂 Modifies: {len(modified_files)} files\n"
     _append_markdown_with_archive("inbox.md", log_line)
-    yaml_path = os.path.join(WORKSPACE, ".agents", "history", "memory.yaml")
+    yaml_path = str(pc_paths.history_dir(WORKSPACE) / "memory.yaml")
     if os.path.exists(yaml_path):
         try:
             with open(yaml_path, 'r', encoding='utf-8') as yf:
@@ -291,9 +370,9 @@ def call_pc_session_sync(args):
 def _append_markdown_with_archive(target_filename, content):
     import datetime
     import shutil
-    md_path = os.path.join(WORKSPACE, ".agents", "history", target_filename)
+    md_path = str(pc_paths.history_dir(WORKSPACE) / target_filename)
     if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
-        archive_dir = os.path.join(WORKSPACE, ".agents", "history", "archive")
+        archive_dir = str(pc_paths.history_dir(WORKSPACE) / "archive")
         os.makedirs(archive_dir, exist_ok=True)
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         name_part, ext = os.path.splitext(target_filename)
@@ -418,7 +497,7 @@ def call_pc_session_sync(args):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"\n- [CONFIRMED] **[SESSION_SYNC]** {now_str} | Branch: {branch} | Issue: {jira_issues}\n  - 📝 {task_desc}\n  - 📂 Modifies: {len(modified_files)} files\n"
     _append_markdown_with_archive("inbox.md", log_line)
-    yaml_path = os.path.join(WORKSPACE, ".agents", "history", "memory.yaml")
+    yaml_path = str(pc_paths.history_dir(WORKSPACE) / "memory.yaml")
     if os.path.exists(yaml_path):
         try:
             with open(yaml_path, 'r', encoding='utf-8') as yf:
@@ -665,7 +744,7 @@ def call_pc_auto_context(args):
                 total_chars += len(entry)
 
         # 추가: HANDOFF 상태 레인의 contract 확인
-        board_path = Path(WORKSPACE) / ".agents" / "data" / "state" / "board.json"
+        board_path = pc_paths.data_dir(WORKSPACE) / "state" / "board.json"
         if board_path.exists():
             try:
                 board = json.loads(board_path.read_text(encoding="utf-8"))
@@ -692,6 +771,9 @@ def call_pc_auto_context(args):
 TOOLS = [
     {"name": "pc_reindex", "description": "⚠️ DESTRUCTIVE — 인덱스 전체 재구성. 일상 워크플로에서는 watcher 기반 증분 인덱싱이 자동 동작하므로 호출 불필요. 파서 수정·DB 오염·스키마 마이그레이션 같은 명시적 사유가 있을 때만 사용. force=true는 file_cache 전체 무효화 + 모든 파일 재파싱·재임베딩(GPU 비용) 발생.", "inputSchema": {"type": "object", "properties": {"force": {"type": "boolean", "description": "⚠️ destructive. 호출 시 사유(파서 수정/DB 오염 등)를 명시할 것"}}}},
     {"name": "pc_index_status", "description": "인덱스 상태", "inputSchema": {"type": "object"}},
+    {"name": "pc_index_roots_list", "description": "현재 인덱싱 루트 설정 조회", "inputSchema": {"type": "object"}},
+    {"name": "pc_index_roots_add", "description": "settings.local.yaml에 인덱싱 루트 추가. 기본 dry_run=true로 스캔 수만 계산.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "워크스페이스 기준 상대 경로 또는 워크스페이스 내부 절대 경로"}, "dry_run": {"type": "boolean", "default": True}}, "required": ["path"]}},
+    {"name": "pc_index_roots_remove", "description": "settings.local.yaml의 인덱싱 루트 제거. 기본 dry_run=true로 스캔 수만 계산.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "제거할 인덱싱 루트"}, "dry_run": {"type": "boolean", "default": True}}, "required": ["path"]}},
     {"name": "pc_capsule", "description": "1순위 검색. token_budget는 chars/4 추정 기반(정확한 토크나이저 아님). auto_chain=true 시 짧은 capsule 감지 후 impact_graph+memory 자동 체이닝 + observation 기록 (구 pc_auto_explore 흡수). 응답에 chars_used/tokens_estimated 포함.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "token_budget": {"type": "integer", "description": "토큰 예산 (approximate via chars/4)", "default": 4000}, "auto_chain": {"type": "boolean", "description": "짧은 capsule 시 자동 체이닝 활성화", "default": False}}, "required": ["query"]}},
     {"name": "pc_skeleton", "description": "파일 스켈레톤 출력.", "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string", "description": "파일 경로"}, "detail": {"type": "string", "description": "상세 수준", "enum": ["minimal", "standard", "detailed"], "default": "standard"}}, "required": ["file_path"]}},
     {"name": "pc_impact_graph", "description": "영향 범위 추적. 응답에 truncated/limit/returned_count/total_seen 포함.", "inputSchema": {"type": "object", "properties": {"fqn": {"type": "string", "description": "함수/클래스의 FQN"}, "direction": {"type": "string", "description": "추적 방향", "enum": ["callers", "callees", "both"], "default": "both"}, "max_depth": {"type": "integer", "description": "최대 깊이", "default": 2}, "max_nodes": {"type": "integer", "description": "최대 반환 노드 수", "default": 50}}, "required": ["fqn"]}},
@@ -737,6 +819,9 @@ def handle_request(req):
             if n == "pc_reindex": r = pc_indexer.index_workspace(WORKSPACE, force=a.get("force", False))
             elif n == "pc_index_status": 
                 conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
+            elif n == "pc_index_roots_list": r = call_pc_index_roots_list(a)
+            elif n == "pc_index_roots_add": r = call_pc_index_roots_add(a)
+            elif n == "pc_index_roots_remove": r = call_pc_index_roots_remove(a)
             elif n == "pc_capsule": r = call_pc_capsule(a)
             elif n == "pc_skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
             elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
@@ -788,8 +873,7 @@ def handle_request(req):
                     # stdout/stderr를 로그 파일로 리디렉션하여 버퍼 막힘을 원천 차단
                     # (PIPE는 읽지 않으면 64KB에서 블로킹 → 백그라운드 Hang → 락 반환 불가)
                     import datetime as _dt
-                    _log_dir = Path(WORKSPACE) / ".agents" / "history"
-                    _log_dir.mkdir(parents=True, exist_ok=True)
+                    _log_dir = pc_paths.history_dir(WORKSPACE)
                     _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
                     _log_path = _log_dir / f"task_{lid}_{_ts}.log"
                     with open(_log_path, "w", encoding="utf-8") as _log_fh:

@@ -4,18 +4,12 @@ import kuzu
 from collections import defaultdict
 from typing import Optional
 
+from cortex.paths import data_dir
+
 
 def get_graph_db_path(workspace: str) -> str:
     """kuzu DB 경로 반환"""
-    if workspace.endswith(".agents"):
-        base_dir = workspace
-    else:
-        base_dir = os.path.join(workspace, ".agents")
-
-    data_dir = os.path.join(base_dir, "data")
-    db_dir = os.path.join(data_dir, "graph_db_store")
-    os.makedirs(data_dir, exist_ok=True)
-    return db_dir
+    return str(data_dir(workspace) / "graph_db_store")
 
 
 def _kuzu_table(ntype: str) -> Optional[str]:

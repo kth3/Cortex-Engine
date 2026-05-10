@@ -41,7 +41,12 @@ indexing_rules:
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
 
-  # 인덱싱 범위: 기본적으로 프로젝트 전체를 포함 (블랙리스트 방식)
+  # 인덱싱 진입 루트: 여기에 지정된 경로만 하위 스캔합니다.
+  # 개인별 범위는 settings.local.yaml에서 오버라이드하세요.
+  index_roots:
+    - "."
+
+  # 루트 안에서 포함할 경로 필터
   # 참고: .gitignore에 등록된 항목은 자동으로 제외됩니다.
   include_paths:
     - "**"

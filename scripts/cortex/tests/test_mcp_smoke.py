@@ -28,6 +28,10 @@ requests = [
      "params": {"name": "pc_impact_graph",
                 "arguments": {"fqn": ".agents\\scripts\\cortex_mcp.py::call_pc_capsule",
                               "max_nodes": 10, "max_depth": 2}}},
+    # T5: index_roots dry-run tool
+    {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+     "params": {"name": "pc_index_roots_add",
+                "arguments": {"path": ".agents/scripts/cortex/tests", "dry_run": True}}},
 ]
 
 payload = "\n".join(json.dumps(r) for r in requests) + "\n"
@@ -73,6 +77,8 @@ tool_names = [t["name"] for t in tl]
 print(f"[T1] tools/list count={len(tool_names)}")
 check("pc_auto_explore removed", 'pc_auto_explore' not in tool_names)
 check("pc_capsule present", 'pc_capsule' in tool_names)
+check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
+check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)
 cap = next((t for t in tl if t["name"] == "pc_capsule"), None)
 if cap:
     cap_props = cap.get("inputSchema", {}).get("properties", {})
@@ -133,6 +139,13 @@ if isinstance(ig_res, dict):
     check("impact_graph metadata keys", all(k in ig_res for k in ("truncated", "limit", "returned_count", "total_seen")))
 else:
     check("impact_graph metadata keys", False, "non-dict response")
+
+# T5: index_roots add dry-run
+print()
+ir_res = _extract(results.get(6, {}).get("result"))
+if isinstance(ir_res, dict):
+    check("index_roots_add dry_run executed false", ir_res.get('executed') is False)
+    check("index_roots_add scan_count present", isinstance(ir_res.get('scan_count'), int))
 
 # 후속 검증: DB에 smoke_dryrun_2026이 실제로 없어야 함 (dry_run 안전성)
 print()
