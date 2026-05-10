@@ -40,6 +40,7 @@ from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
 from cortex import paths as pc_paths
 from cortex.indexer_utils import load_settings, scan_files
+from cortex.mcp.response import create_text_response, create_error_response
 
 def _find_real_workspace(start_path):
     return str(pc_paths.resolve_workspace(start_path))
@@ -889,14 +890,8 @@ def handle_request(req):
                          "note": "relay lock will be auto-released on completion"}
             else: return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": f"Unknown tool: {n}"}}
             
-            if isinstance(r, (dict, list)):
-                final_res = json.dumps(r, ensure_ascii=False, indent=2)
-            else:
-                final_res = str(r)
-            if hook_msg:
-                final_res = f"{hook_msg}\n{final_res}"
-            return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": final_res}]}}
-        except Exception as e: return {"jsonrpc": "2.0", "id": rid, "result": {"isError": True, "content": [{"type": "text", "text": f"Error: {str(e)}\n{traceback.format_exc()}"}]}}
+            return create_text_response(rid, r, hook_msg)
+        except Exception as e: return create_error_response(rid, e)
     return {"jsonrpc": "2.0", "id": rid, "result": {}} if rid else None
 
 
