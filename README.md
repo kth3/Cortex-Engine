@@ -1,178 +1,155 @@
 [English Version Available](README.en.md)
 
-# 🌌 Cortex Agent Infrastructure (`.cortex`)
+# Cortex Agent Infrastructure (`.cortex`)
 
 **"The Bridge between Human Intent and Agent Intelligence."**
 
-파편화된 에이전트의 기억을 영속화하고, MCP(Model Context Protocol)를 통해 어떤 프로젝트에서든 즉시 작업 맥락(Context)을 형성할 수 있도록 설계된 **범용 에이전트 엔지니어링 인프라**입니다. 본 프로젝트는 최신 멀티 에이전트 오케스트레이션 패턴과 하이브리드 데이터베이스 기술을 결합하여 강력한 컨텍스트 엔진을 제공합니다.
+파편화된 에이전트의 기억을 영속화하고, MCP(Model Context Protocol)를 통해 어떤 프로젝트에서든 즉시 작업 맥락을 형성할 수 있도록 설계된 범용 에이전트 엔지니어링 인프라입니다. 최신 멀티 에이전트 오케스트레이션 패턴과 하이브리드 데이터베이스 기술을 결합하여 로컬 우선 컨텍스트 엔진을 제공합니다.
 
-최근 **v2.1.0 릴리즈**부터는 "Inference Economy" 철학을 바탕으로, 백그라운드 오버헤드가 제로에 가까운 **하드웨어 인지형 하이브리드 엔진**으로 거듭났습니다.
+최근 구조는 `.cortex` 경로 모델을 기본으로 사용하며, 기존 단일 제어 파일 중심 구조를 dispatcher/server/runtime 계층으로 분리하는 방향으로 정리되었습니다.
 
 ---
 
-## 🏗 시스템 아키텍처 (Architecture)
+## 시스템 아키텍처
 
-단일체(Monolith)였던 기존 V1 엔진을 기능별 전문 모듈로 완전히 분리하여 확장성과 안정성을 극대화했습니다.
+기존 단일체 엔진은 MCP dispatcher, engine server, embedding worker, watcher, process control 계층으로 분리되었습니다. `cortex_ctl.py`는 thin entrypoint로 남고, 실제 start/status/stop 로직은 `scripts/cortex/runtime/` 하위 모듈에 위치합니다.
 
 ```mermaid
 graph TD
-    %% Layer 1: Concurrency Control
-    subgraph Layer1 [Layer 1 : Concurrency Control]
-        Agent([Multiple Agents])
-        Relay[(Relay : Multi-Lane Lock)]
-    end
-    Agent -->|1. Acquire Lock| Relay
-    
-    %% Layer 2: API Gateway
-    subgraph Layer2 [Layer 2 : API Gateway]
-        MCP[Thin MCP Server]
-    end
-    Relay -->|2. Request| MCP
-    
-    %% Layer 3: Central Orchestration
-    Orchestrator{{"Orchestrator<br>(Task Center)"}}
-    MCP -->|3. Forward Task| Orchestrator
-    
-    %% Layer 4: Cognitive Pipeline
-    subgraph Layer4 [Layer 4 : Cognitive Pipeline]
-        Indexer[Opportunistic Indexer]
-        Vectorizer[Hardware-Aware Vectorizer]
-        Search[Hybrid Search]
-        Edit[Fuzzy Edit]
-    end
-    
-    %% Orchestrator sends commands down
-    Orchestrator -->|4a. Auto Sync| Indexer
-    Indexer --- Vectorizer
-    Orchestrator -->|4b. Execute| Search
-    Orchestrator -->|4c. Execute| Edit
-    
-    %% External AI Model
-    V_Model((SentenceTransformers))
-    Vectorizer -.->|Load Weights| V_Model
-    
-    %% Layer 5: Persistence
-    subgraph Layer5 [Layer 5 : Polystore]
-        DB[(Memories DB Vector/FTS5)]
-        GDB[(Graph DB Kuzu)]
-    end
-    
-    %% Writing data
-    Vectorizer --> DB
-    Search --> DB
-    Search --> GDB
-    Edit --> DB
-    
-    %% ==========================================
-    %% Return Pipeline: Raw Data -> Guardrails -> MCP
-    %% ==========================================
-    %% 5. DB returns raw results back to Orchestrator
-    DB & GDB -.->|5. Return Raw Data| Orchestrator
-    
-    Rules{{"Hardcoded Guardrails<br>(Safety Filter)"}}
-    
-    %% 6. Orchestrator pushes raw data through Guardrails
-    Orchestrator ==>|6. Enforce Policy| Rules
-    
-    %% 7. Cleaned response goes back to MCP
-    Rules ==>|7. Verified Response| MCP
+    Agent([Agents / CLI]) --> MCP[Thin MCP Server]
+    MCP --> Dispatcher[Tool Dispatcher]
+    Dispatcher --> Search[Search/Edit/Memory Handlers]
+    Dispatcher --> Engine[Vector Engine Server]
+    Engine --> Router[Engine Router]
+    Router --> Worker[Embedding Worker]
+    Router --> Idle[Idle Monitor]
+    CTL[cortex_ctl.py] --> Control[Runtime Control]
+    Control --> Process[Process Layer]
+    Control --> Lock[Lock Layer]
+    Control --> Logs[Logging Layer]
+    Control --> Engine
+    Control --> Watcher[Watcher Launcher]
+    Control --> LocalDaemon[Optional Local Daemon]
+    Search --> DB[(SQLite / sqlite-vec / FTS5)]
+    Search --> GDB[(Kuzu Graph DB)]
+    Worker --> Model((SentenceTransformers))
 ```
-
 
 ---
 
-## 🚀 주요 이념 및 특징 (Key Features)
+## 주요 특징
 
 ### 1. Hybrid Context Engine & AST Parsing
-*   **AST Structural Parsing (`Tree-sitter`)**: 정규식의 한계를 넘어 C#(Unity), TypeScript, Python 등의 코드를 추상 구문 트리(AST) 수준으로 분석하여 클래스, 메서드, 라이프사이클 훅을 정밀하게 추출합니다.
-*   **Vector Search (`sqlite-vec`)**: 무거운 FAISS 등 외부 종속성 없이 로컬 환경에 100% 네이티브로 구동되어 시맨틱 검색을 수초 내에 복원합니다.
-*   **Graph Analysis (`Kuzu DB`)**: Cypher 쿼리를 통해 모듈 간 함수 호출(Calls), 포함 관계(Contains), 외부 라이브러리 참조(External)를 추적하여 입체적인 컨텍스트를 제공합니다.
-*   **FTS5 Text Search**: 키워드 기반 고속 텍스트 검색과 RRF(Reciprocal Rank Fusion) 스코어링을 지원합니다.
 
-### 2. 추론 경제 & 하드웨어 인지 전략 (Inference Economy)
-*   **하드웨어 자동 가속 (Flash-Attention & MPS/CUDA)**: 엔진이 환경을 스캔하여 NVidia GPU(Flash-Attention 2/BF16) 또는 Mac(MPS)을 자동 감지하고 최적의 텐서 연산을 수행합니다.
-*   **GPU_THRESHOLD 휴리스틱**: VRAM을 아끼기 위해 20건 이내의 소규모 데이터는 강제로 CPU 처리하며, 작업 완료 시 즉각 `release_gpu()`를 호출해 VRAM을 반환합니다.
-*   **지능형 성능 스로틀링 (`settings.yaml`)**: 엔진이 구동 순간 현재 PC 사양을 감지하여 기기 다운을 막기 위해 캐시 정리 주기와 배치 사이즈를 자가 제어(Dynamic Downscaling)합니다.
-*   **하이브리드 동기화 (Resident + Opportunistic)**: `watchdog` 기반 상주형 데몬이 백그라운드에서 실시간 동기화를 수행하며, 데몬 유실 등 예외 상황에 대비해 에이전트가 MCP를 호출할 때 방어적으로 `mtime`을 추가 스캔하는 듀얼 동기화 체계를 갖췄습니다.
+- **AST Structural Parsing (`Tree-sitter`)**: Python, C#, TypeScript 등의 코드를 AST 수준으로 분석하여 클래스, 함수, 호출 관계를 추출합니다.
+- **Vector Search (`sqlite-vec`)**: 로컬 SQLite 기반 벡터 검색으로 외부 서버 없이 시맨틱 검색을 수행합니다.
+- **Graph Analysis (`Kuzu DB`)**: 함수 호출, 포함 관계, 외부 참조를 그래프 형태로 추적합니다.
+- **FTS5 Text Search**: 키워드 기반 검색과 RRF(Reciprocal Rank Fusion) 결합을 지원합니다.
 
-### 3. Multi-Lane Parallel Execution
-단일 전역 Lock의 한계를 넘어, **도메인(Lane) 기반의 병렬 락 시스템**을 지원합니다. 여러 터미널에서 동시에 작업하더라도 각자 할당된 레인(예: `frontend`, `backend`)에서 충돌 없이 안전하게 핸드오프가 가능합니다. (`fcntl` 배타적 락 기반)
+### 2. Runtime Modularization
 
-### 4. Precision Editing (Hashline Style)
-줄 번호 어긋남으로 인한 코드 훼손을 방지하기 위해 내용 기반 치환을 사용합니다. 이제 편집 엔진에 소형 LLM(0.6B) 특유의 들여쓰기 공백 실수까지 잡아내는 퍼지 매칭 로직이 탑재되어 더욱 안전해졌습니다.
+런타임 제어 계층은 다음처럼 분리되어 있습니다.
 
-### 5. Lean Context Optimization & Guardrails
-`.geminiignore` 등을 통해 에이전트의 오염된 파일 스캔은 차단하고, 쉘 명령(`grep`, `find` 등)을 직접 입력하는 것을 엄격히 금지합니다. 모든 탐색과 편집은 통제된 **캡슐 검색(Capsule Search)**과 MCP 파이프라인을 거치도록 강제하여 토큰 효율과 작업 안정성을 극대화합니다.
+- `runtime/paths.py`: 포트, 스크립트, 로그/락 파일 경로
+- `runtime/ipc.py`: 길이 prefix 기반 소켓 메시지 송수신
+- `runtime/environment.py`: child process 환경 변수 구성
+- `runtime/process.py`: 백그라운드 프로세스 실행 및 PID 관리
+- `runtime/lock.py`: ctl 실행 단위 상호 배제
+- `runtime/logging.py`: 런타임 로그 설정
+- `runtime/control.py`: start/status/stop orchestration
+- `runtime/engine_server.py`: engine server entrypoint
+- `runtime/engine_router.py`: worker 라우팅 및 idle 모니터 연계
+- `runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
+- `runtime/worker_manager.py`: worker 기동/종료/상태 확인
+- `runtime/watcher_launcher.py`: watchdog watcher 실행
+- `runtime/local_daemon.py`: 선택적 local daemon 실행
+
+이 구조는 Python 구현을 유지하면서도 추후 CLI hook 연동, Rust 등 일부 구성요소 포팅, worker 교체를 쉽게 하기 위한 경계입니다.
+
+### 3. `.cortex` Path Model
+
+신규 기준 경로는 `.cortex`입니다. `.agents`는 레거시 호환 경로로 남아 있으나, 설치/문서/CI는 `.cortex` 기준으로 정리됩니다.
+
+- `CORTEX_HOME`: Cortex 인프라 루트
+- `CORTEX_WORKSPACE`: 실제 작업 대상 프로젝트 루트
+- `CORTEX_ENV_PATH`: `.env` 파일 위치를 직접 지정할 때 사용
+
+### 4. Multi-Lane Parallel Execution
+
+도메인(Lane) 기반 병렬 락 시스템을 통해 여러 터미널 또는 에이전트가 동시에 작업할 때 충돌을 줄입니다. 릴레이 계층은 작업 핸드오프와 동시성 제어를 담당합니다.
+
+### 5. Hardware-Aware Embedding Strategy
+
+SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 격리합니다. GPU/MPS/CUDA 사용은 Python worker에 남겨 두고, control/server/router 계층은 모델 의존성을 낮춘 구조로 유지합니다.
 
 ---
 
-## 📂 디렉토리 구조 (Directory Structure)
+## 디렉토리 구조
 
-```
+```text
 .cortex/
-├── data/           # [비공유] 상태 및 하이브리드 DB (Kuzu, sqlite-vec)
-├── docs/           # [비공유] 인프라 관련 문서 (구조만 공유)
-├── history/        # [비공유] 세션별 작업 이력 및 관찰 기록
-├── hooks/          # 런타임 라이프사이클 훅 (hooks_manager 디스패처)
+├── data/           # [비공유] 상태 및 하이브리드 DB
+├── docs/           # [비공유] 인프라 관련 문서
+├── history/        # [비공유] 세션별 작업 이력 및 로그
+├── hooks/          # 런타임 라이프사이클 훅
 ├── rules/          # 에이전트 행동 규칙 및 정밀 편집 지침
-├── scripts/        # Cortex 코어 모듈, MCP 서버 및 릴레이 관리 스크립트
+├── scripts/        # Cortex 코어 모듈, MCP 서버, runtime 제어 계층
 ├── skills/         # [비공유] 에이전트 전용 스킬 가이드
-├── tasks/          # 능동적 추적을 위한 작업 문서 (Todo Manager)
-├── templates/      # 시스템 템플릿 파일 및 ignore 번들
+├── tasks/          # 능동적 추적을 위한 작업 문서
+├── templates/      # 시스템 템플릿 및 ignore 번들
 ├── knowledge/      # 외부 지식 라이브러리
-├── pyproject.toml  # uv 기반 선언적 의존성 및 GPU 그룹 설정
-├── .venv/          # [비공유] 파이썬 가상 환경 (uv 자동 관리)
-├── uv.lock         # 패키지 버전 잠금 파일
+├── pyproject.toml  # uv 기반 의존성 선언
+├── .venv/          # [비공유] uv 가상 환경
+├── uv.lock         # 패키지 잠금 파일
 ├── .env            # [비공유] 환경 변수
-└── settings.yaml   # 인프라 전역 설정 및 튜닝 파라미터
+└── settings.yaml   # 인프라 전역 설정
 ```
 
 ---
 
-## 🛠 설치 및 사용 (Installation)
+## 설치 및 사용
 
-- **상세 가이드**: [INSTALL.md](./INSTALL.md)
-- **핵심 커맨드**:
-  - `/로드`: Google Drive에서 `.cortex` 폴더를 워크스페이스로 가져오기
-  - `/백업`: 현재 `.cortex` 로컬 상태를 Google Drive에 백업 (`rclone` 기반)
-  - `/지식화`: 주요 결정 사항 및 성공 패턴 영구 저장
-  - `uv run --project .cortex python .cortex/scripts/relay.py status`: 현재 릴레이(멀티 에이전트 락) 상태 확인
+상세 가이드는 [INSTALL.md](./INSTALL.md)를 참고하십시오.
 
----
+핵심 커맨드:
 
-## 🔬 핵심 차별점 (Key Differentiators)
+```bash
+uv sync --project .cortex
+uv run --project .cortex python .cortex/scripts/cortex/indexer.py . --force
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py status
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py start
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py stop
+```
 
-Cortex는 일반 RAG 도구와 달리 로컬 개발 환경의 극한 최적화와 에이전트 간의 신뢰성에 집중합니다.
-
-*   **다차원 하이브리드 RAG (Integrated Polystore)**: 
-    *   Vector(sqlite-vec) + FTS5 + Graph(Kuzu) 시스템을 단일 RRF(Reciprocal Rank Fusion) 스코어링 체계로 통합.
-    *   단순 검색을 넘어 코드 노드와 전문가 스킬 간의 복합 관계 추적.
-*   **지연 시간 우선 하드웨어 전략 (Latency-First HW Optimization)**:
-    *   연산량에 따라 CPU/GPU를 동적으로 스위칭하여 모델 로딩 및 VRAM 전송 오버헤드 최소화.
-    *   6GB 수준의 저사양 VRAM 환경에서의 안정적 구동 및 즉각적인 자원 반환(`release_gpu`).
-*   **원자적 멀티 에이전트 제어 (Atomic Concurrency)**:
-    *   `fcntl` 기반 커널 수준 배타적 락을 통해 TOCTOU(Time-Of-Check-Time-Of-Use) 오류 방지.
-    *   도메인(Lane)별 세분화된 락 시스템으로 병렬 작업 효율 극대화.
-*   **엔지니어링 중심 인프라**:
-    *   IDE 플러그인 형태가 아닌, 에이전트가 스스로 판단하고 비판하며 성장할 수 있는 '관제탑(Relay)' 역할 수행.
+MCP 등록 시에는 `PYTHONPATH`, `CORTEX_HOME`, `CORTEX_WORKSPACE`를 명시하는 것을 권장합니다.
 
 ---
 
-## 🙌 영감 및 참고 (Inspirations)
+## CI 검증 범위
 
-Cortex는 다음의 프로젝트들의 개념을 파이썬 기반으로 경량화하고 통합하여 탄생했습니다.
+GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
-- **Vexp ([https://vexp.dev/](https://vexp.dev/))**: 
-  - 범용 워크플로 프레임워크의 구조와 DB 스키마 형식을 참고하여 로컬 컨텍스트 엔진으로 재구현하였습니다.
-- **oh-my-agent ([first-fluke/oh-my-agent](https://github.com/first-fluke/oh-my-agent))**: 
-  - 역할 기반의 에이전트 전문화 및 포터블한 에이전트 정의 개념을 도입했습니다.
-- **oh-my-claudecode ([Yeachan-Heo/oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode))**: 
-  - 소크라테스식 심층 인터뷰(Deep Interview)와 아티팩트 기반 핸드오프 패턴을 흡수했습니다.
-- **oh-my-openagent ([code-yeongyu/oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent))**: 
-  - 해시 기반 정밀 편집(Hashline)과 무한 검증 루프(Sisyphus-style)를 통한 작업 완료 보장 메커니즘을 이식했습니다.
+- `uv sync` 기반 의존성 설치
+- `scripts/**/*.py` 전체 `py_compile`
+- runtime 모듈 import smoke
+- `scripts/cortex/tests/test_*.py` 회귀 테스트
+- `.cortex` 기준 테스트 워크스페이스 인덱싱
+- MCP JSON-RPC smoke test
+
+장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다.
 
 ---
 
-## ⚖️ 라이선스 (License)
+## 영감 및 참고
+
+- **Vexp**: 범용 워크플로 프레임워크 구조와 DB 스키마 형식 참고
+- **oh-my-agent**: 역할 기반 에이전트 전문화 및 포터블 에이전트 정의 개념
+- **oh-my-claudecode**: 심층 인터뷰와 아티팩트 기반 핸드오프 패턴
+- **oh-my-openagent**: 해시 기반 정밀 편집과 검증 루프 패턴
+
+---
+
+## 라이선스
+
 - **Code**: [MIT License](LICENSE)
 - **Knowledge**: 외부 지식 라이브러리의 원본은 [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills)이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 라이선스를 따릅니다.
