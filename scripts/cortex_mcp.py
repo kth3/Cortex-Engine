@@ -48,6 +48,17 @@ def _find_real_workspace(start_path):
 WORKSPACE = _find_real_workspace(SCRIPTS_DIR)
 SESSION_ID = str(uuid.uuid4())[:8]
 
+from cortex.mcp.context import McpContext
+from cortex.mcp.tools.indexing import (
+    call_pc_reindex,
+    call_pc_index_status,
+    call_pc_index_roots_list,
+    call_pc_index_roots_add,
+    call_pc_index_roots_remove,
+)
+
+CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
+
 # 싱글톤 인스턴스
 _storage = None
 _skills = None
@@ -135,94 +146,7 @@ def call_save_observation(args):
     return res
 
 
-def _read_local_settings():
-    import yaml
-    _, local_path = pc_paths.settings_paths(WORKSPACE)
-    if not local_path.exists():
-        return {}, local_path
-    with open(local_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}, local_path
 
-
-def _write_local_settings(data, local_path):
-    import yaml
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(local_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
-
-
-def _effective_index_roots(settings):
-    rules = settings.get("indexing_rules", {}) or {}
-    roots = rules.get("index_roots")
-    if roots is None:
-        roots = ["."]
-    if isinstance(roots, str):
-        roots = [roots]
-    return list(dict.fromkeys(roots or []))
-
-
-def _validated_index_root(raw_path):
-    if not raw_path or not str(raw_path).strip():
-        raise ValueError("index root path is required")
-    if any(ch in str(raw_path) for ch in "*?"):
-        raise ValueError("glob patterns are not allowed for index_roots")
-
-    ws = Path(WORKSPACE).resolve()
-    raw = Path(str(raw_path).strip()).expanduser()
-    target = raw.resolve() if raw.is_absolute() else (ws / raw).resolve()
-    target.relative_to(ws)
-    rel = target.relative_to(ws)
-    rel_text = "." if str(rel) == "." else str(rel).replace("\\", "/")
-
-    dangerous = {".git", "node_modules", "library", "temp"}
-    parts = {p.lower() for p in Path(rel_text).parts}
-    if rel_text != "." and parts & dangerous:
-        raise ValueError("dangerous index root rejected")
-    return rel_text
-
-
-def _index_roots_scan_count(candidate_roots):
-    settings = load_settings(WORKSPACE)
-    settings.setdefault("indexing_rules", {})["index_roots"] = candidate_roots
-    return len(scan_files(WORKSPACE, pc_indexer.SUPPORTED_EXTENSIONS, settings_override=settings))
-
-
-def call_pc_index_roots_list(args):
-    settings = load_settings(WORKSPACE)
-    roots = _effective_index_roots(settings)
-    ws = Path(WORKSPACE).resolve()
-    resolved = []
-    for root in roots:
-        target = ws if root == "." else (ws / root).resolve()
-        resolved.append({"path": root, "absolute": str(target), "exists": target.exists()})
-    _, local_path = pc_paths.settings_paths(WORKSPACE)
-    return {"index_roots": roots, "resolved": resolved, "settings_local": str(local_path)}
-
-
-def call_pc_index_roots_add(args):
-    dry_run = args.get("dry_run", True)
-    root = _validated_index_root(args["path"])
-    local_settings, local_path = _read_local_settings()
-    roots = _effective_index_roots(load_settings(WORKSPACE))
-    if root not in roots:
-        roots.append(root)
-    scan_count = _index_roots_scan_count(roots)
-    if not dry_run:
-        local_settings.setdefault("indexing_rules", {})["index_roots"] = roots
-        _write_local_settings(local_settings, local_path)
-    return {"executed": not dry_run, "index_roots": roots, "scan_count": scan_count, "settings_local": str(local_path)}
-
-
-def call_pc_index_roots_remove(args):
-    dry_run = args.get("dry_run", True)
-    root = _validated_index_root(args["path"])
-    local_settings, local_path = _read_local_settings()
-    roots = [r for r in _effective_index_roots(load_settings(WORKSPACE)) if r != root]
-    scan_count = _index_roots_scan_count(roots)
-    if not dry_run:
-        local_settings.setdefault("indexing_rules", {})["index_roots"] = roots
-        _write_local_settings(local_settings, local_path)
-    return {"executed": not dry_run, "index_roots": roots, "scan_count": scan_count, "settings_local": str(local_path)}
 
 
 def _append_markdown_with_archive(target_filename, content):
@@ -793,12 +717,11 @@ def handle_request(req):
 
             # [Opportunistic Indexing] 동기식 인덱싱 호출 부분 삭제 (백그라운드 Watcher 데몬으로 위임됨)
 
-            if n == "pc_reindex": r = pc_indexer.index_workspace(WORKSPACE, force=a.get("force", False))
-            elif n == "pc_index_status": 
-                conn = pc_db.get_connection(WORKSPACE); r = pc_db.get_stats(conn); conn.close()
-            elif n == "pc_index_roots_list": r = call_pc_index_roots_list(a)
-            elif n == "pc_index_roots_add": r = call_pc_index_roots_add(a)
-            elif n == "pc_index_roots_remove": r = call_pc_index_roots_remove(a)
+            if n == "pc_reindex": r = call_pc_reindex(CTX, a)
+            elif n == "pc_index_status": r = call_pc_index_status(CTX, a)
+            elif n == "pc_index_roots_list": r = call_pc_index_roots_list(CTX, a)
+            elif n == "pc_index_roots_add": r = call_pc_index_roots_add(CTX, a)
+            elif n == "pc_index_roots_remove": r = call_pc_index_roots_remove(CTX, a)
             elif n == "pc_capsule": r = call_pc_capsule(a)
             elif n == "pc_skeleton": r = pc_skeleton_mod.generate_skeleton(WORKSPACE, a["file_path"], a.get("detail", "standard"))
             elif n == "pc_impact_graph": r = call_pc_impact_graph(a)
