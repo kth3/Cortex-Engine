@@ -444,6 +444,13 @@ def call_pc_session_sync(args):
 
 
 
+def call_pc_git_log(args):
+    try:
+        history = pc_git_mod.get_file_history(WORKSPACE, args["file_path"], args.get("limit", 5))
+        return history
+    except Exception as e:
+        return {"error": str(e)}
+
 def call_pc_auto_context(args):
     token_budget = args.get("token_budget", 2000)
     conn = pc_db.get_connection(WORKSPACE)
