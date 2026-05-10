@@ -1,24 +1,27 @@
 """
-Cortex 통합 로거 (v2.2)
-- 기본 로그는 .agents/history/cortex.log로 수렴.
+Cortex 통합 로거 (v2.3)
+- 기본 로그는 CORTEX_HOME/history/cortex.log로 수렴.
 - Windows 다중 프로세스 환경에서는 롤오버 충돌(WinError 32)을 피하기 위해 회전 비활성화.
 """
+from __future__ import annotations
+
 import logging
-import sys
 import os
+import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+
+from cortex.paths import history_dir, resolve_workspace
 
 LOGGER_NAME = "cortex"
-WORKSPACE = Path(__file__).resolve().parent.parent.parent.parent
-LOG_FILE = WORKSPACE / ".agents" / "history" / "cortex.log"
+WORKSPACE = resolve_workspace(__file__)
+LOG_FILE = history_dir(WORKSPACE) / "cortex.log"
 MAX_BYTES = 1 * 1024 * 1024  # 1MB 상한선
 BACKUP_COUNT = 3             # 1.gz, 2.gz... 최대 3개 보관
 
 _initialized = False
 
 
-def get_logger(module_name: str = None) -> logging.Logger:
+def get_logger(module_name: str | None = None) -> logging.Logger:
     global _initialized
 
     root_logger = logging.getLogger(LOGGER_NAME)
