@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import os
-import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -11,10 +9,7 @@ from pathlib import Path
 
 import psutil
 
-from .paths import ENGINE_PORT, TARGET_PORTS
-
-
-UV_BIN = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+from .paths import TARGET_PORTS
 
 
 def uv_cmd(script: Path) -> list[str]:
