@@ -28,6 +28,13 @@ class WorkerState:
     def ready(self) -> bool:
         return self.model is not None and self.model_load_error is None
 
+    def status_response(self) -> dict[str, str]:
+        if self.model_load_error:
+            return {"status": "error", "message": f"Model load failed: {self.model_load_error}"}
+        if self.model is None:
+            return {"status": "loading", "message": "Model is still loading in background"}
+        return {"status": "ok", "message": "Worker is fully ready"}
+
 
 def _load_model_bg(state: WorkerState) -> None:
     try:
@@ -69,6 +76,29 @@ def _shutdown_worker(state: WorkerState) -> None:
     os._exit(0)
 
 
+def _handle_embed(conn: socket.socket, request: dict[str, Any], state: WorkerState) -> None:
+    if state.model_load_error:
+        send_msg(conn, {"status": "error", "message": f"Model load failed: {state.model_load_error}"})
+        return
+
+    if state.model is None:
+        send_msg(conn, {"status": "loading", "message": "Model is not ready yet"})
+        return
+
+    texts = request.get("texts", [])
+    if not texts:
+        send_msg(conn, {"status": "ok", "embeddings": []})
+        return
+
+    embeddings = state.model.encode(
+        texts,
+        batch_size=16,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    ).tolist()
+    send_msg(conn, {"status": "ok", "embeddings": embeddings})
+
+
 def _handle_worker_request(conn: socket.socket, state: WorkerState) -> bool:
     request = recv_msg(conn)
     if not request:
@@ -77,12 +107,7 @@ def _handle_worker_request(conn: socket.socket, state: WorkerState) -> bool:
     cmd = request.get("command", "embed")
 
     if cmd == "ping":
-        if state.model_load_error:
-            send_msg(conn, {"status": "error", "message": f"Model load failed: {state.model_load_error}"})
-        elif state.model is None:
-            send_msg(conn, {"status": "loading", "message": "Model is still loading in background"})
-        else:
-            send_msg(conn, {"status": "ok", "message": "Worker is fully ready"})
+        send_msg(conn, state.status_response())
         return True
 
     if cmd == "shutdown":
@@ -93,22 +118,7 @@ def _handle_worker_request(conn: socket.socket, state: WorkerState) -> bool:
         return False
 
     if cmd == "embed":
-        if state.model_load_error:
-            send_msg(conn, {"status": "error", "message": f"Model load failed: {state.model_load_error}"})
-        elif state.model is None:
-            send_msg(conn, {"status": "loading", "message": "Model is not ready yet"})
-        else:
-            texts = request.get("texts", [])
-            if not texts:
-                send_msg(conn, {"status": "ok", "embeddings": []})
-            else:
-                embeddings = state.model.encode(
-                    texts,
-                    batch_size=16,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                ).tolist()
-                send_msg(conn, {"status": "ok", "embeddings": embeddings})
+        _handle_embed(conn, request, state)
         return True
 
     send_msg(conn, {"status": "error", "message": f"Unknown command: {cmd}"})
