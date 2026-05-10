@@ -2,7 +2,6 @@ import argparse
 import os
 import socket
 import socketserver
-import subprocess
 import sys
 import threading
 import time
@@ -19,6 +18,7 @@ from cortex.paths import resolve_workspace
 from cortex.runtime.ipc import recv_msg, send_msg, send_request
 from cortex.runtime.logging import relay_subprocess_output
 from cortex.runtime.paths import ENGINE_HOST as ROUTER_HOST, ENGINE_PORT as ROUTER_PORT, WATCHER_SCRIPT, WORKER_PORT
+from cortex.runtime.process import launch_logged_process
 
 # 서버는 직접 파일에 로그를 남겨야 함 (ctl이 종료된 후에도 유지되도록)
 logger = get_logger("server")
@@ -183,11 +183,9 @@ def ensure_worker_running():
             env["CORTEX_NO_FILE_LOG"] = "1"
             script_path = os.path.abspath(__file__)
 
-            worker_process = subprocess.Popen(
+            worker_process = launch_logged_process(
                 [sys.executable, script_path, "--worker"],
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                env,
             )
 
             threading.Thread(
@@ -347,11 +345,9 @@ def main():
         child_env["CORTEX_NO_FILE_LOG"] = "1"
         child_env["PYTHONUNBUFFERED"] = "1"
 
-        watcher_proc = subprocess.Popen(
+        watcher_proc = launch_logged_process(
             [sys.executable, "-u", str(WATCHER_SCRIPT)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=child_env,
+            child_env,
             start_new_session=True,
         )
         threading.Thread(
