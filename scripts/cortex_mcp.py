@@ -35,7 +35,6 @@ from cortex import hooks_manager as pc_hooks
 from cortex.persistent_memory import PersistentMemoryManager
 from cortex.skill_manager import SkillManager
 from cortex.orchestrator import manage_todo, create_contract
-from cortex.edit_engine import read_with_hash, strict_replace, record_edit_event
 from cortex.search_engine import unified_pipeline_search
 from cortex import vector_engine as ve
 from cortex import paths as pc_paths
@@ -63,6 +62,10 @@ from cortex.mcp.tools.search import (
     call_pc_logic_flow,
     call_pc_run_pipeline,
 )
+from cortex.mcp.tools.edit import (
+    call_pc_read_with_hash,
+    call_strict_replace,
+)
 
 CTX = McpContext(workspace=WORKSPACE, session_id=SESSION_ID, scripts_dir=SCRIPTS_DIR)
 
@@ -87,59 +90,6 @@ def get_skills():
 
 def call_todo_manager(args):
     return manage_todo(WORKSPACE, args["action"], args.get("task"), args.get("task_id"))
-
-def call_strict_replace(args):
-    file_path = args["file_path"]
-    try:
-        full_path_obj = (Path(WORKSPACE) / file_path).resolve()
-        full_path_obj.relative_to(Path(WORKSPACE).resolve())
-        full_path = str(full_path_obj)
-    except Exception as e:
-        return {"error": f"File path validation failed before edit: {e}"}
-
-    before_content = None
-    try:
-        with open(full_path, "r", encoding="utf-8") as f:
-            before_content = f.read()
-    except Exception as e:
-        return {"error": f"File read before edit failed: {e}"}
-
-    res = strict_replace(WORKSPACE, file_path, args["old_content"], args["new_content"])
-    if "success" in res:
-        try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                after_content = f.read()
-            conn = pc_db.get_connection(WORKSPACE)
-            try:
-                pc_db.init_schema(conn)
-                record_edit_event(
-                    conn,
-                    workspace=WORKSPACE,
-                    file_path=file_path,
-                    before_content=before_content,
-                    after_content=after_content,
-                    session_id=SESSION_ID,
-                    event_source="cortex_mcp",
-                    tool_name="pc_strict_replace",
-                    edit_summary=f"Strict edit: {file_path}",
-                )
-            finally:
-                conn.close()
-        except Exception as e:
-            # 편집은 이미 디스크에 반영된 뒤이므로, 감사/관측용 DB 기록 실패를 편집 실패로
-            # 되돌리면 실제 상태와 응답이 어긋난다. success는 유지하고 별도 필드로 노출해
-            # 운영자가 로깅 경로 문제만 분리해서 추적할 수 있게 한다.
-            res["event_log_error"] = str(e)
-
-        # [Lifecycle Hook] After Edit Hook 실행
-        hook_feedback = pc_hooks.dispatch(WORKSPACE, "after_edit", os.path.join(WORKSPACE, file_path))
-        if hook_feedback: res["hook_feedback"] = hook_feedback
-        
-        pc_mem_mod.save_observation(WORKSPACE, SESSION_ID, "edit", f"Strict edit: {file_path}", [file_path])
-        
-        # [Lifecycle Hook] After Save Observation (자동 추출)
-        pc_hooks.dispatch(WORKSPACE, "after_save_observation")
-    return res
 
 def call_create_contract(args):
     res = create_contract(WORKSPACE, SESSION_ID, args["lane_id"], args["task_name"], args["instructions"], args.get("files_to_modify"))
@@ -556,8 +506,8 @@ def handle_request(req):
             elif n == "pc_git_log": r = call_pc_git_log(a)
             elif n == "pc_run_pipeline": r = call_pc_run_pipeline(CTX, a)
             elif n == "pc_auto_context": r = call_pc_auto_context(a)
-            elif n == "pc_read_with_hash": r = read_with_hash(WORKSPACE, a["file_path"])
-            elif n == "pc_strict_replace": r = call_strict_replace(a)
+            elif n == "pc_read_with_hash": r = call_pc_read_with_hash(CTX, a)
+            elif n == "pc_strict_replace": r = call_strict_replace(CTX, a)
             elif n == "pc_create_contract": r = call_create_contract(a)
             elif n == "pc_todo_manager": r = call_todo_manager(a)
             elif n == "pc_session_sync": r = call_pc_session_sync(a)
