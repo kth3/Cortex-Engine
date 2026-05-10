@@ -35,7 +35,7 @@ class _FileLock:
                 # 락 소유자 정보 기록 (디버깅용)
                 os.write(self._fd, f"{os.getpid()}:{time.time()}".encode())
                 return
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
                 # 락 파일이 이미 존재 → 다른 프로세스가 점유 중
                 if time.monotonic() - start > self.timeout:
                     # 타임아웃: 좀비 락일 가능성 → 강제 해제 후 재시도
