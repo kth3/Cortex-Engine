@@ -1,9 +1,7 @@
 import argparse
-import json
 import os
 import socket
 import socketserver
-import struct
 import subprocess
 import sys
 import threading
@@ -18,8 +16,9 @@ if SCRIPTS_DIR not in sys.path:
 
 from cortex.logger import get_logger
 from cortex.paths import resolve_workspace
+from cortex.runtime.ipc import recv_msg, send_msg, send_request
 from cortex.runtime.logging import relay_subprocess_output
-from cortex.runtime.paths import WATCHER_SCRIPT, WORKER_PORT, ENGINE_HOST as ROUTER_HOST, ENGINE_PORT as ROUTER_PORT
+from cortex.runtime.paths import ENGINE_HOST as ROUTER_HOST, ENGINE_PORT as ROUTER_PORT, WATCHER_SCRIPT, WORKER_PORT
 
 # 서버는 직접 파일에 로그를 남겨야 함 (ctl이 종료된 후에도 유지되도록)
 logger = get_logger("server")
@@ -43,35 +42,6 @@ def get_idle_timeout() -> int:
 
 
 IDLE_TIMEOUT = get_idle_timeout()
-
-
-# ==========================================
-# 소켓 통신 유틸리티
-# ==========================================
-def recv_exact(sock, n):
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(min(n - len(data), 4096))
-        if not chunk:
-            return None
-        data += chunk
-    return data
-
-
-def recv_msg(sock):
-    header = recv_exact(sock, 4)
-    if not header:
-        return None
-    size = struct.unpack("!I", header)[0]
-    data = recv_exact(sock, size)
-    if not data:
-        return None
-    return json.loads(data.decode("utf-8"))
-
-
-def send_msg(sock, msg):
-    data = json.dumps(msg).encode("utf-8")
-    sock.sendall(struct.pack("!I", len(data)) + data)
 
 
 # ==========================================
@@ -262,11 +232,12 @@ def shutdown_worker():
         if worker_process is not None and worker_process.poll() is None:
             logger.info(f"[Router] IDLE Timeout ({IDLE_TIMEOUT}s) reached. Sending shutdown to worker...")
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(3.0)
-                sock.connect((WORKER_HOST, WORKER_PORT))
-                send_msg(sock, {"command": "shutdown"})
-                sock.close()
+                send_request(
+                    {"command": "shutdown"},
+                    host=WORKER_HOST,
+                    port=WORKER_PORT,
+                    timeout=3.0,
+                )
                 worker_process.wait(timeout=5.0)
             except Exception:
                 pass
@@ -316,12 +287,12 @@ class RouterHandler(socketserver.BaseRequestHandler):
                 return
 
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1.5)
-                sock.connect((WORKER_HOST, WORKER_PORT))
-                send_msg(sock, {"command": "ping"})
-                response = recv_msg(sock)
-                sock.close()
+                response = send_request(
+                    {"command": "ping"},
+                    host=WORKER_HOST,
+                    port=WORKER_PORT,
+                    timeout=1.5,
+                )
                 send_msg(
                     self.request,
                     response or {"status": "error", "message": "Empty response from worker"},
@@ -339,12 +310,12 @@ class RouterHandler(socketserver.BaseRequestHandler):
                     return
 
                 try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(15.0)
-                    sock.connect((WORKER_HOST, WORKER_PORT))
-                    send_msg(sock, request)
-                    response = recv_msg(sock)
-                    sock.close()
+                    response = send_request(
+                        request,
+                        host=WORKER_HOST,
+                        port=WORKER_PORT,
+                        timeout=15.0,
+                    )
 
                     if response:
                         send_msg(self.request, response)
