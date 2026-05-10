@@ -10,6 +10,7 @@ from pathlib import Path
 from cortex.logger import get_logger
 
 from .ipc import send_minimal_ping, send_minimal_ping_status
+from .local_daemon import resolve_local_daemon_script
 from .lock import acquire_lock, release_lock
 from .paths import CORTEX_HOME, ENGINE_HOST, ENGINE_PORT, LOG_DIR, SERVER_SCRIPT, WATCHER_SCRIPT
 from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_background_process, terminate_pid
@@ -17,29 +18,9 @@ from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_backgr
 logger = get_logger("ctl")
 
 
-def _resolve_local_daemon_script() -> Path | None:
-    env_path = CORTEX_HOME / ".env"
-    if not env_path.exists():
-        return None
-
-    try:
-        with open(env_path, "r", encoding="utf-8") as file:
-            for line in file:
-                line = line.strip()
-                if line.startswith("CORTEX_LOCAL_DAEMON="):
-                    value = line.split("=", 1)[1].strip("'\" ")
-                    if os.path.exists(value):
-                        return Path(value)
-                    break
-    except Exception:
-        pass
-
-    return None
-
-
 def _service_scripts() -> list[tuple[Path, str]]:
     scripts = [(SERVER_SCRIPT, "Engine Server"), (WATCHER_SCRIPT, "Watcher")]
-    local_daemon_script = _resolve_local_daemon_script()
+    local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
     if local_daemon_script:
         scripts.append((local_daemon_script, "Local Daemon"))
     return scripts
@@ -108,7 +89,7 @@ def start() -> None:
     try:
         current_watchers = get_pids(str(WATCHER_SCRIPT))
         current_servers = get_pids(str(SERVER_SCRIPT))
-        local_daemon_script = _resolve_local_daemon_script()
+        local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
 
         all_running = bool(current_watchers) and bool(current_servers) and send_minimal_ping()
         if all_running and local_daemon_script:
@@ -167,7 +148,7 @@ def start() -> None:
 def status() -> None:
     server_pids = get_pids(str(SERVER_SCRIPT))
     watcher_pids = get_pids(str(WATCHER_SCRIPT))
-    local_daemon_script = _resolve_local_daemon_script()
+    local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
     ping_status = send_minimal_ping_status()
 
     label = {"ok": "[READY]", "loading": "[LOADING]", "error": "[ERROR]"}.get(
