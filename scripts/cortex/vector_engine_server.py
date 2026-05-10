@@ -10,7 +10,7 @@ SCRIPTS_DIR = str(CORTEX_DIR.parent)
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-from cortex.runtime.engine_router import run_engine_server
+from cortex.runtime.engine_server import run_engine_server
 from cortex.runtime.engine_worker import run_worker
 
 
