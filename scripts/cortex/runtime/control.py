@@ -9,6 +9,7 @@ from pathlib import Path
 
 from cortex.logger import get_logger
 
+from .environment import build_child_env
 from .ipc import send_minimal_ping, send_minimal_ping_status
 from .local_daemon import resolve_local_daemon_script
 from .lock import acquire_lock, release_lock
@@ -79,6 +80,28 @@ def stop() -> None:
         release_lock(lock_file)
 
 
+def _is_local_daemon_running(local_daemon_script: Path | None) -> bool:
+    if not local_daemon_script:
+        return True
+    return bool(get_pids(str(local_daemon_script)))
+
+
+def _launch_local_daemon(local_daemon_script: Path | None, env: dict[str, str]) -> None:
+    if not local_daemon_script:
+        return
+
+    logger.info(f"Launching Local Daemon: {local_daemon_script}")
+    daemon_proc = launch_background_process(local_daemon_script, env)
+    time.sleep(1)
+    if daemon_proc.poll() is not None:
+        logger.error(
+            f"Local Daemon exited immediately (code={daemon_proc.returncode}). "
+            "Check local daemon logs or configuration."
+        )
+    else:
+        logger.info("Local Daemon started successfully.")
+
+
 def start() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -91,10 +114,12 @@ def start() -> None:
         current_servers = get_pids(str(SERVER_SCRIPT))
         local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
 
-        all_running = bool(current_watchers) and bool(current_servers) and send_minimal_ping()
-        if all_running and local_daemon_script:
-            all_running = all_running and bool(get_pids(str(local_daemon_script)))
-
+        all_running = (
+            bool(current_watchers)
+            and bool(current_servers)
+            and send_minimal_ping()
+            and _is_local_daemon_running(local_daemon_script)
+        )
         if all_running:
             return
 
@@ -102,9 +127,7 @@ def start() -> None:
 
         logger.info("Starting Unified Cortex Services...")
 
-        sub_env = os.environ.copy()
-        sub_env.pop("CORTEX_NO_FILE_LOG", None)
-        sub_env["PYTHONUNBUFFERED"] = "1"
+        sub_env = build_child_env(file_log=True)
 
         logger.info("Launching GPU Engine Server...")
         server_proc = launch_background_process(SERVER_SCRIPT, sub_env)
@@ -138,6 +161,8 @@ def start() -> None:
         if not ready:
             logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
             return
+
+        _launch_local_daemon(local_daemon_script, sub_env)
 
         logger.info("Engine Server is Ready (GPU Shared Mode).")
         logger.info("Cortex services started successfully.")
