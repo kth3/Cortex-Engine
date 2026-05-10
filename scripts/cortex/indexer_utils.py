@@ -218,7 +218,7 @@ def _log_tuning_report(params: dict, hw: dict):
 DEFAULT_IGNORES = [
     "node_modules", "__pycache__", ".git", ".venv", "venv",
     "dist", "build", ".gradle", ".idea", ".vscode",
-    ".agents", "target", ".next", "*.min.js", "*.min.css",
+    ".cortex", ".agents", "target", ".next", "*.min.js", "*.min.css",
     "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out",
     "Library", "Temp", "Logs", "obj",  # Unity 캐시
 ]

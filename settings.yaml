@@ -9,7 +9,7 @@
 # [우선순위] settings.local.yaml > settings.yaml
 #
 # [예시] settings.local.yaml 생성:
-#   cp .agents/templates/settings.local.yaml.example .agents/settings.local.yaml
+#   cp .cortex/templates/settings.local.yaml.example .cortex/settings.local.yaml
 #
 # [SCHEMA GUIDE]
 #   - language: "ko"
@@ -29,7 +29,7 @@ project_preferences:
   # "auto": package.json, pom.xml, build.gradle, requirements.txt 등에서 자동 감지
   # 직접 지정: [ "React", "Spring Boot", "Unity", "Docker" ]
   preferred_frameworks: auto
-  protocols_path: ".agents/rules/core/protocols/"
+  protocols_path: ".cortex/rules/core/protocols/"
 
 # ==============================================================================
 # 인덱싱 및 하이브리드 검색 설정 (Indexing Rules)
@@ -56,11 +56,11 @@ indexing_rules:
   exclude_paths:
     - "tmp/**"
     - "logs/**"
-    - ".agents/memo.md"
-    - ".agents/templates/**"
-    - ".agents/settings.yaml"
-    - ".agents/settings.local.yaml"
-    - ".agents/history/cortex.log"
+    - ".cortex/memo.md"
+    - ".cortex/templates/**"
+    - ".cortex/settings.yaml"
+    - ".cortex/settings.local.yaml"
+    - ".cortex/history/cortex.log"
 
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist:
