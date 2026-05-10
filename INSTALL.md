@@ -1,12 +1,12 @@
 # Cortex Agent — 설치 가이드 (V3 — uv)
 
-## 🚀 빠른 시작 (Quick Start)
+## 빠른 시작 (Quick Start)
 
-본 인프라 캡슐을 사용하려는 프로젝트(또는 모노레포의 특정 하위 프로젝트)의 최상위 경로에서 다음을 실행하십시오.
+본 인프라 캡슐을 사용하려는 프로젝트 또는 모노레포의 특정 하위 프로젝트 최상위 경로에서 다음을 실행하십시오.
 
 ### 사전 요구사항
 - Python 3.12
-- [uv](https://docs.astral.sh/uv/) (패키지 관리자)
+- [uv](https://docs.astral.sh/uv/) 패키지 관리자
 
 ```bash
 # 1. uv 설치 (미설치 시)
@@ -19,67 +19,111 @@ git clone <저장소_URL> .cortex
 uv sync --project .cortex
 ```
 
-> **참고**: `uv sync`는 `.cortex/pyproject.toml`을 읽어 `.cortex/.venv/`에 가상환경을 자동 생성하고 모든 의존성을 설치합니다. `python3 -m venv`나 `pip install` 명령어는 필요하지 않습니다.
+`uv sync`는 `.cortex/pyproject.toml`을 읽어 `.cortex/.venv/`에 가상환경을 자동 생성하고 의존성을 설치합니다. 별도 `python -m venv` 또는 `pip install` 절차는 기본적으로 필요하지 않습니다.
 
 ---
 
-## 1. 의존성 설치 (중요)
+## 1. 의존성 설치
 
-사용 중인 컴퓨팅 환경에 맞춰 아래 방식 중 하나를 선택하여 설치하십시오.
-
-### [A] 표준 설치 (CPU 전용 또는 범용)
+### [A] 표준 설치
 ```bash
 uv sync --project .cortex
 ```
-또는 `.cortex` 내부에서 실행 시:
+
+`.cortex` 내부에서 실행하는 경우:
 ```bash
 uv sync --project .
 ```
 
 ### [B] 고성능 GPU 가속 설치 (NVIDIA Ampere 이상)
-NVIDIA GPU를 활용하여 임베딩 및 검색 속도를 높이려면 이 방식을 선택하십시오.
 ```bash
 uv sync --project .cortex --group gpu-accel
 ```
-- **상세 가이드**: [DEPENDENCIES.md](./DEPENDENCIES.md)
+
+상세 의존성 설명은 [DEPENDENCIES.md](./DEPENDENCIES.md)를 참고하십시오.
 
 ---
 
-## 2. 프로젝트 통합 설정 (Lean Context Setup)
+## 2. 프로젝트 통합 설정
 
-AI 에이전트가 `.cortex` 내부의 수천 개 파일을 직접 스캔하여 토큰을 낭비하지 않도록, **`.cortex/templates/ignores/`** 내의 설정들을 워크스페이스 루트로 복사하십시오.
+AI 에이전트가 `.cortex` 내부의 수천 개 파일을 직접 스캔하여 토큰을 낭비하지 않도록, `.cortex/templates/ignores/` 내의 ignore 설정을 워크스페이스 루트로 복사하십시오.
 
-- **방법**: `.geminiignore`, `.claudesignore` 등과 `.vscode/` 폴더를 루트로 이동/복사합니다.
-- **효과**: 에이전트의 시야에서는 숨겨지지만, 백그라운드 MCP 엔진은 정상적으로 이를 읽어 DB를 구축합니다.
+- `.geminiignore`, `.claudesignore` 등과 `.vscode/` 폴더를 루트로 이동 또는 복사합니다.
+- 에이전트 시야에서는 인프라 파일이 숨겨지지만, Cortex MCP/Indexer는 `.cortex` 경로를 직접 읽어 DB를 구축합니다.
 
 ---
 
-## 3. 초기 인덱싱 및 실행
+## 3. 경로 모델
+
+현재 기본 경로 모델은 `.cortex`입니다.
+
+- `CORTEX_HOME`: Cortex 인프라가 위치한 디렉터리입니다. 일반적으로 `<workspace>/.cortex`입니다.
+- `CORTEX_WORKSPACE`: 실제 인덱싱 및 편집 대상 프로젝트 루트입니다.
+- `CORTEX_ENV_PATH`: `.env` 파일 위치를 명시적으로 지정할 때만 사용합니다.
+- `.agents`는 레거시 호환 대상으로만 남아 있으며, 신규 설치 및 CI 검증은 `.cortex` 기준입니다.
+
+`CORTEX_HOME`과 `CORTEX_WORKSPACE`는 분리할 수 있습니다. 예를 들어 홈 디렉터리에 설치된 Cortex로 여러 프로젝트를 인덱싱할 수 있습니다.
+
+---
+
+## 4. 초기 인덱싱 및 실행
 
 ### [A] 처음 인덱싱
 ```bash
 uv run --project .cortex python .cortex/scripts/cortex/indexer.py . --force
 ```
 
-### [B] MCP 서버 등록 (CLI 명령어 추천)
+### [B] 런타임 제어
 
-MCP 등록 시 다음 환경변수를 명시적으로 설정하여야 합니다.
-- **PYTHONPATH**: `.cortex/scripts`
-- **CORTEX_HOME**: `.cortex` 절대경로
-- **CORTEX_WORKSPACE**: 실제 인덱싱/작업 대상 프로젝트 루트
-- **CORTEX_ENV_PATH**: (선택 사항) `.env` 위치를 직접 지정할 때만 사용
+`cortex_ctl.py`는 thin entrypoint입니다. 실제 제어 로직은 `scripts/cortex/runtime/` 하위 모듈에 분리되어 있습니다.
 
-> **참고**
-> - `.cortex` 자체를 테스트 workspace로 쓰는 경우 `CORTEX_WORKSPACE`는 `.cortex`로 둘 수 있습니다.
-> - 나중에 Cortex 엔진을 사용자 홈이나 별도 위치에 두고 다른 프로젝트를 인덱싱하려면 `CORTEX_HOME`과 `CORTEX_WORKSPACE`를 분리해서 지정해야 합니다.
-> - `.git`이 파일인 linked worktree 구조는 정상입니다.
-> - `.env`, `.venv`, `data`, `history`는 로컬 파일이며 커밋 대상이 아닙니다.
-> - 모델 캐시가 없으면 임베딩 테스트가 모델 다운로드를 시도할 수 있으므로, 테스트 시에는 `local_files_only=True`로 먼저 확인해야 합니다.
+```bash
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py status
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py start
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py stop
+```
 
-**Gemini CLI (Windows PowerShell 예시):**
+주요 내부 계층은 다음과 같습니다.
+
+- `runtime/paths.py`: 포트, 스크립트, 로그/락 파일 경로
+- `runtime/ipc.py`: 길이 prefix 기반 소켓 메시지 송수신
+- `runtime/environment.py`: child process 환경 변수 구성
+- `runtime/process.py`: 백그라운드 프로세스 실행 및 PID 관리
+- `runtime/lock.py`: ctl 실행 단위 상호 배제
+- `runtime/logging.py`: 런타임 로그 설정
+- `runtime/control.py`: start/status/stop orchestration
+- `runtime/engine_server.py`: engine server entrypoint
+- `runtime/engine_router.py`: worker 라우팅 및 idle 모니터 연계
+- `runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
+- `runtime/worker_manager.py`: worker 기동/종료/상태 확인
+- `runtime/watcher_launcher.py`: watchdog watcher 실행
+- `runtime/local_daemon.py`: 선택적 local daemon 실행
+
+### [C] 로컬 데몬 옵션
+
+`.env`에 다음 값을 설정하면 `start` 시 engine server 준비 이후 local daemon을 추가 실행합니다.
+
+```env
+CORTEX_LOCAL_DAEMON=path/to/daemon.py
+```
+
+daemon 경로가 상대 경로이면 `CORTEX_HOME` 기준으로 해석됩니다.
+
+---
+
+## 5. MCP 서버 등록
+
+MCP 등록 시 다음 환경변수를 명시적으로 설정하십시오.
+
+- `PYTHONPATH`: `.cortex/scripts`
+- `CORTEX_HOME`: `.cortex` 절대경로
+- `CORTEX_WORKSPACE`: 실제 인덱싱/작업 대상 프로젝트 루트
+- `CORTEX_ENV_PATH`: 선택 사항
+
+### Gemini CLI (Windows PowerShell 예시)
 ```powershell
 $CORTEX_HOME="C:\path\to\your\workspace\.cortex"
-$CORTEX_WORKSPACE="C:\path\to\your\workspace\.cortex"
+$CORTEX_WORKSPACE="C:\path\to\your\workspace"
 
 gemini mcp add -s user `
   -e PYTHONPATH="$CORTEX_HOME\scripts" `
@@ -88,7 +132,7 @@ gemini mcp add -s user `
   cortex-mcp -- uv run --project "$CORTEX_HOME" python "$CORTEX_HOME\scripts\cortex_mcp.py"
 ```
 
-**Claude Code (Windows PowerShell 예시):**
+### Claude Code (Windows PowerShell 예시)
 ```powershell
 claude mcp add -s user `
   -e PYTHONPATH="$CORTEX_HOME\scripts" `
@@ -97,7 +141,7 @@ claude mcp add -s user `
   cortex-mcp -- uv run --project "$CORTEX_HOME" python "$CORTEX_HOME\scripts\cortex_mcp.py"
 ```
 
-**OpenAI Codex CLI (Windows PowerShell 예시):**
+### OpenAI Codex CLI (Windows PowerShell 예시)
 ```powershell
 codex mcp add `
   --env PYTHONPATH="$CORTEX_HOME\scripts" `
@@ -108,5 +152,33 @@ codex mcp add `
 
 ---
 
-## ⚖️ 라이선스 (License)
+## 6. 검증 절차
+
+CI와 동일한 방향으로 로컬 검증하려면 다음 순서로 실행합니다.
+
+```bash
+uv sync --project .cortex
+PYTHONPATH=.cortex/scripts uv run --project .cortex python - <<'PY'
+from pathlib import Path
+import py_compile
+for path in Path('.cortex/scripts').rglob('*.py'):
+    py_compile.compile(str(path), doraise=True)
+print('py_compile ok')
+PY
+```
+
+이후 런타임 제어 검증을 수행합니다.
+
+```bash
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py status
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py stop
+uv run --project .cortex python .cortex/scripts/cortex_ctl.py start
+```
+
+임베딩 모델 캐시가 없는 환경에서는 첫 실행 시 모델 다운로드가 발생할 수 있습니다. CI에서는 문법/import/인덱싱/MCP smoke를 중점 검증하고, 장시간 GPU/daemon 실기동 검증은 로컬 검증 대상으로 둡니다.
+
+---
+
+## 라이선스
+
 - **Skills**: 스킬 가이드의 원본은 [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills)이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 라이선스를 따릅니다.
