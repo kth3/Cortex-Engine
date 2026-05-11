@@ -81,6 +81,12 @@ jobs:
       - name: Run Comprehensive Regression Tests
         run: |
           for test_file in scripts/cortex/tests/test_*.py; do
+            case "$test_file" in
+              *test_mcp_smoke.py)
+                echo "Skipping $test_file (covered by dedicated MCP smoke step)"
+                continue
+                ;;
+            esac
             echo "Running $test_file"
             uv run python "$test_file"
           done
