@@ -10,6 +10,7 @@ def _send_to_server(request: dict, retries: int = 15) -> dict:
     """엔진 서버에 요청을 보내고 응답을 받는다 (TCP)."""
     import time
     for i in range(retries):
+        client = None
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(10.0)
@@ -38,5 +39,6 @@ def _send_to_server(request: dict, retries: int = 15) -> dict:
         except Exception as e:
             return {"status": "error", "message": str(e)}
         finally:
-            client.close()
+            if client is not None:
+                client.close()
     return {"status": "error", "message": "Max retries exceeded"}

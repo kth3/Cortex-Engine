@@ -13,10 +13,7 @@ def _vector_search(workspace: str, query: str, category: str = None,
     conn = get_connection(workspace)
     try:
         from cortex.embeddings.hardware import detect_gpu
-        # ve_module 대신 get_embeddings를 직접 호출할 수도 있으나, 
-        # 기존 search_engine.py에서 파라미터로 받은 ve_module을 활용하는 구조를 유지.
-        # 단, embeddings.get_embeddings를 직접 쓰는 것도 좋지만 여기선 기존 호환을 위해 유지하거나
-        # 아니면 명시적으로 cortex.embeddings를 import해서 쓰자.
+        # 호환성을 위해 ve_module을 활용한 임베딩 호출 유지
         query_vec = ve_module.get_embeddings([query], use_gpu=detect_gpu())[0]
         vec_rows = conn.execute(
             "SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?",
