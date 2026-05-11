@@ -1,7 +1,5 @@
 """Shared constants for the indexing pipeline."""
 
-from cortex.parsers import registry as parser_registry
-
-SUPPORTED_EXTENSIONS = parser_registry.parsers
+from cortex.parsers import SUPPORTED_EXTENSIONS
 
 __all__ = ["SUPPORTED_EXTENSIONS"]

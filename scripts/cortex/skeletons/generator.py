@@ -3,13 +3,13 @@
 """
 import os
 
-from cortex.parsers import registry as parser_registry
+from cortex.parsers import get_parser
 
 
 def get_parser_internal(file_path: str):
     """확장자에 맞는 파서 함수 반환 (레지스트리 활용)"""
     ext = os.path.splitext(file_path)[1]
-    _, parser_func = parser_registry.parsers.get(ext, (None, None))
+    _, parser_func = get_parser(ext)
     return parser_func
 
 

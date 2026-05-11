@@ -7,16 +7,6 @@ import re
 import uuid
 
 # ==============================================================================
-# 지원 확장자 메타데이터
-# ==============================================================================
-SUPPORTED_EXTENSIONS = {
-    ".c": ("c", lambda file_path, source: parse_c_file(file_path, source)),
-    ".cpp": ("cpp", lambda file_path, source: parse_c_file(file_path, source)),
-    ".h": ("c", lambda file_path, source: parse_c_file(file_path, source)),
-    ".hpp": ("cpp", lambda file_path, source: parse_c_file(file_path, source))
-}
-
-# ==============================================================================
 # 정규식 패턴
 # ==============================================================================
 

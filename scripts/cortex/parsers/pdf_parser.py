@@ -6,11 +6,6 @@ import uuid
 import os
 import pypdf
 
-# 지원 확장자 메타데이터
-SUPPORTED_EXTENSIONS = {
-    ".pdf": ("pdf", lambda file_path, _: parse_pdf_file(file_path))
-}
-
 def _advanced_semantic_chunking(text: str, max_len: int = 2500, overlap: int = 400) -> list[str]:
     """텍스트를 의미 단위로 분할하되 오버랩을 두어 문맥을 유지합니다."""
     if not text or not text.strip():
