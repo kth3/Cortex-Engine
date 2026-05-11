@@ -1,4 +1,3 @@
-import sys
 from cortex.logger import get_logger
 
 log = get_logger("parser_registry")
