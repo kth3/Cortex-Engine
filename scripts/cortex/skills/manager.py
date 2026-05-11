@@ -25,10 +25,25 @@ class SkillManager:
             conn.close()
 
     def _skill_dirs(self) -> list[str]:
-        return [
-            os.path.join(self.workspace, ".agents", "skills"),
-            os.path.join(self.workspace, ".agents", "knowledge", "skills"),
+        from cortex.paths import DEFAULT_CORTEX_HOME_NAME, LEGACY_AGENT_HOME_NAME, resolve_cortex_home
+        
+        cortex_home = resolve_cortex_home(self.workspace)
+        candidates = [
+            cortex_home / "skills",
+            cortex_home / "knowledge" / "skills",
+            Path(self.workspace) / DEFAULT_CORTEX_HOME_NAME / "skills",
+            Path(self.workspace) / DEFAULT_CORTEX_HOME_NAME / "knowledge" / "skills",
+            Path(self.workspace) / LEGACY_AGENT_HOME_NAME / "skills",
+            Path(self.workspace) / LEGACY_AGENT_HOME_NAME / "knowledge" / "skills",
         ]
+        deduped = []
+        seen = set()
+        for path in candidates:
+            resolved = str(path.resolve())
+            if resolved not in seen:
+                seen.add(resolved)
+                deduped.append(str(path))
+        return deduped
 
     def _skill_files(self) -> list[Path]:
         skill_files: list[Path] = []
