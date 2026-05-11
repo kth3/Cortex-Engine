@@ -9,19 +9,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-if ROOT.name == ".agents":
+if ROOT.name == ".cortex":
     AGENTS_HOME = ROOT
     WS = ROOT.parent
 elif (ROOT / "scripts" / "cortex_mcp.py").exists():
     AGENTS_HOME = ROOT
     WS = ROOT
 else:
-    AGENTS_HOME = ROOT / ".agents"
+    AGENTS_HOME = ROOT / ".cortex"
     WS = ROOT
 MCP = AGENTS_HOME / "scripts" / "cortex_mcp.py"
-MCP_FQN_PREFIX = ".agents\\scripts" if AGENTS_HOME.name == ".agents" else "scripts"
+MCP_FQN_PREFIX = ".cortex\\scripts" if AGENTS_HOME.name == ".cortex" else "scripts"
 RUNTIME_WORKSPACE = Path(os.environ.get("CORTEX_WORKSPACE", str(WS))).resolve()
-DB_PATH = RUNTIME_WORKSPACE / ".agents" / "data" / "memories.db"
+DB_PATH = RUNTIME_WORKSPACE / ".cortex" / "data" / "memories.db"
 INDEX_ROOTS_TEST_PATH = "src" if (RUNTIME_WORKSPACE / "src").exists() else (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
 
 
