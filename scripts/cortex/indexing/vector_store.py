@@ -16,7 +16,7 @@ def persist_node_vectors(conn, vector_items: list[dict], *, use_gpu: bool | None
     if not vector_items:
         return
 
-    from cortex import vector_engine as ve
+    from cortex.embeddings import get_embeddings
 
     ids = [item["id"] for item in vector_items]
     placeholders = ",".join("?" * len(ids))
@@ -27,7 +27,7 @@ def persist_node_vectors(conn, vector_items: list[dict], *, use_gpu: bool | None
     id_to_rowid = {row[0]: row[1] for row in rowid_rows}
 
     texts = [item["text"] for item in vector_items]
-    embeddings = ve.get_embeddings(texts, use_gpu=use_gpu)
+    embeddings = get_embeddings(texts, use_gpu=use_gpu)
     vec_rows = []
     for item, embedding in zip(vector_items, embeddings):
         rowid = id_to_rowid.get(item["id"])

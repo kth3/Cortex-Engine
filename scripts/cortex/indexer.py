@@ -23,7 +23,7 @@ from cortex.indexer_utils import (
     strip_frontmatter, compute_hash, load_settings,
     get_module_name, scan_files,
 )
-from cortex.vectorizer import (
+from cortex.embeddings import (
     batch_vectorize_nodes, batch_vectorize_memories, detect_gpu,
 )
 
