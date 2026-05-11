@@ -60,6 +60,7 @@ jobs:
 
       - name: Run Syntax Check for All Runtime Files
         run: |
+          uv run python -m compileall scripts/cortex
           uv run python - <<'PY'
           from pathlib import Path
           import py_compile
@@ -73,30 +74,9 @@ jobs:
           print(f"py_compile verified {len(targets)} Python files")
           PY
 
-      - name: Run Runtime Import Smoke Check
+      - name: Run Comprehensive Import Smoke Check
         run: |
-          uv run python - <<'PY'
-          modules = [
-              "cortex.paths",
-              "cortex.runtime.paths",
-              "cortex.runtime.ipc",
-              "cortex.runtime.environment",
-              "cortex.runtime.logging",
-              "cortex.runtime.process",
-              "cortex.runtime.lock",
-              "cortex.runtime.local_daemon",
-              "cortex.runtime.control",
-              "cortex.runtime.engine_router",
-              "cortex.runtime.engine_server",
-              "cortex.runtime.engine_worker",
-              "cortex.runtime.worker_manager",
-              "cortex.runtime.idle_monitor",
-              "cortex.runtime.watcher_launcher",
-          ]
-          for module in modules:
-              __import__(module)
-          print(f"Imported {len(modules)} Cortex runtime modules")
-          PY
+          uv run python scripts/cortex/dev/verify_imports.py
 
       - name: Run Comprehensive Regression Tests
         run: |

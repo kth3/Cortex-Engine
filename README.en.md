@@ -107,6 +107,24 @@ The SentenceTransformers/PyTorch embedding path is isolated inside a worker proc
 
 ---
 
+## Cortex Modular Layout
+
+Following the recent architectural refactoring, the Cortex backend has been modularized by role. The old `cortex/db.py`, `cortex/search_engine.py`, etc., remain only as thin wrappers for backward compatibility. The actual implementation lives in the sub-packages:
+
+- `cortex/indexing/`: Indexing pipelines (extractions, persistence, graph sync)
+- `cortex/embeddings/`: Model loading, batch embeddings, and hardware detection
+- `cortex/retrieval/`: Hybrid search algorithms (FTS, semantic, RRF merging)
+- `cortex/storage/`: SQLite and GraphDB connection and schema management
+- `cortex/memories/`: Working memory and persistent knowledge CRUD
+- `cortex/config/`: YAML config loading and hardware-aware tuning
+- `cortex/scanner/`: `.gitignore`-aware file scanning
+- `cortex/parsers/`: Tree-sitter-based language parser registry
+- `cortex/runtime/`: Execution infrastructure (daemon workers, locks, IPC)
+
+> External Workspace path handling follows `runtime.paths` and the new `.cortex` path policy. Heavy dependencies like model downloads or GPU tokens are excluded from the base CI and are intended for separate local verification.
+
+---
+
 ## Installation & Usage
 
 See [INSTALL.md](./INSTALL.md) for the full guide.
