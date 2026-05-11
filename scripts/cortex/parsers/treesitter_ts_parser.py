@@ -7,14 +7,6 @@ from cortex.parsers.treesitter_utils import (
     TS_LANGUAGE, TSX_LANGUAGE, txt, name_of, truncate, make_id, build_fqn,
 )
 
-# ── 파서 레지스트리 ──────────────────────────────────────────────
-SUPPORTED_EXTENSIONS = {}
-if TS_LANGUAGE:
-    SUPPORTED_EXTENSIONS[".ts"] = ("typescript", lambda fp, src: parse_ts_file(fp, src, "typescript"))
-if TSX_LANGUAGE:
-    SUPPORTED_EXTENSIONS[".tsx"] = ("typescript", lambda fp, src: parse_ts_file(fp, src, "tsx"))
-
-
 def parse_ts_file(file_path: str, source: str, lang_variant: str = "typescript") -> dict:
     """Tree-sitter 기반 TypeScript/TSX 파싱"""
     lang_obj = TSX_LANGUAGE if lang_variant == "tsx" else TS_LANGUAGE

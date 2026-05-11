@@ -44,12 +44,6 @@ UNITY_LIFECYCLE_METHODS = {
     "OnValidate", "Reset",
 }
 
-# ── 파서 레지스트리 ──────────────────────────────────────────────
-SUPPORTED_EXTENSIONS = {}
-if CS_LANGUAGE:
-    SUPPORTED_EXTENSIONS[".cs"] = ("csharp", lambda fp, src: parse_csharp_file(fp, src))
-
-
 # ══════════════════════════════════════════════════════════════════
 # 메인 파서
 # ══════════════════════════════════════════════════════════════════

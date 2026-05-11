@@ -9,7 +9,7 @@
 # [우선순위] settings.local.yaml > settings.yaml
 #
 # [예시] settings.local.yaml 생성:
-#   cp .agents/templates/settings.local.yaml.example .agents/settings.local.yaml
+#   cp .cortex/templates/settings.local.yaml.example .cortex/settings.local.yaml
 #
 # [SCHEMA GUIDE]
 #   - language: "ko"
@@ -29,16 +29,24 @@ project_preferences:
   # "auto": package.json, pom.xml, build.gradle, requirements.txt 등에서 자동 감지
   # 직접 지정: [ "React", "Spring Boot", "Unity", "Docker" ]
   preferred_frameworks: auto
-  protocols_path: ".agents/rules/core/protocols/"
+  protocols_path: ".cortex/rules/core/protocols/"
 
 # ==============================================================================
 # 인덱싱 및 하이브리드 검색 설정 (Indexing Rules)
 # ==============================================================================
 indexing_rules:
+  # 유휴 시간(초): 지정된 초 동안 요청이 없으면 GPU VRAM 해제를 위해 워커 자동 종료 (예: 300)
+  idle_timeout: 300
+
   # 멀티레포 대응: 지식을 공유할 다른 저장소 경로
   linked_workspaces: [] # 예: ["../another-project"]
 
-  # 인덱싱 범위: 기본적으로 프로젝트 전체를 포함 (블랙리스트 방식)
+  # 인덱싱 진입 루트: 여기에 지정된 경로만 하위 스캔합니다.
+  # 개인별 범위는 settings.local.yaml에서 오버라이드하세요.
+  index_roots:
+    - "."
+
+  # 루트 안에서 포함할 경로 필터
   # 참고: .gitignore에 등록된 항목은 자동으로 제외됩니다.
   include_paths:
     - "**"
@@ -48,7 +56,11 @@ indexing_rules:
   exclude_paths:
     - "tmp/**"
     - "logs/**"
-    - "personal_notes/**"
+    - ".cortex/memo.md"
+    - ".cortex/templates/**"
+    - ".cortex/settings.yaml"
+    - ".cortex/settings.local.yaml"
+    - ".cortex/history/cortex.log"
 
   # 설정 파일 화이트리스트: src 외부에 있어도 맥락 파악을 위해 항상 읽음
   config_whitelist:

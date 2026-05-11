@@ -16,6 +16,9 @@ dependencies = [
     "tqdm>=4.66.0",
     "pypdf>=3.0.0",
     "watchdog>=3.0.0",
+    # Cross-platform OS abstraction (fcntl/pgrep 대체)
+    "portalocker>=2.8.0",
+    "psutil>=5.9.0",
     # MCP Server
     "mcp>=1.0.0",
     # Tree-sitter parsers
@@ -26,7 +29,8 @@ dependencies = [
 
 [dependency-groups]
 gpu-accel = [
-    "flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+    # Linux x86_64 전용 wheel — Windows에서는 이 그룹 설치 불필요
+    "flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl ; sys_platform == 'linux'",
 ]
 
 [tool.uv.sources]

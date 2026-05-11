@@ -2,15 +2,6 @@ import re
 import os
 
 # ==============================================================================
-# 지원 확장자 메타데이터
-# ==============================================================================
-SUPPORTED_EXTENSIONS = {
-    ".md": ("markdown", lambda file_path, source: parse_markdown_file(file_path, source)),
-    ".html": ("html", lambda file_path, source: parse_markdown_file(file_path, source)),
-    ".css": ("css", lambda file_path, source: parse_markdown_file(file_path, source))
-}
-
-# ==============================================================================
 # 의미 기반 청킹 (Semantic Chunking with Overlap)
 # ==============================================================================
 

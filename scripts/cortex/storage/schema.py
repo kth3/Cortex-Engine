@@ -1,0 +1,261 @@
+import sqlite3
+from cortex.storage.connection import is_vec_available
+from cortex.storage.migrations import _apply_migrations
+
+def _create_core_tables(conn: sqlite3.Connection):
+    """핵심 테이블 생성 (파일 캐시, 노드, 엣지 등)"""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS file_cache (
+        file_path   TEXT PRIMARY KEY,
+        hash        TEXT NOT NULL,
+        last_indexed_at INTEGER NOT NULL,
+        node_count  INTEGER DEFAULT 0,
+        workspace_id TEXT DEFAULT 'default'
+    );
+
+    CREATE TABLE IF NOT EXISTS nodes (
+        id          TEXT PRIMARY KEY,
+        type        TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        fqn         TEXT NOT NULL,
+        file_path   TEXT NOT NULL,
+        start_line  INTEGER NOT NULL,
+        end_line    INTEGER NOT NULL,
+        signature   TEXT,
+        return_type TEXT,
+        docstring   TEXT,
+        is_exported INTEGER DEFAULT 1,
+        is_async    INTEGER DEFAULT 0,
+        is_test     INTEGER DEFAULT 0,
+        raw_body    TEXT,
+        skeleton_standard TEXT,
+        skeleton_minimal  TEXT,
+        language    TEXT NOT NULL,
+        module      TEXT DEFAULT 'unknown',
+        workspace_id TEXT DEFAULT 'default',
+        category    TEXT DEFAULT 'SOURCE'
+    );
+
+    CREATE TABLE IF NOT EXISTS edges (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id   TEXT NOT NULL,
+        target_id   TEXT NOT NULL,
+        type        TEXT NOT NULL DEFAULT 'CALLS',
+        call_site_line INTEGER,
+        confidence  REAL DEFAULT 1.0,
+        UNIQUE(source_id, target_id, type)
+    );
+    """)
+
+def _create_history_tables(conn: sqlite3.Connection):
+    """Git 이력 및 변경 이력 추적용 테이블 생성"""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS file_lineage (
+        file_path       TEXT PRIMARY KEY,
+        commit_count    INTEGER DEFAULT 0,
+        churn_score     REAL DEFAULT 0.0,
+        last_author     TEXT DEFAULT '',
+        last_commit_ts  INTEGER DEFAULT 0,
+        updated_at      INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS co_change_edges (
+        file_a          TEXT NOT NULL,
+        file_b          TEXT NOT NULL,
+        coupling_score  REAL NOT NULL,
+        shared_commits  INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL,
+        PRIMARY KEY (file_a, file_b)
+    );
+
+    CREATE TABLE IF NOT EXISTS ast_diffs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path       TEXT NOT NULL,
+        symbol_fqn      TEXT NOT NULL,
+        diff_type       TEXT NOT NULL,
+        summary         TEXT NOT NULL,
+        old_snippet     TEXT,
+        new_snippet     TEXT,
+        detected_at     INTEGER NOT NULL
+    );
+
+    -- v2: Cortex MCP 편집 이벤트 로그 적재용 시계열 테이블
+    CREATE TABLE IF NOT EXISTS file_edit_events (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path     TEXT NOT NULL,
+        before_hash   TEXT NOT NULL,
+        after_hash    TEXT NOT NULL,
+        line_range    TEXT,
+        tool_name     TEXT,
+        event_sources TEXT NOT NULL,
+        session_id    TEXT NOT NULL,
+        edit_summary  TEXT,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        UNIQUE(file_path, before_hash, after_hash, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fee_path_updated
+        ON file_edit_events(file_path, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_fee_session_updated
+        ON file_edit_events(session_id, updated_at DESC);
+    """)
+
+def _create_memory_tables(conn: sqlite3.Connection):
+    """에이전트 메모리, 관찰, 세션용 테이블 생성"""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id              TEXT PRIMARY KEY,
+        agent_name      TEXT DEFAULT 'unknown',
+        started_at      INTEGER,
+        last_active_at  INTEGER,
+        status          TEXT DEFAULT 'active',
+        summary         TEXT,
+        tool_call_count INTEGER DEFAULT 0,
+        observation_count INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS observations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id      TEXT,
+        type            TEXT NOT NULL,
+        content         TEXT NOT NULL,
+        file_paths      TEXT,
+        stale           INTEGER DEFAULT 0,
+        created_at      INTEGER NOT NULL,
+        source          TEXT DEFAULT 'agent',
+        confidence      REAL DEFAULT 1.0,
+        category        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS memories (
+        key         TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL,
+        category    TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        tags        TEXT,
+        relationships TEXT,
+        access_count INTEGER DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS search_misses (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        query       TEXT NOT NULL,
+        project_id  TEXT,
+        category    TEXT,
+        created_at  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS meta (
+        key     TEXT PRIMARY KEY,
+        value   TEXT
+    );
+    """)
+
+def _create_vec_tables(conn: sqlite3.Connection):
+    """Fix #5: sqlite-vec 가상 테이블 생성 (확장이 로드된 경우에만 호출)"""
+    conn.executescript("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[1024]
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
+        rowid INTEGER PRIMARY KEY,
+        embedding float[1024]
+    );
+
+    -- sqlite-vec 고아 벡터 방지용 CASCADE 트리거
+    CREATE TRIGGER IF NOT EXISTS del_node_vec AFTER DELETE ON nodes BEGIN
+        DELETE FROM vec_nodes WHERE rowid = old.rowid;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS del_memory_vec AFTER DELETE ON memories BEGIN
+        DELETE FROM vec_memories WHERE rowid = old.rowid;
+    END;
+    """)
+
+def _create_fts_and_triggers(conn: sqlite3.Connection):
+    """FTS5 인덱스와 연관 트리거 생성"""
+    conn.executescript("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+        name, fqn, docstring, signature,
+        content='nodes',
+        content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS nodes_ai AFTER INSERT ON nodes BEGIN
+        INSERT INTO nodes_fts(rowid, name, fqn, docstring, signature)
+        VALUES (new.rowid, new.name, new.fqn, new.docstring, new.signature);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
+        INSERT INTO nodes_fts(nodes_fts, rowid, name, fqn, docstring, signature)
+        VALUES ('delete', old.rowid, old.name, old.fqn, old.docstring, old.signature);
+    END;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        key, content, tags, category,
+        content='memories',
+        content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, key, content, tags, category)
+        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
+        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, key, content, tags, category)
+        VALUES ('delete', old.rowid, old.key, old.content, old.tags, old.category);
+        INSERT INTO memories_fts(rowid, key, content, tags, category)
+        VALUES (new.rowid, new.key, new.content, new.tags, new.category);
+    END;
+    """)
+
+def _create_indexes(conn: sqlite3.Connection):
+    """성능 최적화용 일반 인덱스 생성"""
+    conn.executescript("""
+    CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
+    CREATE INDEX IF NOT EXISTS idx_nodes_fqn ON nodes(fqn);
+    CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
+    CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+    CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+    CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+    CREATE INDEX IF NOT EXISTS idx_search_misses_ts ON search_misses(created_at);
+    """)
+
+def init_schema(conn: sqlite3.Connection):
+    """DB 스키마 생성 및 마이그레이션 (동적 인덱싱용)"""
+    _create_core_tables(conn)
+    _create_history_tables(conn)
+    _create_memory_tables(conn)
+    _create_fts_and_triggers(conn)
+    _create_indexes(conn)
+
+    # Fix #5: sqlite-vec 가상 테이블은 확장이 로드된 경우에만 생성
+    if is_vec_available():
+        _create_vec_tables(conn)
+
+    # 초기화 및 마이그레이션
+    _apply_migrations(conn)
+    
+    # 메타 정보 초기화 + 버전 갱신
+    # v1 → v2: file_edit_events 테이블 추가 (Cortex MCP 편집 이벤트 로그)
+    conn.execute(
+        "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)",
+        ("schema_version", "2")
+    )
+    conn.execute(
+        "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?",
+        ("2", "2")
+    )
+    conn.commit()

@@ -1,16 +1,21 @@
-# .aiderignore
-# Ignore .agents directory to prevent context bloat in Aider
-.agents/data/
-.agents/history/
-.agents/knowledge/
-.agents/venv/
-.agents/docs/
-.agents/.env
-.agents/PROGRESS.md
-.agents/AGENTS.md
-.agents/INSTALL.md
-.agents/DEPENDENCIES.md
-.agents/LICENSE
-.agents/README.md
-.agents/requirements.txt
+# .geminiignore
+# Ignore directories to prevent context bloat in Gemini CLI
+.cortex/data/
+.cortex/history/
+.cortex/knowledge/
+.cortex/.venv/
+.cortex/venv/
+.cortex/docs/
+.cortex/.env
+**/__pycache__/
+.cortex/PROGRESS.md
+.cortex/AGENTS.md
+.cortex/INSTALL.md
+.cortex/DEPENDENCIES.md
+.cortex/LICENSE
+.cortex/README.md
+.cortex/requirements.txt
+
+# Consolidated Context Folder (available via RAG indexing instead)
+.reference/*
 
