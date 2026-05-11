@@ -197,18 +197,30 @@ def status() -> None:
     print("--------------------------------------------\n")
 
 
+def restart() -> None:
+    """Restart all Cortex services."""
+    stop()
+    start()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        print("Usage: python cortex_ctl.py [start|stop|status]")
+        print("Usage: python cortex_ctl.py [start|stop|restart|status]")
         return 1
 
     command = args[0].lower()
+    if command in {"-h", "--help", "help"}:
+        print("Usage: python cortex_ctl.py [start|stop|restart|status]")
+        return 0
     if command == "start":
         start()
         return 0
     if command == "stop":
         stop()
+        return 0
+    if command == "restart":
+        restart()
         return 0
     if command == "status":
         status()
