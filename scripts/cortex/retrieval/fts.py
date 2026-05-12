@@ -1,6 +1,9 @@
 import json
 from cortex.db import get_connection
-from cortex.retrieval import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
+from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
+from cortex.logger import get_logger
+
+log = get_logger("fts")
 
 def _fts_search(workspace: str, query: str, category: str = None,
                 limit: int = DEFAULT_LIMIT, multiplier: int = DEFAULT_MULTIPLIER) -> list:
@@ -35,8 +38,8 @@ def _fts_search(workspace: str, query: str, category: str = None,
             d["tags"] = json.loads(d.get("tags") or "[]")
             d["relationships"] = json.loads(d.get("relationships") or "{}")
             results.append(d)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("FTS search failed: %s", e)
     finally:
         conn.close()
     return results

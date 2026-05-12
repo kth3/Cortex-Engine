@@ -1,6 +1,6 @@
 from cortex.db import get_connection
 from cortex.logger import get_logger
-from cortex.retrieval import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
+from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 
 log = get_logger("search_engine")
 

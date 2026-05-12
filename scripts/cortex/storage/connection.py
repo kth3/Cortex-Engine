@@ -1,5 +1,8 @@
 import sqlite3
 from cortex.paths import data_dir
+from cortex.logger import get_logger
+
+log = get_logger("storage")
 
 def get_db_path(workspace: str) -> str:
     """DB 파일 경로: 프로젝트 내 .agents/data/memories.db"""
@@ -30,8 +33,7 @@ def get_connection(workspace: str) -> sqlite3.Connection:
         _VEC_AVAILABLE = True
     except Exception as e:
         if _VEC_AVAILABLE is None:
-            import sys
-            sys.stderr.write(f"[Cortex DB] sqlite-vec unavailable, falling back to FTS5-only: {e}\n")
+            log.warning("sqlite-vec unavailable, falling back to FTS5-only: %s", e)
         _VEC_AVAILABLE = False
         
     return conn

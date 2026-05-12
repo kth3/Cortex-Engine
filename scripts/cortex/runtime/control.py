@@ -12,7 +12,7 @@ from cortex.logger import get_logger
 from .environment import build_child_env
 from .ipc import send_minimal_ping, send_minimal_ping_status
 from .local_daemon import resolve_local_daemon_script
-from .lock import acquire_lock, release_lock
+from .lock import control_lock
 from .paths import CORTEX_HOME, ENGINE_HOST, ENGINE_PORT, LOG_DIR, SERVER_SCRIPT, WATCHER_SCRIPT
 from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_background_process, terminate_pid
 

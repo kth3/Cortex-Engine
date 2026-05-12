@@ -32,11 +32,20 @@ def _new_workspace_with_db():
     tmpdir = tempfile.mkdtemp(prefix="fee_test_")
     
     # 격리된 환경을 위해 CORTEX_HOME 환경 변수 설정
+    old_cortex_home = os.environ.get("CORTEX_HOME")
     os.environ["CORTEX_HOME"] = os.path.join(tmpdir, ".cortex")
     
-    # cortex db.get_db_path는 .agents 자동 감지 → 임시 워크스페이스에 .agents/data 생성
-    conn = db.get_connection(tmpdir)
-    db.init_schema(conn)
+    try:
+        # cortex db.get_db_path는 .agents 자동 감지 → 임시 워크스페이스에 .agents/data 생성
+        conn = db.get_connection(tmpdir)
+        db.init_schema(conn)
+    finally:
+        # 환경 변수 복원
+        if old_cortex_home is not None:
+            os.environ["CORTEX_HOME"] = old_cortex_home
+        else:
+            del os.environ["CORTEX_HOME"]
+            
     return tmpdir, conn
 
 

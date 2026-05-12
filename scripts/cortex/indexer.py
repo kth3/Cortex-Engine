@@ -5,7 +5,6 @@ Cortex 인덱싱 엔진 (v3.1 — Modularized + Logging)
 유틸리티: indexer_utils.py
 벡터 배치: vectorizer.py
 """
-import gc
 import os
 import sys
 import time
@@ -206,7 +205,6 @@ def incremental_index_changed(workspace: str) -> dict:
     last_indexed = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").timestamp()
     
     # 프로젝트 전체 파일을 스캔하여 포함 대상 리스트업
-    from cortex.indexer_utils import scan_files
     all_files = scan_files(workspace, SUPPORTED_EXTENSIONS)
     
     changed_files = []
