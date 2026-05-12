@@ -4,7 +4,10 @@ import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
 
+from cortex.logger import get_logger
 from cortex.embeddings.server_client import _send_to_server
+
+log = get_logger("vector")
 
 def _resolve_env_path() -> Path:
     explicit = os.getenv("CORTEX_ENV_PATH")
@@ -140,8 +143,7 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
             return np.array(resp["embeddings"], dtype=np.float32)
 
         if resp.get("status") == "error":
-            from cortex.logger import get_logger
-            get_logger("vector").warning("Server Error: %s. Falling back to local...", resp.get('message'))
+            log.warning("Server Error: %s. Falling back to local...", resp.get('message'))
 
     # 2. 서버 오프라인 또는 강제 CPU 모드 시 로컬 처리
     global _model_device

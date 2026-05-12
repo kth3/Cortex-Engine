@@ -101,11 +101,11 @@ def _launch_local_daemon(local_daemon_script: Path | None, env: dict[str, str]) 
 def start() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    lock_file = acquire_lock()
-    if not lock_file:
-        return
+    with control_lock() as acquired:
+        if not acquired:
+            logger.info("Another control process is running. Skipping start.")
+            return
 
-    try:
         current_watchers = get_pids(str(WATCHER_SCRIPT))
         current_servers = get_pids(str(SERVER_SCRIPT))
         local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
@@ -162,8 +162,6 @@ def start() -> None:
 
         logger.info("Engine Server is Ready (GPU Shared Mode).")
         logger.info("Cortex services started successfully.")
-    finally:
-        release_lock(lock_file)
 
 
 def status() -> None:
