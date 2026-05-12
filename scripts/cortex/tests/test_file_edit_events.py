@@ -30,6 +30,10 @@ from cortex.edit_engine import (
 def _new_workspace_with_db():
     """임시 워크스페이스 + memories.db 초기화 후 (workspace, conn) 반환."""
     tmpdir = tempfile.mkdtemp(prefix="fee_test_")
+    
+    # 격리된 환경을 위해 CORTEX_HOME 환경 변수 설정
+    os.environ["CORTEX_HOME"] = os.path.join(tmpdir, ".cortex")
+    
     # cortex db.get_db_path는 .agents 자동 감지 → 임시 워크스페이스에 .agents/data 생성
     conn = db.get_connection(tmpdir)
     db.init_schema(conn)

@@ -117,7 +117,7 @@ def _load_model(device: str = "cpu"):
         _model_device = device
         log.info(f"Model successfully loaded on {_model_device}.")
     except Exception as e:
-        sys.stderr.write(f"[cortex-vector] Model Load Error: {e}\n")
+        log.error("Model Load Error: %s", e)
         raise RuntimeError(f"모델 로딩 실패: {e}")
 
     return _model
@@ -140,7 +140,8 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
             return np.array(resp["embeddings"], dtype=np.float32)
 
         if resp.get("status") == "error":
-            sys.stderr.write(f"[cortex-vector] Server Error: {resp.get('message')}. Falling back to local...\n")
+            from cortex.logger import get_logger
+            get_logger("vector").warning("Server Error: %s. Falling back to local...", resp.get('message'))
 
     # 2. 서버 오프라인 또는 강제 CPU 모드 시 로컬 처리
     global _model_device

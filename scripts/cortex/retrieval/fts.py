@@ -1,8 +1,9 @@
 import json
 from cortex.db import get_connection
+from cortex.retrieval import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 
 def _fts_search(workspace: str, query: str, category: str = None,
-                limit: int = 10, multiplier: int = 2) -> list:
+                limit: int = DEFAULT_LIMIT, multiplier: int = DEFAULT_MULTIPLIER) -> list:
     """FTS5 기반 키워드 검색"""
     results = []
     conn = get_connection(workspace)

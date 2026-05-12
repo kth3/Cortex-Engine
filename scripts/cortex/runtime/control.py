@@ -69,15 +69,11 @@ def _perform_stop() -> None:
 
 
 def stop() -> None:
-    lock_file = acquire_lock()
-    if not lock_file:
-        logger.info("Another control process is running. Skipping stop.")
-        return
-
-    try:
+    with control_lock() as acquired:
+        if not acquired:
+            logger.info("Another control process is running. Skipping stop.")
+            return
         _perform_stop()
-    finally:
-        release_lock(lock_file)
 
 
 def _is_local_daemon_running(local_daemon_script: Path | None) -> bool:

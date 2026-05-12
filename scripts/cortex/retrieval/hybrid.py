@@ -1,13 +1,14 @@
 from cortex.db import get_connection
 from cortex.logger import get_logger
 from cortex.indexer_utils import get_tuning_params
+from cortex.retrieval import DEFAULT_LIMIT
 from cortex.retrieval.fts import _fts_search
 from cortex.retrieval.semantic import _vector_search
 from cortex.retrieval.ranking import _heuristic_boost
 
 log = get_logger("search_engine")
 
-def hybrid_search(workspace: str, query: str, category: str = None, limit: int = 10, ve_module=None) -> list:
+def hybrid_search(workspace: str, query: str, category: str = None, limit: int = DEFAULT_LIMIT, ve_module=None) -> list:
     """영구 지식 및 전문가 스킬 하이브리드 검색 (FTS5 + sqlite-vec + RRF 스코어링)
     
     Args:
@@ -84,7 +85,7 @@ def hybrid_search(workspace: str, query: str, category: str = None, limit: int =
     return final
 
 
-def unified_pipeline_search(workspace: str, query: str, limit: int = 10, ve_module=None) -> list:
+def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIMIT, ve_module=None) -> list:
     """
     코드(vec_nodes) + 지식(vec_memories) + 동적메모리(observations FTS/LIKE)를
     단일 임베딩으로 교차 RRF 검색.

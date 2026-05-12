@@ -241,10 +241,8 @@ def incremental_index_changed(workspace: str) -> dict:
     
     # CPU 전용 벡터 임베딩 (소량이므로 GPU 불필요)
     if vector_items:
-        from cortex.vectorizer import batch_vectorize_nodes
         batch_vectorize_nodes(conn, {"opportunistic": vector_items}, use_gpu=False, workspace=workspace)
     
-    from cortex.vectorizer import batch_vectorize_memories
     try:
         batch_vectorize_memories(conn, use_gpu=False, workspace=workspace)
     except Exception:

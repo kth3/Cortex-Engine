@@ -1,7 +1,8 @@
 """File locking helpers for Cortex runtime control."""
 from __future__ import annotations
 
-from typing import IO
+from contextlib import contextmanager
+from typing import IO, Iterator
 
 import portalocker
 
@@ -29,3 +30,15 @@ def release_lock(lock_file: IO[str] | None) -> None:
         lock_file.close()
     except Exception:
         pass
+
+
+@contextmanager
+def control_lock() -> Iterator[bool]:
+    """Context manager for acquiring and releasing the control lock."""
+    lock_file = acquire_lock()
+    try:
+        yield lock_file is not None
+    finally:
+        if lock_file:
+            release_lock(lock_file)
+

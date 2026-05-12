@@ -1,10 +1,11 @@
 from cortex.db import get_connection
 from cortex.logger import get_logger
+from cortex.retrieval import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 
 log = get_logger("search_engine")
 
 def _vector_search(workspace: str, query: str, category: str = None,
-                   limit: int = 10, multiplier: int = 2, ve_module=None) -> list:
+                   limit: int = DEFAULT_LIMIT, multiplier: int = DEFAULT_MULTIPLIER, ve_module=None) -> list:
     """sqlite-vec 기반 벡터 유사도 검색"""
     if ve_module is None:
         return []
