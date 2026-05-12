@@ -4,12 +4,12 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import psutil
 
 from .paths import TARGET_PORTS
+from .ports import force_release_ports, wait_for_ports_release
 
 
 def uv_cmd(script: Path) -> list[str]:
@@ -56,50 +56,11 @@ def terminate_pid(pid: int, logger) -> None:
 
 
 def cleanup_ports(logger, current_pid: int) -> None:
-    deadline = time.time() + 8.0
-
-    while time.time() < deadline:
-        occupied = []
-        try:
-            for conn in psutil.net_connections(kind="tcp"):
-                if conn.laddr.port in TARGET_PORTS and conn.status in (
-                    "LISTEN",
-                    "CLOSE_WAIT",
-                    "ESTABLISHED",
-                    "TIME_WAIT",
-                ):
-                    if conn.pid and conn.pid != current_pid:
-                        occupied.append((conn.laddr.port, conn.pid, conn.status))
-        except Exception:
-            pass
-
-        if not occupied:
-            break
-
-        logger.warning(f"포트 아직 점유 중: {occupied}. 재확인 대기...")
-        time.sleep(1.0)
+    wait_for_ports_release(logger, TARGET_PORTS, current_pid)
 
 
 def force_cleanup_ports(logger, current_pid: int) -> None:
-    try:
-        for conn in psutil.net_connections(kind="tcp"):
-            if (
-                conn.laddr.port in TARGET_PORTS
-                and conn.pid
-                and conn.pid != current_pid
-                and conn.status in ("LISTEN", "CLOSE_WAIT", "ESTABLISHED")
-            ):
-                logger.warning(
-                    f"Port {conn.laddr.port} still occupied by PID {conn.pid}. Force killing..."
-                )
-                try:
-                    process = psutil.Process(conn.pid)
-                    process.kill()
-                    process.wait(timeout=3)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-    except Exception as exc:
-        logger.debug(f"Port cleanup exception (non-critical): {exc}")
+    force_release_ports(logger, TARGET_PORTS, current_pid)
 
 
 def launch_background_process(script: Path, env: dict[str, str]) -> subprocess.Popen:
