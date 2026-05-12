@@ -160,8 +160,7 @@ def get_embeddings(texts: list[str], use_gpu: bool = None) -> np.ndarray:
                 # [Strict Fix] 사용자가 명시적으로 use_gpu=True를 요구했더라도,
                 # 이미 서버가 GPU를 점유 중이면 충돌 방지를 위해 강제로 CPU 모드 전환
                 if use_gpu is True:
-                    from cortex.logger import get_logger
-                    get_logger("vector").warning("Shared Engine Server exists and holding GPU. Forcing Local CPU mode to prevent VRAM conflict/crash.")
+                    log.warning("Shared Engine Server exists and holding GPU. Forcing Local CPU mode to prevent VRAM conflict/crash.")
                 device = "cpu"
             elif use_gpu is True:
                 device = "cuda"
