@@ -5,6 +5,13 @@ from cortex.retrieval.constants import DEFAULT_LIMIT
 from cortex.retrieval.fts import _fts_search
 from cortex.retrieval.semantic import _vector_search
 from cortex.retrieval.ranking import _heuristic_boost
+from cortex.retrieval.queries import (
+    OBSERVATIONS_LIKE_RECENT,
+    VECTOR_MEMORY_ROWIDS,
+    VECTOR_NODE_ROWIDS,
+    select_memories_by_rowids,
+    select_nodes_by_rowids,
+)
 
 log = get_logger("search_engine")
 
@@ -115,16 +122,15 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
             
             # vec_nodes (코드 도메인)
             vec_nodes_rows = conn.execute(
-                "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? AND k = ?",
+                VECTOR_NODE_ROWIDS,
                 (query_vec.tobytes(), limit * multiplier)
             ).fetchall()
             
             if vec_nodes_rows:
                 rowids = [r[0] for r in vec_nodes_rows]
-                ph = ",".join(["?"] * len(rowids))
                 # rowid는 SELECT *에 포함되지 않으므로 명시적으로 선택
                 db_nodes = conn.execute(
-                    f"SELECT rowid, * FROM nodes WHERE rowid IN ({ph})", rowids
+                    select_nodes_by_rowids(len(rowids)), rowids
                 ).fetchall()
                 n_map = {r["rowid"]: dict(r) for r in db_nodes}
                 for rowid in rowids:
@@ -133,15 +139,14 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
             
             # vec_memories (지식 도메인)
             vec_mem_rows = conn.execute(
-                "SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?",
+                VECTOR_MEMORY_ROWIDS,
                 (query_vec.tobytes(), limit * multiplier)
             ).fetchall()
             
             if vec_mem_rows:
                 rowids = [r[0] for r in vec_mem_rows]
-                ph = ",".join(["?"] * len(rowids))
                 db_mems = conn.execute(
-                    f"SELECT rowid, * FROM memories WHERE rowid IN ({ph})", rowids
+                    select_memories_by_rowids(len(rowids), include_rowid=True), rowids
                 ).fetchall()
                 m_map = {r["rowid"]: dict(r) for r in db_mems}
                 for rowid in rowids:
@@ -154,7 +159,7 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
     # 2. 동적 메모리 (observations LIKE)
     try:
         obs_rows = conn.execute(
-            "SELECT * FROM observations WHERE content LIKE ? ORDER BY created_at DESC LIMIT ?",
+            OBSERVATIONS_LIKE_RECENT,
             (f"%{query}%", limit * multiplier)
         ).fetchall()
         for r in obs_rows:

@@ -1,6 +1,7 @@
 from cortex.db import get_connection
 from cortex.logger import get_logger
 from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
+from cortex.retrieval.queries import VECTOR_MEMORY_ROWIDS, select_memories_by_rowids
 
 log = get_logger("search_engine")
 
@@ -17,14 +18,13 @@ def _vector_search(workspace: str, query: str, category: str = None,
         # 호환성을 위해 ve_module을 활용한 임베딩 호출 유지
         query_vec = ve_module.get_embeddings([query], use_gpu=detect_gpu())[0]
         vec_rows = conn.execute(
-            "SELECT rowid FROM vec_memories WHERE embedding MATCH ? AND k = ?",
+            VECTOR_MEMORY_ROWIDS,
             (query_vec.tobytes(), limit * multiplier)
         ).fetchall()
         if vec_rows:
             rowids = [r[0] for r in vec_rows]
-            ph = ",".join(["?"] * len(rowids))
             db_rows = conn.execute(
-                f"SELECT * FROM memories WHERE rowid IN ({ph})", rowids
+                select_memories_by_rowids(len(rowids)), rowids
             ).fetchall()
             for r in db_rows:
                 d = dict(r)

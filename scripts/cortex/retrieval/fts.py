@@ -1,7 +1,8 @@
 import json
 from cortex.db import get_connection
-from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 from cortex.logger import get_logger
+from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
+from cortex.retrieval.queries import FTS_MEMORIES, FTS_MEMORIES_WITH_CATEGORY
 
 log = get_logger("fts")
 
@@ -18,18 +19,12 @@ def _fts_search(workspace: str, query: str, category: str = None,
         fetch_limit = limit * multiplier
         if category:
             rows = conn.execute(
-                """SELECT m.* FROM memories_fts f
-                   JOIN memories m ON m.rowid = f.rowid
-                   WHERE memories_fts MATCH ? AND m.category = ?
-                   ORDER BY rank LIMIT ?""",
+                FTS_MEMORIES_WITH_CATEGORY,
                 (fts_query, category, fetch_limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT m.* FROM memories_fts f
-                   JOIN memories m ON m.rowid = f.rowid
-                   WHERE memories_fts MATCH ?
-                   ORDER BY rank LIMIT ?""",
+                FTS_MEMORIES,
                 (fts_query, fetch_limit),
             ).fetchall()
 
