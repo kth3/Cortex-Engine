@@ -14,13 +14,41 @@ from cortex.orchestrator import manage_todo, create_contract
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks
 
+CONTRACT_OBSERVATION_CATEGORY = "decision"
+AFTER_SAVE_OBSERVATION_HOOK = "after_save_observation"
+
+
+def _contract_observation_message(contract_id: str) -> str:
+    return f"Contract created: {contract_id}"
+
+
+def _save_contract_observation(ctx, contract_id: str, contract_path: str) -> None:
+    pc_mem_mod.save_observation(
+        ctx.workspace,
+        ctx.session_id,
+        CONTRACT_OBSERVATION_CATEGORY,
+        _contract_observation_message(contract_id),
+        [contract_path],
+    )
+    pc_hooks.dispatch(ctx.workspace, AFTER_SAVE_OBSERVATION_HOOK)
+
+
 def call_todo_manager(ctx, args):
     """manages todo list"""
-    return manage_todo(ctx.workspace, args["action"], args.get("task"), args.get("task_id"))
+    return manage_todo(
+        ctx.workspace, args["action"], args.get("task"), args.get("task_id")
+    )
+
 
 def call_create_contract(ctx, args):
     """creates a contract for a task"""
-    res = create_contract(ctx.workspace, ctx.session_id, args["lane_id"], args["task_name"], args["instructions"], args.get("files_to_modify"))
-    pc_mem_mod.save_observation(ctx.workspace, ctx.session_id, "decision", f"Contract created: {res['contract_id']}", [res['path']])
-    pc_hooks.dispatch(ctx.workspace, "after_save_observation")
+    res = create_contract(
+        ctx.workspace,
+        ctx.session_id,
+        args["lane_id"],
+        args["task_name"],
+        args["instructions"],
+        args.get("files_to_modify"),
+    )
+    _save_contract_observation(ctx, res["contract_id"], res["path"])
     return res
