@@ -18,6 +18,14 @@ from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_backgr
 
 logger = get_logger("ctl")
 
+STOP_PORT_RELEASE_GRACE_SECONDS = 2
+SERVER_STARTUP_SETTLE_SECONDS = 5
+LOCAL_DAEMON_SETTLE_SECONDS = 1
+ENGINE_READY_MAX_RETRIES = 35
+ENGINE_READY_POLL_INTERVAL_SECONDS = 1
+ENGINE_READY_WARNING_INTERVAL_RETRIES = 5
+CLEANUP_LOG_FILENAMES = ("watcher_output.log", "engine_server.log")
+
 
 def _service_scripts() -> list[tuple[Path, str]]:
     scripts = [(SERVER_SCRIPT, "Engine Server"), (WATCHER_SCRIPT, "Watcher")]
@@ -25,6 +33,17 @@ def _service_scripts() -> list[tuple[Path, str]]:
     if local_daemon_script:
         scripts.append((local_daemon_script, "Local Daemon"))
     return scripts
+
+
+def _cleanup_runtime_logs() -> None:
+    for log_name in CLEANUP_LOG_FILENAMES:
+        target = LOG_DIR / log_name
+        if target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                pass
+            logger.info(f"Infrastructure Cleaned: Removed {log_name}")
 
 
 def _perform_stop() -> None:
@@ -49,21 +68,14 @@ def _perform_stop() -> None:
         for pid in all_pids:
             terminate_pid(pid, logger)
 
-        time.sleep(2)
+        time.sleep(STOP_PORT_RELEASE_GRACE_SECONDS)
         cleanup_ports(logger, os.getpid())
 
     force_cleanup_ports(logger, os.getpid())
 
     logger.info(f"IPC Endpoint: {ENGINE_HOST}:{ENGINE_PORT} (TCP — no file cleanup needed)")
 
-    for log_name in ("watcher_output.log", "engine_server.log"):
-        target = LOG_DIR / log_name
-        if target.exists():
-            try:
-                target.unlink()
-            except Exception:
-                pass
-            logger.info(f"Infrastructure Cleaned: Removed {log_name}")
+    _cleanup_runtime_logs()
 
     logger.info("All services stop/cleanup sequence complete.")
 
@@ -82,13 +94,36 @@ def _is_local_daemon_running(local_daemon_script: Path | None) -> bool:
     return bool(get_pids(str(local_daemon_script)))
 
 
+def _wait_for_engine_ready(server_proc) -> bool:
+    logger.info("Waiting for Engine Server to initialize GPU...")
+
+    for retry in range(ENGINE_READY_MAX_RETRIES):
+        if server_proc.poll() is not None:
+            logger.error(
+                f"CRITICAL: Engine Server crashed during startup (code={server_proc.returncode})."
+            )
+            return False
+
+        if send_minimal_ping():
+            return True
+
+        if retry > 0 and retry % ENGINE_READY_WARNING_INTERVAL_RETRIES == 0:
+            logger.warning(
+                f"Engine Server not ready yet (retry {retry}/{ENGINE_READY_MAX_RETRIES})..."
+            )
+        time.sleep(ENGINE_READY_POLL_INTERVAL_SECONDS)
+
+    logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
+    return False
+
+
 def _launch_local_daemon(local_daemon_script: Path | None, env: dict[str, str]) -> None:
     if not local_daemon_script:
         return
 
     logger.info(f"Launching Local Daemon: {local_daemon_script}")
     daemon_proc = launch_background_process(local_daemon_script, env)
-    time.sleep(1)
+    time.sleep(LOCAL_DAEMON_SETTLE_SECONDS)
     if daemon_proc.poll() is not None:
         logger.error(
             f"Local Daemon exited immediately (code={daemon_proc.returncode}). "
@@ -128,7 +163,7 @@ def start() -> None:
         logger.info("Launching GPU Engine Server...")
         server_proc = launch_background_process(SERVER_SCRIPT, sub_env)
 
-        time.sleep(5)
+        time.sleep(SERVER_STARTUP_SETTLE_SECONDS)
         if server_proc.poll() is not None:
             logger.error(
                 f"CRITICAL: Engine Server exited immediately (code={server_proc.returncode}). "
@@ -136,26 +171,7 @@ def start() -> None:
             )
             return
 
-        logger.info("Waiting for Engine Server to initialize GPU...")
-        max_retries = 35
-        ready = False
-        for retry in range(max_retries):
-            if server_proc.poll() is not None:
-                logger.error(
-                    f"CRITICAL: Engine Server crashed during startup (code={server_proc.returncode})."
-                )
-                return
-
-            if send_minimal_ping():
-                ready = True
-                break
-
-            if retry > 0 and retry % 5 == 0:
-                logger.warning(f"Engine Server not ready yet (retry {retry}/{max_retries})...")
-            time.sleep(1)
-
-        if not ready:
-            logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
+        if not _wait_for_engine_ready(server_proc):
             return
 
         _launch_local_daemon(local_daemon_script, sub_env)
