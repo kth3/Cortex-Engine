@@ -44,6 +44,11 @@ from cortex.indexing.vector_store import dedupe_vector_items, persist_node_vecto
 # 핵심 인덱싱 로직
 # ==============================================================================
 
+def _read_text_file(path):
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
+
+
 def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True, use_gpu: bool = None):
     """단일 파일에 대한 정밀 인덱싱 및 임베딩.
 
@@ -70,8 +75,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
                 conn.close()
 
     try:
-        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-            source = f.read()
+        source = _read_text_file(full_path)
     except Exception as e:
         return {"error": str(e)}
 
@@ -261,6 +265,71 @@ def _resolve_unresolved_edges(conn) -> None:
     return resolve_unresolved_edges(conn)
 
 
+def _sync_skills(workspace):
+    from cortex.skill_manager import SkillManager
+    log.info("Auto-syncing skills to memories DB...")
+    try:
+        sm = SkillManager(workspace)
+        sm.sync_skills(workspace)
+    except Exception as e:
+        log.warning("Skill sync failed: %s", e)
+
+
+def _load_file_cache(conn, force):
+    if force:
+        # force=True: index_file 내부 hash 체크도 우회하도록 캐시 전체 초기화
+        conn.execute("DELETE FROM file_cache")
+        conn.commit()
+        return {}
+
+    cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
+    return {row[0]: row[1] for row in cached_rows}
+
+
+def _vector_prefix_for_path(rel_path):
+    # 소속 폴더 분석 (최상단 폴더 기준)
+    parts = Path(rel_path).parts
+    prefix = "root"
+    if len(parts) > 1 and not parts[0].startswith("."):
+        prefix = parts[0]
+    return prefix
+
+
+def _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res):
+    if "error" in res:
+        stats["errors"] += 1
+        return
+
+    stats["indexed"] += 1
+    prefix = _vector_prefix_for_path(rel_path)
+    if prefix not in all_vector_items_by_prefix:
+        all_vector_items_by_prefix[prefix] = []
+    all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
+
+
+def _release_gpu_after_indexing(use_gpu):
+    # GPU VRAM 해제 (팬 소음 방지 — 다음 소량 인덱싱은 CPU로 즉시 처리)
+    if use_gpu:
+        try:
+            from cortex.vector_engine import release_gpu
+            release_gpu()
+            log.info("GPU VRAM released after full indexing.")
+        except Exception:
+            pass
+
+
+def _sync_graph_from_sqlite(workspace, conn):
+    # SQLite nodes/edges → Kuzu 그래프 DB 동기화
+    try:
+        from cortex.graph_db import GraphDB
+        gdb = GraphDB(workspace)
+        log.info("Building Kuzu graph from SQLite edges...")
+        g_stats = gdb.build_from_sqlite(conn)
+        log.info("Kuzu graph built: %d nodes, %d edges, %d errors", g_stats['nodes'], g_stats['edges'], g_stats['errors'])
+    except Exception as e:
+        log.warning("Kuzu graph build failed: %s", e)
+
+
 def index_workspace(workspace: str, force: bool = False) -> dict:
     """전체 워크스페이스 하이브리드 인덱싱.
 
@@ -269,13 +338,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / GPU 해제 1회.
     """
     # 0. 사전에 Skills 폴더 자동 동기화
-    from cortex.skill_manager import SkillManager
-    log.info("Auto-syncing skills to memories DB...")
-    try:
-        sm = SkillManager(workspace)
-        sm.sync_skills(workspace)
-    except Exception as e:
-        log.warning("Skill sync failed: %s", e)
+    _sync_skills(workspace)
 
     files = scan_files(workspace, SUPPORTED_EXTENSIONS)
     conn = db.get_connection(workspace)
@@ -288,20 +351,12 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     all_vector_items_by_prefix = {}
 
     # N+1 최적화: file_cache 일괄 로드
-    cache_dict = {}
-    if force:
-        # force=True: index_file 내부 hash 체크도 우회하도록 캐시 전체 초기화
-        conn.execute("DELETE FROM file_cache")
-        conn.commit()
-    else:
-        cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
-        cache_dict = {row[0]: row[1] for row in cached_rows}
+    cache_dict = _load_file_cache(conn, force)
 
     for rel_path in files:
         full_path = os.path.join(workspace, rel_path)
         try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                source = f.read()
+            source = _read_text_file(full_path)
         except Exception:
             stats["errors"] += 1
             continue
@@ -315,20 +370,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
 
         # vectorize=False: DB 저장만 수행, vector_items는 여기서 수집
         res = index_file(workspace, rel_path, conn=conn, vectorize=False)
-        if "error" in res:
-            stats["errors"] += 1
-        else:
-            stats["indexed"] += 1
-            
-            # 소속 폴더 분석 (최상단 폴더 기준)
-            parts = Path(rel_path).parts
-            prefix = "root"
-            if len(parts) > 1 and not parts[0].startswith("."):
-                prefix = parts[0]
-            
-            if prefix not in all_vector_items_by_prefix:
-                all_vector_items_by_prefix[prefix] = []
-            all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
+        _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
 
     # 벡터 임베딩 배치 처리 (vectorizer.py 위임)
     use_gpu = detect_gpu()
@@ -344,14 +386,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     except Exception as e:
         log.error("Failed to index memories table: %s", e)
 
-    # GPU VRAM 해제 (팬 소음 방지 — 다음 소량 인덱싱은 CPU로 즉시 처리)
-    if use_gpu:
-        try:
-            from cortex.vector_engine import release_gpu
-            release_gpu()
-            log.info("GPU VRAM released after full indexing.")
-        except Exception:
-            pass
+    _release_gpu_after_indexing(use_gpu)
 
     # 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
@@ -360,15 +395,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     # __unresolved__ 엣지를 실제 노드 UUID로 해소
     resolve_unresolved_edges(conn)
 
-    # SQLite nodes/edges → Kuzu 그래프 DB 동기화
-    try:
-        from cortex.graph_db import GraphDB
-        gdb = GraphDB(workspace)
-        log.info("Building Kuzu graph from SQLite edges...")
-        g_stats = gdb.build_from_sqlite(conn)
-        log.info("Kuzu graph built: %d nodes, %d edges, %d errors", g_stats['nodes'], g_stats['edges'], g_stats['errors'])
-    except Exception as e:
-        log.warning("Kuzu graph build failed: %s", e)
+    _sync_graph_from_sqlite(workspace, conn)
 
     conn.close()
     return stats
