@@ -7,6 +7,15 @@ import sqlite3
 from cortex.storage.connection import is_vec_available
 from cortex.storage.migrations import _apply_migrations
 
+SCHEMA_VERSION_META_KEY = "schema_version"
+CURRENT_SCHEMA_VERSION = "2"
+
+INIT_SCHEMA_VERSION_SQL = "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)"
+UPGRADE_SCHEMA_VERSION_SQL = (
+    "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?"
+)
+
+
 def _create_core_tables(conn: sqlite3.Connection):
     """핵심 테이블 생성 (파일 캐시, 노드, 엣지 등)"""
     conn.executescript("""
@@ -51,6 +60,7 @@ def _create_core_tables(conn: sqlite3.Connection):
         UNIQUE(source_id, target_id, type)
     );
     """)
+
 
 def _create_history_tables(conn: sqlite3.Connection):
     """Git 이력 및 변경 이력 추적용 테이블 생성"""
@@ -105,6 +115,7 @@ def _create_history_tables(conn: sqlite3.Connection):
         ON file_edit_events(session_id, updated_at DESC);
     """)
 
+
 def _create_memory_tables(conn: sqlite3.Connection):
     """에이전트 메모리, 관찰, 세션용 테이블 생성"""
     conn.executescript("""
@@ -158,8 +169,9 @@ def _create_memory_tables(conn: sqlite3.Connection):
     );
     """)
 
+
 def _create_vec_tables(conn: sqlite3.Connection):
-    """Fix #5: sqlite-vec 가상 테이블 생성 (확장이 로드된 경우에만 호출)"""
+    """sqlite-vec 가상 테이블 생성 (확장이 로드된 경우에만 호출)"""
     conn.executescript("""
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
         rowid INTEGER PRIMARY KEY,
@@ -180,6 +192,7 @@ def _create_vec_tables(conn: sqlite3.Connection):
         DELETE FROM vec_memories WHERE rowid = old.rowid;
     END;
     """)
+
 
 def _create_fts_and_triggers(conn: sqlite3.Connection):
     """FTS5 인덱스와 연관 트리거 생성"""
@@ -224,6 +237,7 @@ def _create_fts_and_triggers(conn: sqlite3.Connection):
     END;
     """)
 
+
 def _create_indexes(conn: sqlite3.Connection):
     """성능 최적화용 일반 인덱스 생성"""
     conn.executescript("""
@@ -238,6 +252,35 @@ def _create_indexes(conn: sqlite3.Connection):
     CREATE INDEX IF NOT EXISTS idx_search_misses_ts ON search_misses(created_at);
     """)
 
+
+def _create_vec_tables_if_available(conn: sqlite3.Connection):
+    """sqlite-vec 확장이 로드된 경우에만 벡터 가상 테이블을 생성한다."""
+    if is_vec_available():
+        _create_vec_tables(conn)
+
+
+def _initialize_schema_version(conn: sqlite3.Connection):
+    """meta 테이블에 현재 스키마 버전 기본값을 기록한다."""
+    conn.execute(
+        INIT_SCHEMA_VERSION_SQL,
+        (SCHEMA_VERSION_META_KEY, CURRENT_SCHEMA_VERSION),
+    )
+
+
+def _upgrade_schema_version(conn: sqlite3.Connection):
+    """기존 schema_version이 낮은 경우 현재 버전으로 갱신한다."""
+    conn.execute(
+        UPGRADE_SCHEMA_VERSION_SQL,
+        (CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION),
+    )
+
+
+def _initialize_meta(conn: sqlite3.Connection):
+    """스키마 메타 정보를 초기화하고 현재 버전으로 보정한다."""
+    _initialize_schema_version(conn)
+    _upgrade_schema_version(conn)
+
+
 def init_schema(conn: sqlite3.Connection):
     """DB 스키마 생성 및 마이그레이션 (동적 인덱싱용)"""
     _create_core_tables(conn)
@@ -246,21 +289,8 @@ def init_schema(conn: sqlite3.Connection):
     _create_fts_and_triggers(conn)
     _create_indexes(conn)
 
-    # Fix #5: sqlite-vec 가상 테이블은 확장이 로드된 경우에만 생성
-    if is_vec_available():
-        _create_vec_tables(conn)
+    _create_vec_tables_if_available(conn)
 
-    # 초기화 및 마이그레이션
     _apply_migrations(conn)
-    
-    # 메타 정보 초기화 + 버전 갱신
-    # v1 → v2: file_edit_events 테이블 추가 (Cortex MCP 편집 이벤트 로그)
-    conn.execute(
-        "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)",
-        ("schema_version", "2")
-    )
-    conn.execute(
-        "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?",
-        ("2", "2")
-    )
+    _initialize_meta(conn)
     conn.commit()
