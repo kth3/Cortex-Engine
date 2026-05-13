@@ -1,5 +1,8 @@
 """
 Cortex MCP Tool Dispatcher
+
+- 책임: 클라이언트(LLM)가 보낸 MCP Tool 호출 요청을 파싱하여, 적절한 내부 도메인 함수로 라우팅한다.
+- 주의: 이 모듈은 MCP tool routing과 response format 생성의 계약을 엄격히 지켜야 하며, 도메인 로직을 직접 구현하지 않는다.
 """
 import json
 from cortex import hooks_manager as pc_hooks

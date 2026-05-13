@@ -1,4 +1,8 @@
-"""PyTorch embedding worker runtime for the Cortex engine server."""
+"""PyTorch embedding worker runtime for the Cortex engine server.
+
+- Worker의 책임: 실제 GPU(또는 CPU) 임베딩 모델(residency)을 메모리에 보유하고 인퍼런스를 수행한다.
+- VRAM lifecycle: 워커 프로세스가 유지되는 동안 모델이 메모리에 남아있으며, shutdown IPC를 받으면 워커가 종료되면서 VRAM이 해제된다.
+"""
 from __future__ import annotations
 
 import gc

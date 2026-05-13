@@ -1,4 +1,8 @@
-"""Node/edge persistence helpers for the indexing pipeline."""
+"""Node/edge persistence helpers for the indexing pipeline.
+
+- 책임: 파싱된 데이터(nodes, edges)와 상태 정보(file_cache)를 데이터베이스에 기록(DML)하는 계층이다.
+- 주의: 이 파일은 스키마(DDL)를 변경하는 곳이 아니며, DB 스키마를 변경하지 않고 기존의 INSERT, UPDATE, UPSERT(INSERT OR REPLACE) 의미와 DML 계약을 그대로 유지해야 한다.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Idle timeout monitoring for Cortex embedding workers."""
+"""Idle timeout monitoring for Cortex embedding workers.
+
+- Idle Monitor의 책임: 지정된 시간(idle timeout) 동안 요청이 없을 때 워커 프로세스를 종료시킨다.
+- 이 모니터가 manager.shutdown()을 호출하여 워커 프로세스가 종료됨으로써, 장기 미사용 시 GPU model VRAM이 자동으로 해제(lifecycle 연결)되는 효과를 낸다.
+"""
 from __future__ import annotations
 
 import threading

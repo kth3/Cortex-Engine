@@ -1,3 +1,8 @@
+"""Batch vectorization logic.
+
+- 이 모듈은 임베딩 모델 호출(provider)과 DB 저장(vec_nodes/vec_memories) 사이에서 대량의 데이터를 적절한 청크(batch_size)로 나누어 처리하는 책임을 가진다.
+- N+1 쿼리 문제를 방지하기 위해 일괄 변환된 벡터를 executemany를 통해 한 번에 SQLite에 반영한다.
+"""
 from cortex.logger import get_logger
 from cortex.indexer_utils import get_tuning_params
 from cortex.embeddings.hardware import _maybe_flush_gpu

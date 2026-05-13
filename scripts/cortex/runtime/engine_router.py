@@ -1,4 +1,8 @@
-"""TCP router runtime for the Cortex embedding engine server."""
+"""TCP router runtime for the Cortex embedding engine server.
+
+- Router의 책임: 외부 클라이언트(예: CLI 도구, MCP 서버)의 연결을 받아 WorkerManager로 요청을 전달(라우팅)한다.
+- 워커 상태에 따라 요청을 대기시키거나, 재시도를 수행하는 통신 앞단 역할을 한다.
+"""
 from __future__ import annotations
 
 import socketserver

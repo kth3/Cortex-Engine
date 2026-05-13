@@ -1,3 +1,7 @@
+"""Hardware detection and VRAM management.
+
+- release_gpu() 함수는 daemon이나 worker 프로세스의 VRAM을 해제하는 것이 아니라, 오직 "현재 실행 중인 Python 프로세스(Local Fallback 환경)"에 로드된 모델의 VRAM만 해제한다.
+"""
 import gc
 import sys
 

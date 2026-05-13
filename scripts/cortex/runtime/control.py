@@ -47,7 +47,10 @@ def _cleanup_runtime_logs() -> None:
 
 
 def _perform_stop() -> None:
-    """Stop services and clean stale runtime state."""
+    """Stop services and clean stale runtime state.
+    
+    graceful stop 이후 포트 cleanup(port release)까지 수행하는 완전한 정리 경로다.
+    """
     logger.info("Stopping all Cortex services...")
 
     all_pids: list[int] = []

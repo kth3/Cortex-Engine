@@ -1,3 +1,8 @@
+"""IPC client for Engine Server.
+
+- 서버(Engine Server)와의 TCP 소켓 통신(서버 우선 경로)을 전담하는 클라이언트다.
+- 연결 실패 시 조용히 오프라인 상태를 반환하여 호출부가 Local Fallback 경로로 자연스럽게 넘어가도록 설계되었다.
+"""
 import socket
 import json
 import struct

@@ -1,3 +1,8 @@
+"""Embedding model provider.
+
+- 서버 우선 경로 vs Local Fallback: 임베딩 요청 시 항상 Engine Server(상주 프로세스)로 먼저 라우팅을 시도한다. 서버가 오프라인이거나 에러가 발생한 경우에만 현재 프로세스(Local Fallback)에 모델을 직접 로드하여 처리한다.
+- use_gpu의 의미: False일 경우 강제로 CPU만 사용하여 임베딩을 수행하며, None/True일 경우 서버 가용성 및 하드웨어 상태에 따라 GPU를 최우선으로 시도한다.
+"""
 import os
 import sys
 import numpy as np

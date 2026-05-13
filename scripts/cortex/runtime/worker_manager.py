@@ -1,4 +1,8 @@
-"""Worker process lifecycle management for the Cortex engine router."""
+"""Worker process lifecycle management for the Cortex engine router.
+
+- Manager의 책임: 실제 모델을 보유한 PyTorch Worker 프로세스의 생성(spawn), 감시, 종료(shutdown) 등 생명주기를 전담한다.
+- 요청 시 워커가 죽어있으면 다시 살리고, 프로세스 락을 통해 요청을 직렬화하여 전달한다.
+"""
 from __future__ import annotations
 
 import socket

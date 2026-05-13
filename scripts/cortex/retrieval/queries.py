@@ -37,6 +37,9 @@ def placeholders(count: int) -> str:
 def select_memories_by_rowids(count: int, include_rowid: bool = False) -> str:
     """Build a memories rowid lookup query.
 
+    주의: SELECT *와 SELECT rowid, * 구문은 호출부의 Python tuple unpacking 계약이 
+    다르므로, 이 차이를 반드시 보존해야 한다. 통합하거나 임의로 수정하지 않는다.
+
     include_rowid=False:
         SELECT * FROM memories WHERE rowid IN (?, ?, ...)
 

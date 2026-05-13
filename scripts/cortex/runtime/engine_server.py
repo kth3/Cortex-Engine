@@ -1,4 +1,7 @@
-"""Top-level orchestration for the Cortex embedding engine server."""
+"""Top-level orchestration for the Cortex embedding engine server.
+
+- Server의 책임: Router, WorkerManager, Watcher Daemon, Idle Monitor 등 모든 서버 사이드 컴포넌트를 하나로 묶어 실행하는 진입점 역할을 한다.
+"""
 from __future__ import annotations
 
 from pathlib import Path

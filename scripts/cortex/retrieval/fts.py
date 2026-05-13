@@ -1,3 +1,8 @@
+"""FTS search engine.
+
+- 책임: FTS5 기반의 키워드 및 형태소 일치 검색을 담당한다.
+- Vector 검색이 잡지 못하는 정확한 식별자, 특수 용어, 고유 명사 검색에 강점을 가진다.
+"""
 import json
 from cortex.db import get_connection
 from cortex.logger import get_logger

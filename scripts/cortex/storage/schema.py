@@ -1,3 +1,8 @@
+"""Database schema definitions and initialization.
+
+- 책임: Cortex 시스템의 모든 SQLite 테이블, 인덱스, 트리거 및 가상 테이블(FTS5, sqlite-vec)을 생성하는 DDL 전담 계층이다.
+- 주의: DDL 쿼리는 시스템의 근간이 되므로, 외부 모듈로 분리하거나 기존 테이블/컬럼의 자료형 및 제약 조건을 임의로 변경하지 않는다.
+"""
 import sqlite3
 from cortex.storage.connection import is_vec_available
 from cortex.storage.migrations import _apply_migrations

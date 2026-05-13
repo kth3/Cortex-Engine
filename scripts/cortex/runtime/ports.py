@@ -117,7 +117,7 @@ def force_release_ports(
 
     기존 force_cleanup_ports() 동작을 유지한다.
     NoSuchProcess, AccessDenied는 기존처럼 조용히 무시한다.
-    전체 예외는 debug 로그로만 남긴다.
+    외곽의 전체 예외(Exception)는 stop 경로에서 cleanup 실패가 CLI 종료를 막지 않도록 debug 로그로만 남긴다.
     """
     try:
         occupied = occupied_target_ports(

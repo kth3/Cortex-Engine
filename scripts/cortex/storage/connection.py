@@ -1,3 +1,7 @@
+"""SQLite connection and extension management.
+
+- 책임: SQLite DB 파일 연결을 생성하고 PRAGMA 설정을 초기화하며, sqlite-vec(벡터 검색 확장) 모듈을 로드하는 책임을 가진다.
+"""
 import sqlite3
 from cortex.paths import data_dir
 from cortex.logger import get_logger

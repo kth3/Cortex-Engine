@@ -340,11 +340,11 @@ def _sync_graph_from_sqlite(workspace, conn):
 
 
 def index_workspace(workspace: str, force: bool = False) -> dict:
-    """전체 워크스페이스 하이브리드 인덱싱.
+    """전체 워크스페이스 하이브리드 인덱싱 (전체 indexing orchestration 책임을 가진다).
 
     최적화:
     - 파싱/DB 저장은 파일별로 수행하되, 벡터 임베딩은 전체 완료 후 1회 배치 처리.
-    - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / GPU 해제 1회.
+    - 모델 로드 1회 / FAISS 읽기·쓰기 1회 / local CUDA fallback 모델 정리.
     """
     # 0. 사전에 Skills 폴더 자동 동기화
     _sync_skills(workspace)
