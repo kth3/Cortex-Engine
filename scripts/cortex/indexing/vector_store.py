@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 
+from cortex.indexing.queries import (
+    UPSERT_VEC_NODES_SQL,
+    select_node_id_rowid_by_ids_sql,
+)
+
+
 def dedupe_vector_items(vector_items: list[dict]) -> list[dict]:
     """Deduplicate vector payloads by node ID while preserving latest content."""
     if not vector_items:
@@ -21,7 +27,7 @@ def persist_node_vectors(conn, vector_items: list[dict], *, use_gpu: bool | None
     ids = [item["id"] for item in vector_items]
     placeholders = ",".join("?" * len(ids))
     rowid_rows = conn.execute(
-        f"SELECT id, rowid FROM nodes WHERE id IN ({placeholders})",
+        select_node_id_rowid_by_ids_sql(placeholders),
         ids,
     ).fetchall()
     id_to_rowid = {row[0]: row[1] for row in rowid_rows}
@@ -35,8 +41,9 @@ def persist_node_vectors(conn, vector_items: list[dict], *, use_gpu: bool | None
             vec_rows.append((rowid, embedding.tobytes()))
 
     if vec_rows:
-        conn.executemany("INSERT OR REPLACE INTO vec_nodes (rowid, embedding) VALUES (?, ?)", vec_rows)
+        conn.executemany(UPSERT_VEC_NODES_SQL, vec_rows)
         conn.commit()
+
 
 
 __all__ = ["dedupe_vector_items", "persist_node_vectors"]

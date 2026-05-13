@@ -5,10 +5,16 @@ from __future__ import annotations
 from collections import defaultdict
 
 from cortex.logger import get_logger
+from cortex.indexing.queries import (
+    SELECT_UNRESOLVED_EDGES_SQL,
+    UPDATE_EDGE_TARGET_ID_SQL,
+    select_node_id_fqn_by_name_sql,
+    select_edge_id_lang_by_target_sql,
+    select_node_id_name_by_name_lang_sql,
+    select_node_id_name_by_name_sql,
+)
 
 log = get_logger("indexing.edge_resolver")
-
-UNRESOLVED_FQN_PREFIX = "__unresolved_fqn__::"
 
 
 def _resolve_fqn_edges(conn, fqn_edges: list[tuple[int, str]]) -> list[tuple[str, int]]:
@@ -28,7 +34,7 @@ def _resolve_fqn_edges(conn, fqn_edges: list[tuple[int, str]]) -> list[tuple[str
 
     placeholders = ",".join("?" * len(unique_names))
     rows = conn.execute(
-        f"SELECT id, fqn FROM nodes WHERE name IN ({placeholders}) AND language = 'python'",
+        select_node_id_fqn_by_name_sql(placeholders),
         unique_names,
     ).fetchall()
 
@@ -46,9 +52,7 @@ def _source_language_map(conn, edge_ids: list[int]) -> dict[int, str]:
         batch = edge_ids[index:index + 900]
         placeholders = ",".join("?" * len(batch))
         rows = conn.execute(
-            f"SELECT e.id, n.language FROM edges e "
-            f"JOIN nodes n ON e.source_id = n.id "
-            f"WHERE e.id IN ({placeholders})",
+            select_edge_id_lang_by_target_sql(placeholders),
             batch,
         ).fetchall()
         for row_id, language in rows:
@@ -62,7 +66,7 @@ def _nodes_by_name_lang(conn, lang_to_names: dict[str, set[str]]) -> dict[tuple[
         name_list = list(names)
         placeholders = ",".join("?" * len(name_list))
         rows = conn.execute(
-            f"SELECT id, name FROM nodes WHERE name IN ({placeholders}) AND language = ?",
+            select_node_id_name_by_name_lang_sql(placeholders),
             name_list + [language],
         ).fetchall()
         for node_id, name in rows:
@@ -75,7 +79,7 @@ def _nodes_by_name_any(conn, names: set[str]) -> dict[str, str]:
         return {}
     name_list = list(names)
     placeholders = ",".join("?" * len(name_list))
-    rows = conn.execute(f"SELECT id, name FROM nodes WHERE name IN ({placeholders})", name_list).fetchall()
+    rows = conn.execute(select_node_id_name_by_name_sql(placeholders), name_list).fetchall()
     return {name: node_id for node_id, name in rows}
 
 
@@ -111,9 +115,7 @@ def _resolve_name_edges(conn, name_edges: list[tuple[int, str]]) -> list[tuple[s
 
 def resolve_unresolved_edges(conn) -> None:
     """Replace unresolved edge target IDs with resolved node IDs when possible."""
-    unresolved = conn.execute(
-        "SELECT id, target_id FROM edges WHERE target_id LIKE '__unresolved%'"
-    ).fetchall()
+    unresolved = conn.execute(SELECT_UNRESOLVED_EDGES_SQL).fetchall()
     if not unresolved:
         return
 
@@ -124,7 +126,7 @@ def resolve_unresolved_edges(conn) -> None:
     updates.extend(_resolve_name_edges(conn, name_edges))
 
     if updates:
-        conn.executemany("UPDATE OR IGNORE edges SET target_id = ? WHERE id = ?", updates)
+        conn.executemany(UPDATE_EDGE_TARGET_ID_SQL, updates)
         conn.commit()
         log.info("Resolved %d unresolved edges.", len(updates))
 

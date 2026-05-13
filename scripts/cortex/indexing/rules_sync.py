@@ -9,6 +9,12 @@ from pathlib import Path
 
 from cortex.indexer_utils import compute_hash, strip_frontmatter
 from cortex.logger import get_logger
+from cortex.indexing.queries import (
+    SELECT_MEMORY_CONTENT_BY_KEY_SQL,
+    UPSERT_MEMORY_RULE_SQL,
+    select_memory_keys_by_category_tag_sql,
+    delete_memories_by_keys_sql,
+)
 
 log = get_logger("indexing.rules_sync")
 
@@ -72,7 +78,7 @@ def _upsert_memory(conn, category: str, md_path: Path, content: str) -> bool:
         return False
 
     content_hash = compute_hash(content_clean)
-    existing = conn.execute("SELECT content FROM memories WHERE key = ?", (key,)).fetchone()
+    existing = conn.execute(SELECT_MEMORY_CONTENT_BY_KEY_SQL, (key,)).fetchone()
     if existing and compute_hash(existing[0]) == content_hash:
         return False
 
@@ -82,11 +88,7 @@ def _upsert_memory(conn, category: str, md_path: Path, content: str) -> bool:
     title = _extract_title(content_clean, md_path.stem)
     prefixed_content = f"[{category.upper()}] {title}\n{content_clean}"
     conn.execute(
-        """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET
-           content=excluded.content, category=excluded.category,
-           tags=excluded.tags, updated_at=excluded.updated_at""",
+        UPSERT_MEMORY_RULE_SQL,
         (key, ".", category, prefixed_content, tags_json, rel_json, now, now),
     )
     return True
@@ -105,7 +107,7 @@ def _delete_orphan_memories(conn, managed_categories: list[str], all_disk_keys: 
     db_keys = [
         row[0]
         for row in conn.execute(
-            f"SELECT key FROM memories WHERE category IN ({placeholders}) AND tags LIKE '%agent-rule%'",
+            select_memory_keys_by_category_tag_sql(placeholders),
             managed_categories,
         ).fetchall()
     ]
@@ -114,7 +116,7 @@ def _delete_orphan_memories(conn, managed_categories: list[str], all_disk_keys: 
     for index in range(0, len(orphans), 900):
         chunk = orphans[index:index + 900]
         placeholders = ",".join("?" * len(chunk))
-        conn.execute(f"DELETE FROM memories WHERE key IN ({placeholders})", chunk)
+        conn.execute(delete_memories_by_keys_sql(placeholders), chunk)
     return len(orphans)
 
 
