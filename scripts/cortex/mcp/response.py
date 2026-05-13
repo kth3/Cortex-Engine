@@ -7,21 +7,62 @@ MCP Response formatters.
 import json
 import traceback
 
-def create_text_response(rid, r, hook_msg=""):
-    if isinstance(r, (dict, list)):
-        final_res = json.dumps(r, ensure_ascii=False, indent=2)
-    else:
-        final_res = str(r)
+JSONRPC_VERSION = "2.0"
+CONTENT_TYPE_TEXT = "text"
+ERROR_PREFIX = "Error:"
+HOOK_SEPARATOR = "\n"
+JSON_INDENT = 2
+
+
+def _jsonrpc_result(rid, result):
+    return {
+        "jsonrpc": JSONRPC_VERSION,
+        "id": rid,
+        "result": result,
+    }
+
+
+def _text_content(text):
+    return {
+        "type": CONTENT_TYPE_TEXT,
+        "text": text,
+    }
+
+
+def _content_result(text):
+    return {
+        "content": [_text_content(text)],
+    }
+
+
+def _error_result(text):
+    return {
+        "isError": True,
+        "content": [_text_content(text)],
+    }
+
+
+def _stringify_result(value):
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=JSON_INDENT)
+    return str(value)
+
+
+def _apply_hook_message(text, hook_msg):
     if hook_msg:
-        final_res = f"{hook_msg}\n{final_res}"
-    return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": final_res}]}}
+        return f"{hook_msg}{HOOK_SEPARATOR}{text}"
+    return text
+
+
+def _format_exception_text(exc):
+    return f"{ERROR_PREFIX} {str(exc)}{HOOK_SEPARATOR}{traceback.format_exc()}"
+
+
+def create_text_response(rid, r, hook_msg=""):
+    final_res = _stringify_result(r)
+    final_res = _apply_hook_message(final_res, hook_msg)
+    return _jsonrpc_result(rid, _content_result(final_res))
+
 
 def create_error_response(rid, e):
-    return {
-        "jsonrpc": "2.0", 
-        "id": rid, 
-        "result": {
-            "isError": True, 
-            "content": [{"type": "text", "text": f"Error: {str(e)}\n{traceback.format_exc()}"}]
-        }
-    }
+    return _jsonrpc_result(rid, _error_result(_format_exception_text(e)))
