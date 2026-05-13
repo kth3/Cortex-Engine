@@ -5,9 +5,24 @@
 """
 from cortex import git_analyzer as pc_git_mod
 
+DEFAULT_GIT_LOG_LIMIT = 5
+ERROR_KEY = "error"
+
+
+def _get_file_history(workspace, file_path, limit):
+    return pc_git_mod.get_file_history(workspace, file_path, limit)
+
+
+def _error_response(exc):
+    return {ERROR_KEY: str(exc)}
+
+
 def call_pc_git_log(ctx, args):
     try:
-        history = pc_git_mod.get_file_history(ctx.workspace, args["file_path"], args.get("limit", 5))
-        return history
+        return _get_file_history(
+            ctx.workspace,
+            args["file_path"],
+            args.get("limit", DEFAULT_GIT_LOG_LIMIT),
+        )
     except Exception as e:
-        return {"error": str(e)}
+        return _error_response(e)
