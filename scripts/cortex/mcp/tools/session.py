@@ -50,9 +50,24 @@ AUTO_CONTEXT_POPULAR_LIMIT = 5
 AUTO_CONTEXT_STANDARD_SNIPPET_CHARS = 150
 AUTO_CONTEXT_POPULAR_SNIPPET_CHARS = 100
 
-SQL_RECENT_DECISIONS = "SELECT key, content, updated_at FROM memories WHERE category = 'decision' ORDER BY updated_at DESC LIMIT 5"
-SQL_RECENT_PATTERNS = "SELECT key, content, updated_at FROM memories WHERE category = 'pattern' ORDER BY updated_at DESC LIMIT 3"
-SQL_POPULAR_MEMORIES = "SELECT key, category, content, access_count FROM memories WHERE access_count > 0 ORDER BY access_count DESC LIMIT 5"
+AUTO_CONTEXT_DECISION_CATEGORY = "decision"
+AUTO_CONTEXT_PATTERN_CATEGORY = "pattern"
+
+SQL_RECENT_DECISIONS = (
+    "SELECT key, content, updated_at FROM memories "
+    f"WHERE category = '{AUTO_CONTEXT_DECISION_CATEGORY}' "
+    f"ORDER BY updated_at DESC LIMIT {AUTO_CONTEXT_DECISION_LIMIT}"
+)
+SQL_RECENT_PATTERNS = (
+    "SELECT key, content, updated_at FROM memories "
+    f"WHERE category = '{AUTO_CONTEXT_PATTERN_CATEGORY}' "
+    f"ORDER BY updated_at DESC LIMIT {AUTO_CONTEXT_PATTERN_LIMIT}"
+)
+SQL_POPULAR_MEMORIES = (
+    "SELECT key, category, content, access_count FROM memories "
+    "WHERE access_count > 0 "
+    f"ORDER BY access_count DESC LIMIT {AUTO_CONTEXT_POPULAR_LIMIT}"
+)
 
 STATE_DIRNAME = "state"
 BOARD_JSON_FILE = "board.json"
@@ -291,7 +306,7 @@ def call_pc_auto_context(ctx, args):
             total_chars,
             token_budget,
             SQL_RECENT_DECISIONS,
-            "decision",
+            AUTO_CONTEXT_DECISION_CATEGORY,
         )
         total_chars = _append_recent_memory_sections(
             conn,
@@ -299,7 +314,7 @@ def call_pc_auto_context(ctx, args):
             total_chars,
             token_budget,
             SQL_RECENT_PATTERNS,
-            "pattern",
+            AUTO_CONTEXT_PATTERN_CATEGORY,
         )
         total_chars = _append_popular_memory_sections(
             conn,
