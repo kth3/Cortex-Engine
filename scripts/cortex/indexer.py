@@ -307,15 +307,24 @@ def _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res):
     all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
 
 
-def _release_gpu_after_indexing(use_gpu):
-    # GPU VRAM 해제 (팬 소음 방지 — 다음 소량 인덱싱은 CPU로 즉시 처리)
-    if use_gpu:
-        try:
-            from cortex.vector_engine import release_gpu
-            release_gpu()
-            log.info("GPU VRAM released after full indexing.")
-        except Exception:
-            pass
+def _release_local_cuda_model_after_indexing() -> None:
+    """Release only a local CUDA fallback embedding model.
+
+    The engine worker owns daemon GPU residency. This helper must not imply
+    that indexer releases the daemon/worker VRAM.
+    """
+    try:
+        from cortex.embeddings import provider
+
+        if getattr(provider, "_model_device", None) != "cuda":
+            return
+
+        from cortex.embeddings.hardware import release_gpu
+
+        release_gpu()
+        log.info("Local CUDA embedding model released after full indexing.")
+    except Exception:
+        log.debug("Local CUDA embedding model release skipped.", exc_info=True)
 
 
 def _sync_graph_from_sqlite(workspace, conn):
@@ -386,7 +395,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     except Exception as e:
         log.error("Failed to index memories table: %s", e)
 
-    _release_gpu_after_indexing(use_gpu)
+    _release_local_cuda_model_after_indexing()
 
     # 전체 인덱싱 완료 시각 기록
     conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
