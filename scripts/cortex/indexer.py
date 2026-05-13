@@ -30,6 +30,13 @@ from cortex.indexing import SUPPORTED_EXTENSIONS
 from cortex.indexing.cleanup import cleanup_deleted_files, cleanup_file_records
 from cortex.indexing.edge_resolver import resolve_unresolved_edges
 from cortex.indexing.graph_sync import sync_file_graph
+from cortex.indexing.queries import (
+    DELETE_FILE_CACHE_SQL,
+    FILE_CACHE_HASH_BY_PATH_SQL,
+    LAST_INDEXED_AT_SQL,
+    SELECT_FILE_CACHE_SQL,
+    UPSERT_LAST_INDEXED_AT_SQL,
+)
 from cortex.indexing.records import (
     build_node_rows,
     insert_edges,
@@ -95,7 +102,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
         _check_conn  = conn if conn is not None else db.get_connection(workspace)
         try:
             cached = _check_conn.execute(
-                "SELECT hash FROM file_cache WHERE file_path = ?", (rel_path,)
+                FILE_CACHE_HASH_BY_PATH_SQL, (rel_path,)
             ).fetchone()
             if cached and cached[0] == current_hash:
                 return {"status": "skipped", "reason": "hash unchanged", "chunks": 0}
@@ -201,7 +208,7 @@ def incremental_index_changed(workspace: str) -> dict:
     conn = db.get_connection(workspace)
     
     # 마지막 인덱싱 시각 조회
-    row = conn.execute("SELECT value FROM meta WHERE key = 'last_indexed_at'").fetchone()
+    row = conn.execute(LAST_INDEXED_AT_SQL).fetchone()
     if not row:
         conn.close()
         return {"status": "skip", "reason": "no previous index"}
@@ -250,8 +257,10 @@ def incremental_index_changed(workspace: str) -> dict:
     except Exception:
         pass
     
-    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)",
-                 (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.execute(
+        UPSERT_LAST_INDEXED_AT_SQL,
+        (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
+    )
     conn.commit()
     
     resolve_unresolved_edges(conn)
@@ -278,11 +287,11 @@ def _sync_skills(workspace):
 def _load_file_cache(conn, force):
     if force:
         # force=True: index_file 내부 hash 체크도 우회하도록 캐시 전체 초기화
-        conn.execute("DELETE FROM file_cache")
+        conn.execute(DELETE_FILE_CACHE_SQL)
         conn.commit()
         return {}
 
-    cached_rows = conn.execute("SELECT file_path, hash FROM file_cache").fetchall()
+    cached_rows = conn.execute(SELECT_FILE_CACHE_SQL).fetchall()
     return {row[0]: row[1] for row in cached_rows}
 
 
@@ -398,7 +407,10 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     _release_local_cuda_model_after_indexing()
 
     # 전체 인덱싱 완료 시각 기록
-    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)", (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.execute(
+        UPSERT_LAST_INDEXED_AT_SQL,
+        (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
+    )
     conn.commit()
 
     # __unresolved__ 엣지를 실제 노드 UUID로 해소
