@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from cortex.indexing.queries import (
+    INSERT_EDGE_IGNORE_SQL,
+    UPSERT_FILE_CACHE_ENTRY_SQL,
+    UPSERT_NODE_SQL,
+)
+
 
 def build_node_rows(
     nodes: Iterable[dict],
@@ -53,30 +59,20 @@ def insert_nodes(conn, node_rows: list[tuple]) -> None:
     """Persist parsed node rows."""
     if not node_rows:
         return
-    conn.executemany("""
-        INSERT OR REPLACE INTO nodes
-        (id, type, name, fqn, file_path, start_line, end_line,
-         signature, return_type, docstring, is_exported, is_async,
-         is_test, raw_body, skeleton_standard, skeleton_minimal, language,
-         module, workspace_id, category)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, node_rows)
+    conn.executemany(UPSERT_NODE_SQL, node_rows)
 
 
 def insert_edges(conn, edges: Iterable[dict]) -> None:
     """Persist parser edge rows while ignoring duplicate edge triplets."""
     edge_rows = [(edge["source_id"], edge["target_id"], edge.get("type", "CALLS")) for edge in edges]
     if edge_rows:
-        conn.executemany(
-            "INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)",
-            edge_rows,
-        )
+        conn.executemany(INSERT_EDGE_IGNORE_SQL, edge_rows)
 
 
 def upsert_file_cache(conn, rel_path: str, source_hash: str, indexed_at: int, workspace_id: str) -> None:
     """Record the last indexed hash for a file."""
     conn.execute(
-        "INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, workspace_id) VALUES (?, ?, ?, ?)",
+        UPSERT_FILE_CACHE_ENTRY_SQL,
         (rel_path, source_hash, indexed_at, workspace_id),
     )
 
