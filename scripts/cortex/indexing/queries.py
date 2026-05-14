@@ -6,6 +6,8 @@ indexing records 계층이 file_cache, meta, nodes, edges 상태를 읽고
 SQL 의미, 반환 컬럼 순서, placeholder 개수는 호출부 계약이므로 변경하지 않는다.
 """
 
+UNRESOLVED_FQN_PREFIX = "__unresolved_fqn__::"
+
 FILE_CACHE_HASH_BY_PATH_SQL = "SELECT hash FROM file_cache WHERE file_path = ?"
 
 LAST_INDEXED_AT_SQL = "SELECT value FROM meta WHERE key = 'last_indexed_at'"
@@ -45,7 +47,7 @@ DELETE_EDGES_BY_SOURCE_ID_SQL_TEMPLATE = "DELETE FROM edges WHERE source_id IN (
 DELETE_EDGES_BY_TARGET_ID_SQL_TEMPLATE = "DELETE FROM edges WHERE target_id IN ({placeholders})"
 
 SELECT_NODE_ID_FQN_BY_NAME_SQL_TEMPLATE = "SELECT id, fqn FROM nodes WHERE name IN ({placeholders}) AND language = 'python'"
-SELECT_EDGE_ID_LANG_BY_TARGET_SQL_TEMPLATE = "SELECT e.id, n.language FROM edges e JOIN nodes n ON e.source_id = n.id WHERE e.target_id IN ({placeholders})"
+SELECT_EDGE_ID_LANG_BY_EDGE_ID_SQL_TEMPLATE = "SELECT e.id, n.language FROM edges e JOIN nodes n ON e.source_id = n.id WHERE e.id IN ({placeholders})"
 SELECT_NODE_ID_NAME_BY_NAME_LANG_SQL_TEMPLATE = "SELECT id, name FROM nodes WHERE name IN ({placeholders}) AND language = ?"
 SELECT_NODE_ID_NAME_BY_NAME_SQL_TEMPLATE = "SELECT id, name FROM nodes WHERE name IN ({placeholders})"
 
@@ -56,10 +58,8 @@ SELECT_MEMORY_CONTENT_BY_KEY_SQL = "SELECT content FROM memories WHERE key = ?"
 UPSERT_MEMORY_RULE_SQL = """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET
-             content = excluded.content,
-             tags = excluded.tags,
-             relationships = excluded.relationships,
-             updated_at = excluded.updated_at"""
+           content=excluded.content, category=excluded.category,
+           tags=excluded.tags, updated_at=excluded.updated_at"""
 SELECT_MEMORY_KEYS_BY_CATEGORY_TAG_SQL_TEMPLATE = "SELECT key FROM memories WHERE category IN ({placeholders}) AND tags LIKE '%agent-rule%'"
 DELETE_MEMORIES_BY_KEYS_SQL_TEMPLATE = "DELETE FROM memories WHERE key IN ({placeholders})"
 
@@ -76,8 +76,8 @@ def delete_edges_by_target_id_sql(placeholders: str) -> str:
 def select_node_id_fqn_by_name_sql(placeholders: str) -> str:
     return SELECT_NODE_ID_FQN_BY_NAME_SQL_TEMPLATE.format(placeholders=placeholders)
 
-def select_edge_id_lang_by_target_sql(placeholders: str) -> str:
-    return SELECT_EDGE_ID_LANG_BY_TARGET_SQL_TEMPLATE.format(placeholders=placeholders)
+def select_edge_id_lang_by_edge_id_sql(placeholders: str) -> str:
+    return SELECT_EDGE_ID_LANG_BY_EDGE_ID_SQL_TEMPLATE.format(placeholders=placeholders)
 
 def select_node_id_name_by_name_lang_sql(placeholders: str) -> str:
     return SELECT_NODE_ID_NAME_BY_NAME_LANG_SQL_TEMPLATE.format(placeholders=placeholders)

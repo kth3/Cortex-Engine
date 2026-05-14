@@ -7,9 +7,10 @@ from collections import defaultdict
 from cortex.logger import get_logger
 from cortex.indexing.queries import (
     SELECT_UNRESOLVED_EDGES_SQL,
+    UNRESOLVED_FQN_PREFIX,
     UPDATE_EDGE_TARGET_ID_SQL,
     select_node_id_fqn_by_name_sql,
-    select_edge_id_lang_by_target_sql,
+    select_edge_id_lang_by_edge_id_sql,
     select_node_id_name_by_name_lang_sql,
     select_node_id_name_by_name_sql,
 )
@@ -52,7 +53,7 @@ def _source_language_map(conn, edge_ids: list[int]) -> dict[int, str]:
         batch = edge_ids[index:index + 900]
         placeholders = ",".join("?" * len(batch))
         rows = conn.execute(
-            select_edge_id_lang_by_target_sql(placeholders),
+            select_edge_id_lang_by_edge_id_sql(placeholders),
             batch,
         ).fetchall()
         for row_id, language in rows:
