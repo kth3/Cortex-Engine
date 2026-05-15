@@ -87,6 +87,108 @@ class CodexHookRunTests(unittest.TestCase):
         self.assertEqual(json.loads(stdout), {})
         self.assertIn(".cortex not found", stderr)
 
+    def test_stop_payload_calls_session_sync_with_last_assistant_message(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        with patch.object(codex_hook, "call_pc_session_sync", return_value={"success": True}) as session_sync:
+            exit_code, stdout, stderr = self._run_main(
+                ["run", "Stop"],
+                {"cwd": str(workspace), "session_id": "s1", "last_assistant_message": "did the thing"},
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(json.loads(stdout), {})
+        self.assertEqual(session_sync.call_args.args[1], {"task_desc": "did the thing"})
+
+    def test_stop_payload_truncates_long_assistant_message(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        long_msg = "x" * (codex_hook.MAX_STOP_TASK_DESC_CHARS + 500)
+        with patch.object(codex_hook, "call_pc_session_sync", return_value={"success": True}) as session_sync:
+            self._run_main(
+                ["run", "Stop"],
+                {"cwd": str(workspace), "session_id": "s1", "last_assistant_message": long_msg},
+            )
+
+        self.assertEqual(
+            len(session_sync.call_args.args[1]["task_desc"]),
+            codex_hook.MAX_STOP_TASK_DESC_CHARS,
+        )
+
+    def test_stop_without_message_is_no_op(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        with patch.object(codex_hook, "call_pc_session_sync") as session_sync:
+            exit_code, stdout, _stderr = self._run_main(
+                ["run", "Stop"],
+                {"cwd": str(workspace), "session_id": "s1"},
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {})
+        session_sync.assert_not_called()
+
+    def test_pre_tool_use_apply_patch_returns_skeleton_context(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        with patch.object(codex_hook, "call_pc_skeleton", return_value="class Foo:\n  def bar(): ...") as skeleton:
+            exit_code, stdout, _stderr = self._run_main(
+                ["run", "PreToolUse"],
+                {
+                    "cwd": str(workspace),
+                    "tool_name": "apply_patch",
+                    "tool_input": {"path": "src/foo.py"},
+                },
+            )
+
+        self.assertEqual(exit_code, 0)
+        data = json.loads(stdout)
+        self.assertEqual(data["hookSpecificOutput"]["hookEventName"], "PreToolUse")
+        self.assertIn("Cortex skeleton for src/foo.py", data["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("class Foo", data["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(skeleton.call_args.args[1], {"file_path": "src/foo.py", "detail": "standard"})
+
+    def test_pre_tool_use_ignores_non_apply_patch_tool(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        with patch.object(codex_hook, "call_pc_skeleton") as skeleton:
+            exit_code, stdout, _stderr = self._run_main(
+                ["run", "PreToolUse"],
+                {"cwd": str(workspace), "tool_name": "shell", "tool_input": {"command": "ls"}},
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {})
+        skeleton.assert_not_called()
+
+    def test_post_tool_use_apply_patch_records_observation(self):
+        tmp, workspace, _cortex_home = _temp_workspace()
+        self.addCleanup(tmp.cleanup)
+
+        with patch.object(codex_hook, "call_save_observation", return_value={"success": True}) as save_obs:
+            exit_code, stdout, _stderr = self._run_main(
+                ["run", "PostToolUse"],
+                {
+                    "cwd": str(workspace),
+                    "tool_name": "apply_patch",
+                    "tool_input": {"path": "src/foo.py"},
+                    "turn_id": "t-42",
+                },
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {})
+        args = save_obs.call_args.args[1]
+        self.assertIn("apply_patch edited src/foo.py", args["content"])
+        self.assertIn("turn=t-42", args["content"])
+        self.assertEqual(args["file_paths"], ["src/foo.py"])
+
     def test_invalid_stdin_json_is_non_fatal(self):
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -179,6 +281,63 @@ class CodexHookInstallTests(unittest.TestCase):
             self.assertIn("UserPromptSubmit", data["hooks"])
             command = data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
             self.assertIn("UserPromptSubmit", command)
+
+    def test_include_all_installs_every_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp)
+            _exit_code, result, _stderr = self._run_install(codex_home, "--include-all")
+
+            self.assertEqual(
+                result["events"],
+                [
+                    "SessionStart",
+                    "UserPromptSubmit",
+                    "Stop",
+                    "PreToolUse",
+                    "PostToolUse",
+                ],
+            )
+
+    def test_pre_tool_use_install_writes_apply_patch_matcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp)
+            self._run_install(codex_home, "--include-pre-tool-use")
+
+            data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            group = data["hooks"]["PreToolUse"][0]
+            self.assertEqual(group["matcher"], "apply_patch")
+            self.assertIn("PreToolUse", group["hooks"][0]["command"])
+
+    def test_post_tool_use_install_writes_apply_patch_matcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp)
+            self._run_install(codex_home, "--include-post-tool-use")
+
+            data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            group = data["hooks"]["PostToolUse"][0]
+            self.assertEqual(group["matcher"], "apply_patch")
+            self.assertIn("PostToolUse", group["hooks"][0]["command"])
+
+    def test_stop_install_has_no_matcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp)
+            self._run_install(codex_home, "--include-stop")
+
+            data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            group = data["hooks"]["Stop"][0]
+            self.assertNotIn("matcher", group)
+
+
+class CodexHookLauncherSourceTests(unittest.TestCase):
+    def test_launcher_uses_uv_global_cache_by_default(self):
+        source = codex_hook._launcher_source()
+        self.assertNotIn(".uv-cache-local", source)
+        self.assertIn("CORTEX_UV_CACHE_DIR", source)
+        self.assertIn("if override_cache", source)
+
+    def test_launcher_passes_cache_dir_only_when_env_set(self):
+        source = codex_hook._launcher_source()
+        self.assertIn('command += ["--cache-dir", override_cache]', source)
 
 
 class CodexSessionStartCompatibilityTests(unittest.TestCase):

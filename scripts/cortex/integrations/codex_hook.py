@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from cortex.mcp.context import McpContext
-from cortex.mcp.tools.search import call_pc_capsule
-from cortex.mcp.tools.session import call_pc_auto_context
+from cortex.mcp.tools.memory import call_save_observation
+from cortex.mcp.tools.search import call_pc_capsule, call_pc_skeleton
+from cortex.mcp.tools.session import call_pc_auto_context, call_pc_session_sync
 
 HOOKS_JSON_FILENAME = "hooks.json"
 HOOKS_DIRNAME = "hooks"
@@ -21,10 +22,22 @@ DEFAULT_PROFILE = "safe"
 DEFAULT_TOKEN_BUDGET = 2000
 DEFAULT_SESSION_ID = "codex-hook"
 DEFAULT_HOOK_TIMEOUT_SECONDS = 45
+MAX_STOP_TASK_DESC_CHARS = 2000
 
 EVENT_SESSION_START = "SessionStart"
 EVENT_USER_PROMPT_SUBMIT = "UserPromptSubmit"
-SUPPORTED_RUN_EVENTS = (EVENT_SESSION_START, EVENT_USER_PROMPT_SUBMIT)
+EVENT_STOP = "Stop"
+EVENT_PRE_TOOL_USE = "PreToolUse"
+EVENT_POST_TOOL_USE = "PostToolUse"
+SUPPORTED_RUN_EVENTS = (
+    EVENT_SESSION_START,
+    EVENT_USER_PROMPT_SUBMIT,
+    EVENT_STOP,
+    EVENT_PRE_TOOL_USE,
+    EVENT_POST_TOOL_USE,
+)
+
+APPLY_PATCH_MATCHER = "apply_patch"
 
 HOOK_MARKER = "cortex_codex_hook.py"
 
@@ -197,6 +210,67 @@ def _run_user_prompt_submit(
     )
 
 
+def _run_stop(ctx: McpContext, payload: dict[str, Any]) -> dict[str, Any]:
+    task_desc = str(payload.get("last_assistant_message") or "").strip()
+    if not task_desc:
+        return {}
+    if len(task_desc) > MAX_STOP_TASK_DESC_CHARS:
+        task_desc = task_desc[:MAX_STOP_TASK_DESC_CHARS]
+    try:
+        call_pc_session_sync(ctx, {"task_desc": task_desc})
+    except Exception as exc:
+        print(f"[Cortex session_sync skipped: {exc}]", file=sys.stderr)
+    return {}
+
+
+def _tool_input_file_path(tool_input: Any) -> str:
+    if not isinstance(tool_input, dict):
+        return ""
+    for key in ("path", "file_path", "filename"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _run_pre_tool_use(ctx: McpContext, payload: dict[str, Any]) -> dict[str, Any]:
+    if str(payload.get("tool_name") or "") != APPLY_PATCH_MATCHER:
+        return {}
+    file_path = _tool_input_file_path(payload.get("tool_input"))
+    if not file_path:
+        return {}
+    try:
+        skeleton = call_pc_skeleton(ctx, {"file_path": file_path, "detail": "standard"})
+    except Exception as exc:
+        print(f"[Cortex skeleton skipped: {exc}]", file=sys.stderr)
+        return {}
+    skeleton_text = str(skeleton or "").strip()
+    if not skeleton_text:
+        return {}
+    return _hook_specific_output(
+        EVENT_PRE_TOOL_USE,
+        f"Cortex skeleton for {file_path}:\n{skeleton_text}",
+    )
+
+
+def _run_post_tool_use(ctx: McpContext, payload: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(payload.get("tool_name") or "")
+    if tool_name != APPLY_PATCH_MATCHER:
+        return {}
+    file_path = _tool_input_file_path(payload.get("tool_input"))
+    if not file_path:
+        return {}
+    content = f"apply_patch edited {file_path}"
+    turn_id = payload.get("turn_id")
+    if turn_id:
+        content += f" (turn={turn_id})"
+    try:
+        call_save_observation(ctx, {"content": content, "file_paths": [file_path]})
+    except Exception as exc:
+        print(f"[Cortex save_observation skipped: {exc}]", file=sys.stderr)
+    return {}
+
+
 def run_event(
     event_name: str,
     payload: dict[str, Any],
@@ -212,6 +286,12 @@ def run_event(
         return _run_session_start(ctx, token_budget)
     if event_name == EVENT_USER_PROMPT_SUBMIT:
         return _run_user_prompt_submit(ctx, payload, token_budget)
+    if event_name == EVENT_STOP:
+        return _run_stop(ctx, payload)
+    if event_name == EVENT_PRE_TOOL_USE:
+        return _run_pre_tool_use(ctx, payload)
+    if event_name == EVENT_POST_TOOL_USE:
+        return _run_post_tool_use(ctx, payload)
     print(f"[Cortex Codex hook skipped unsupported event: {event_name}]", file=sys.stderr)
     return {}
 
@@ -245,10 +325,6 @@ def _read_payload() -> tuple[dict, str]:
         print(f"[Cortex hook launcher ignored invalid JSON: {exc}]", file=sys.stderr)
         return {}, raw
     return payload if isinstance(payload, dict) else {}, raw
-
-
-def _codex_home() -> Path:
-    return Path(__file__).resolve().parents[1]
 
 
 def _find_cortex_home_from(start_path: str | None) -> Path | None:
@@ -291,13 +367,12 @@ def main() -> int:
         _emit_empty()
         return 0
 
-    codex_home = _codex_home()
-    cache_dir = os.environ.get("CORTEX_UV_CACHE_DIR") or str(codex_home / ".uv-cache-local")
     uv_command = os.environ.get("CORTEX_UV_COMMAND") or "uv"
-    command = [
-        uv_command,
-        "--cache-dir",
-        cache_dir,
+    command = [uv_command]
+    override_cache = os.environ.get("CORTEX_UV_CACHE_DIR")
+    if override_cache:
+        command += ["--cache-dir", override_cache]
+    command += [
         "run",
         "--project",
         str(cortex_home),
@@ -362,10 +437,17 @@ def _is_cortex_hook(handler: dict[str, Any], event_name: str) -> bool:
     return HOOK_MARKER in command and event_name in command
 
 
+_EVENT_STATUS_MESSAGES = {
+    EVENT_SESSION_START: "Loading Cortex context",
+    EVENT_USER_PROMPT_SUBMIT: "Searching Cortex context",
+    EVENT_STOP: "Syncing Cortex session",
+    EVENT_PRE_TOOL_USE: "Loading Cortex skeleton",
+    EVENT_POST_TOOL_USE: "Recording Cortex observation",
+}
+
+
 def _event_status_message(event_name: str) -> str:
-    if event_name == EVENT_SESSION_START:
-        return "Loading Cortex context"
-    return "Searching Cortex context"
+    return _EVENT_STATUS_MESSAGES.get(event_name, "Cortex hook")
 
 
 def _install_event_hook(
@@ -373,6 +455,7 @@ def _install_event_hook(
     event_name: str,
     command: str,
     timeout: int,
+    matcher: str | None = None,
 ) -> None:
     event_groups = data.setdefault("hooks", {}).setdefault(event_name, [])
     for group in event_groups:
@@ -387,27 +470,37 @@ def _install_event_hook(
                         "statusMessage": _event_status_message(event_name),
                     }
                 )
+                if matcher is not None:
+                    group["matcher"] = matcher
                 return
 
-    event_groups.append(
-        {
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": command,
-                    "timeout": timeout,
-                    "statusMessage": _event_status_message(event_name),
-                }
-            ]
-        }
-    )
+    group: dict[str, Any] = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": command,
+                "timeout": timeout,
+                "statusMessage": _event_status_message(event_name),
+            }
+        ]
+    }
+    if matcher is not None:
+        group["matcher"] = matcher
+    event_groups.append(group)
 
 
-def _install_events(include_user_prompt_submit: bool) -> list[str]:
-    events = [EVENT_SESSION_START]
-    if include_user_prompt_submit:
-        events.append(EVENT_USER_PROMPT_SUBMIT)
-    return events
+def _install_events(args: argparse.Namespace) -> list[tuple[str, str | None]]:
+    include_all = bool(getattr(args, "include_all", False))
+    pairs: list[tuple[str, str | None]] = [(EVENT_SESSION_START, None)]
+    if include_all or args.include_user_prompt_submit:
+        pairs.append((EVENT_USER_PROMPT_SUBMIT, None))
+    if include_all or getattr(args, "include_stop", False):
+        pairs.append((EVENT_STOP, None))
+    if include_all or getattr(args, "include_pre_tool_use", False):
+        pairs.append((EVENT_PRE_TOOL_USE, APPLY_PATCH_MATCHER))
+    if include_all or getattr(args, "include_post_tool_use", False):
+        pairs.append((EVENT_POST_TOOL_USE, APPLY_PATCH_MATCHER))
+    return pairs
 
 
 def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
@@ -415,22 +508,23 @@ def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     hooks_dir = _hooks_dir(codex_home)
     launcher = _launcher_path(codex_home)
     hooks_json = _hooks_json_path(codex_home)
-    events = _install_events(args.include_user_prompt_submit)
+    event_pairs = _install_events(args)
 
     data = _load_hooks_json(hooks_json)
-    for event_name in events:
+    for event_name, matcher in event_pairs:
         _install_event_hook(
             data,
             event_name,
             _hook_command(launcher, event_name, args.python_command),
             args.timeout,
+            matcher=matcher,
         )
 
     result = {
         "codexHome": str(codex_home),
         "launcher": str(launcher),
         "hooksJson": str(hooks_json),
-        "events": events,
+        "events": [event_name for event_name, _ in event_pairs],
         "hooks": data,
         "dryRun": bool(args.dry_run),
     }
@@ -461,6 +555,14 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--codex-home", default=None)
     install_parser.add_argument("--profile", choices=(DEFAULT_PROFILE,), default=DEFAULT_PROFILE)
     install_parser.add_argument("--include-user-prompt-submit", action="store_true")
+    install_parser.add_argument("--include-stop", action="store_true")
+    install_parser.add_argument("--include-pre-tool-use", action="store_true")
+    install_parser.add_argument("--include-post-tool-use", action="store_true")
+    install_parser.add_argument(
+        "--include-all",
+        action="store_true",
+        help="Install every supported event in addition to SessionStart.",
+    )
     install_parser.add_argument("--python-command", default=sys.executable)
     install_parser.add_argument("--timeout", type=int, default=DEFAULT_HOOK_TIMEOUT_SECONDS)
     install_parser.add_argument("--dry-run", action="store_true")
