@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from cortex.mcp.context import McpContext
 from cortex.mcp.tools.session import call_pc_auto_context
@@ -21,9 +22,18 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_explicit_workspace(start_path: str) -> Path:
+    curr = Path(start_path).resolve()
+    for parent in (curr, *curr.parents):
+        if (parent / ".git").exists():
+            return parent
+    return curr
+
+
 def _workspace(raw_workspace: str | None) -> str:
-    candidate = raw_workspace or os.environ.get("CORTEX_WORKSPACE") or os.getcwd()
-    return str(resolve_workspace(candidate))
+    if raw_workspace:
+        return str(_resolve_explicit_workspace(raw_workspace))
+    return str(resolve_workspace(os.environ.get("CORTEX_WORKSPACE") or os.getcwd()))
 
 
 def _session_id() -> str:

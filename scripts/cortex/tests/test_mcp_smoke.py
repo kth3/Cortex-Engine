@@ -64,6 +64,10 @@ requests = [
     {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
      "params": {"name": "pc_index_roots_add",
                 "arguments": {"path": INDEX_ROOTS_TEST_PATH, "dry_run": True}}},
+    # T6: pc_auto_context — Codex SessionStart adapter가 쓰는 MCP 계약
+    {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+     "params": {"name": "pc_auto_context",
+                "arguments": {"token_budget": 1000}}},
 ]
 
 payload = "\n".join(json.dumps(r) for r in requests) + "\n"
@@ -128,6 +132,7 @@ def _check_results(results, err):
     tool_names = [t["name"] for t in tl]
     print(f"[T1] tools/list count={len(tool_names)}")
     check("pc_capsule present", 'pc_capsule' in tool_names)
+    check("pc_auto_context present", 'pc_auto_context' in tool_names)
     check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
     check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)
     cap = next((t for t in tl if t["name"] == "pc_capsule"), None)
@@ -135,6 +140,10 @@ def _check_results(results, err):
         cap_props = cap.get("inputSchema", {}).get("properties", {})
         check("pc_capsule.auto_chain schema", 'auto_chain' in cap_props)
         check("pc_capsule.token_budget schema", 'token_budget' in cap_props)
+    auto_context = next((t for t in tl if t["name"] == "pc_auto_context"), None)
+    if auto_context:
+        auto_context_props = auto_context.get("inputSchema", {}).get("properties", {})
+        check("pc_auto_context.token_budget schema", 'token_budget' in auto_context_props)
     ig = next((t for t in tl if t["name"] == "pc_impact_graph"), None)
     if ig:
         ig_props = ig.get("inputSchema", {}).get("properties", {})
@@ -184,6 +193,15 @@ def _check_results(results, err):
     if isinstance(ir_res, dict):
         check("index_roots_add dry_run executed false", ir_res.get('executed') is False)
         check("index_roots_add scan_count present", isinstance(ir_res.get('scan_count'), int))
+
+    print()
+    ac_res = _extract(results.get(7, {}).get("result"))
+    if isinstance(ac_res, dict):
+        check("pc_auto_context context key", "context" in ac_res)
+        check("pc_auto_context totalChars key", "totalChars" in ac_res)
+        check("pc_auto_context itemCount key", "itemCount" in ac_res)
+    else:
+        check("pc_auto_context response keys", False, "non-dict response")
 
     print()
     conn = sqlite3.connect(str(DB_PATH))
