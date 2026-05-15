@@ -2,7 +2,7 @@ name: Cortex Agents CI
 
 on:
   push:
-    # branches: [ "main", "dev", "dev-win", "dev-*", "dev/**" ]
+    branches: ["main"]
     paths:
       - "scripts/**"
       - "settings.yaml"
@@ -11,7 +11,7 @@ on:
       - "!**/*.md"
       - "!docs/**"
   pull_request:
-    branches: ["main", "dev", "dev-win", "dev-*", "dev/**"]
+    branches: ["main"]
     paths:
       - "scripts/**"
       - "settings.yaml"

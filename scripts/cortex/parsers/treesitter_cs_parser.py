@@ -102,8 +102,8 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
             sl = node.start_point[0] + 1
             el = node.end_point[0] + 1
 
-            base_list = node.child_by_field_name("bases")
-            bases_str = txt(base_list) if base_list else ""
+            base_list = next((c for c in node.children if c.type == "base_list"), None)
+            bases_str = txt(base_list).replace(":", " ").strip() if base_list else ""
             is_mono = any(b in UNITY_BASE_CLASSES for b in bases_str.replace(",", " ").split())
 
             body_text = txt(node)
@@ -133,6 +133,8 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
                             "source_id": node_id,
                             "target_id": f"__unresolved__::{bn}",
                             "type": etype,
+                            "target_name": bn,
+                            "target_kind_hint": "type"
                         })
 
             for child in node.children:
@@ -157,7 +159,7 @@ def parse_csharp_file(file_path: str, source: str) -> dict:
             sig_end = body_text.find("{")
             sig = body_text[:sig_end].strip() if sig_end > 0 else name
 
-            ret_node = node.child_by_field_name("type")
+            ret_node = node.child_by_field_name("returns")
             ret_type = txt(ret_node) if ret_node else None
 
             modifiers = " ".join(txt(c) for c in node.children if c.type == "modifier")
@@ -239,6 +241,8 @@ def _extract_body_edges(method_node, method_id, edges):
                         "target_id": f"__unresolved__::{target}",
                         "type": "CALLS",
                         "call_site_line": node.start_point[0] + 1,
+                        "target_name": target,
+                        "target_kind_hint": "method|type"
                     })
         elif node.type == "object_creation_expression":
             type_node = node.child_by_field_name("type")
@@ -251,6 +255,8 @@ def _extract_body_edges(method_node, method_id, edges):
                         "target_id": f"__unresolved__::{target}",
                         "type": "CALLS",
                         "call_site_line": node.start_point[0] + 1,
+                        "target_name": target,
+                        "target_kind_hint": "type"
                     })
         for child in node.children:
             _walk_body(child)
@@ -271,6 +277,8 @@ def _extract_type_annotations(method_node, method_id, edges):
                     "target_id": f"__unresolved__::{name}",
                     "type": "ANNOTATED_WITH",
                     "call_site_line": ret.start_point[0] + 1,
+                    "target_name": name,
+                    "target_kind_hint": "type"
                 })
     params = method_node.child_by_field_name("parameters")
     if params:
@@ -282,4 +290,6 @@ def _extract_type_annotations(method_node, method_id, edges):
                     "target_id": f"__unresolved__::{name}",
                     "type": "ANNOTATED_WITH",
                     "call_site_line": params.start_point[0] + 1,
+                    "target_name": name,
+                    "target_kind_hint": "type"
                 })

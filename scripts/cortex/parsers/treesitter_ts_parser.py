@@ -18,7 +18,17 @@ def parse_ts_file(file_path: str, source: str, lang_variant: str = "typescript")
     root = tree.root_node
 
     module_id = make_id(file_path)
-    nodes = []
+    line_count = source.count("\n") + 1
+    nodes = [{
+        "id": module_id, "type": "module",
+        "name": file_path.rsplit("/", 1)[-1].replace(".tsx", "").replace(".ts", ""),
+        "fqn": file_path, "file_path": file_path,
+        "start_line": 1, "end_line": line_count,
+        "signature": None, "return_type": None,
+        "docstring": "", "is_exported": 1, "is_async": 0, "is_test": 0,
+        "raw_body": "", "skeleton_standard": None, "skeleton_minimal": None,
+        "language": lang_variant,
+    }]
     edges = []
     seen_fqns = set()
 
@@ -36,6 +46,8 @@ def parse_ts_file(file_path: str, source: str, lang_variant: str = "typescript")
                     "target_id": f"__unresolved__::{last}",
                     "type": "IMPORTS",
                     "call_site_line": node.start_point[0] + 1,
+                    "target_name": last,
+                    "target_kind_hint": "module"
                 })
             return
 

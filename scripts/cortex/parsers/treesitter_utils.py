@@ -50,6 +50,7 @@ def build_fqn(node, file_path: str) -> str:
             "class_declaration", "interface_declaration", "struct_declaration",
             "enum_declaration", "namespace_declaration", "record_declaration",
             "method_declaration", "constructor_declaration",
+            "method_definition", "function_declaration", "module_declaration"
         ):
             name = name_of(cur)
             if name:
