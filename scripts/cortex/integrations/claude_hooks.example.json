@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/Users/example/.claude/hooks/cortex_claude_hook.py SessionStart"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -34,6 +34,7 @@ cortex-mcp = "cortex.mcp.server:main"
 cortex-ctl = "cortex.runtime.cli:main"
 cortex-codex-hook = "cortex.integrations.codex_hook:main"
 cortex-codex-session-start = "cortex.integrations.codex_session_start:main"
+cortex-claude-hook = "cortex.integrations.claude_hook:main"
 
 [project.optional-dependencies]
 gpu-accel = [
