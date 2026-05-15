@@ -5,7 +5,7 @@ Cortex MCP Tool Dispatcher
 - 주의: 이 모듈은 MCP tool routing과 response format 생성의 계약을 엄격히 지켜야 하며, 도메인 로직을 직접 구현하지 않는다.
 """
 import json
-from cortex import hooks_manager as pc_hooks
+from cortex.hooks import manager as pc_hooks
 from cortex.mcp.response import create_text_response, create_error_response
 
 from cortex.mcp.tools.indexing import (

@@ -4,7 +4,7 @@
 - N+1 쿼리 문제를 방지하기 위해 일괄 변환된 벡터를 executemany를 통해 한 번에 SQLite에 반영한다.
 """
 from cortex.logger import get_logger
-from cortex.indexer_utils import get_tuning_params
+from cortex.config.tuning import get_tuning_params
 from cortex.embeddings.hardware import _maybe_flush_gpu
 
 log = get_logger("vectorizer")

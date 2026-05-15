@@ -9,9 +9,8 @@ import datetime
 import shutil
 from cortex.memories.persistent import PersistentMemoryManager
 from cortex import paths as pc_paths
-from cortex import memory as pc_mem_mod
-from cortex import hooks_manager as pc_hooks
-from cortex import vector_engine as ve
+from cortex.memories import working as pc_mem_mod
+from cortex.hooks import manager as pc_hooks
 
 MEMORY_NAMESPACE = "default"
 

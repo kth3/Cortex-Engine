@@ -9,7 +9,7 @@ import json
 import yaml
 import datetime
 import subprocess
-from cortex import db as pc_db
+from cortex import storage as pc_db
 from cortex import paths as pc_paths
 from cortex.mcp.tools.memory import get_storage, _append_markdown_with_archive
 

@@ -148,7 +148,7 @@ class UnifiedPipelineSearchTests(unittest.TestCase):
         with patch.object(hybrid, "get_tuning_params", return_value=_tuning()), \
              patch.object(hybrid, "get_connection", return_value=mock_conn), \
              patch.object(hybrid, "_fts_search", return_value=[]), \
-             patch("cortex.db.search_nodes_fts", return_value=[]):
+             patch("cortex.storage.search_nodes_fts", return_value=[]):
             out = hybrid.unified_pipeline_search("ws", "query", limit=5, ve_module=None)
 
         self.assertEqual(out, [])
@@ -162,7 +162,7 @@ class UnifiedPipelineSearchTests(unittest.TestCase):
         with patch.object(hybrid, "get_tuning_params", return_value=_tuning()), \
              patch.object(hybrid, "get_connection", return_value=mock_conn), \
              patch.object(hybrid, "_fts_search", return_value=[]) as fts_mock, \
-             patch("cortex.db.search_nodes_fts", return_value=[]):
+             patch("cortex.storage.search_nodes_fts", return_value=[]):
             hybrid.unified_pipeline_search("ws", "bad \ud83d tail", limit=5, ve_module=None)
 
         # _fts_search에 전달된 쿼리에 lone surrogate가 없어야 한다
@@ -184,7 +184,7 @@ class UnifiedPipelineSearchTests(unittest.TestCase):
         with patch.object(hybrid, "get_tuning_params", return_value=_tuning()), \
              patch.object(hybrid, "get_connection", return_value=mock_conn), \
              patch.object(hybrid, "_fts_search", return_value=fts_mems), \
-             patch("cortex.db.search_nodes_fts", return_value=[]), \
+             patch("cortex.storage.search_nodes_fts", return_value=[]), \
              patch("cortex.embeddings.hardware.detect_gpu", return_value=False, create=True):
             out = hybrid.unified_pipeline_search("ws", "q", limit=5, ve_module=ve_module)
 
@@ -216,7 +216,7 @@ class UnifiedPipelineSearchTests(unittest.TestCase):
         with patch.object(hybrid, "get_tuning_params", return_value=_tuning()), \
              patch.object(hybrid, "get_connection", return_value=mock_conn), \
              patch.object(hybrid, "_fts_search", return_value=fts_mems), \
-             patch("cortex.db.search_nodes_fts", return_value=fts_nodes):
+             patch("cortex.storage.search_nodes_fts", return_value=fts_nodes):
             out = hybrid.unified_pipeline_search("ws", "q", limit=10, ve_module=None)
 
         domains = {r["domain"]: r for r in out}
@@ -244,7 +244,7 @@ class UnifiedPipelineSearchTests(unittest.TestCase):
         with patch.object(hybrid, "get_tuning_params", return_value=_tuning()), \
              patch.object(hybrid, "get_connection", return_value=mock_conn), \
              patch.object(hybrid, "_fts_search", return_value=[]), \
-             patch("cortex.db.search_nodes_fts", side_effect=RuntimeError("node fts broken")):
+             patch("cortex.storage.search_nodes_fts", side_effect=RuntimeError("node fts broken")):
             hybrid.unified_pipeline_search("ws", "q", limit=5, ve_module=None)
 
         mock_conn.close.assert_called_once()

@@ -3,7 +3,7 @@ AI 응답에 최적화된 코드 캡슐(Pivot + Skeleton)을 생성하는 모듈
 하이브리드 검색(FTS + sqlite-vec + Graph-RAG) 및 토큰 예산 관리 기능을 포함합니다.
 """
 
-from cortex.db import get_connection, search_nodes_fts
+from cortex.storage import get_connection, search_nodes_fts
 from cortex.skeletons import get_node_skeleton
 
 
@@ -26,7 +26,7 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
 
     vec_rowids = []
     try:
-        from cortex import vector_engine as ve
+        from cortex.embeddings import provider as ve
         from cortex.embeddings.hardware import detect_gpu
 
         query_vec = ve.get_embeddings([query], use_gpu=detect_gpu())[0]
@@ -66,7 +66,7 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
     current_tokens = 0
 
     try:
-        from cortex.graph_db import GraphDB
+        from cortex.storage.graph import GraphDB
 
         gdb = GraphDB(workspace_path)
     except Exception:

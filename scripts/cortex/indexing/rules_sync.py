@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-from cortex.indexer_utils import compute_hash, strip_frontmatter
+from cortex.utils.text import compute_hash, strip_frontmatter
 from cortex.logger import get_logger
 from cortex.indexing.queries import (
     SELECT_MEMORY_CONTENT_BY_KEY_SQL,

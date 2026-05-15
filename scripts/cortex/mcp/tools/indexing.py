@@ -5,10 +5,11 @@
 """
 from pathlib import Path
 import yaml
-from cortex import db as pc_db
+from cortex import storage as pc_db
 from cortex import indexer as pc_indexer
 from cortex import paths as pc_paths
-from cortex.indexer_utils import load_settings, scan_files
+from cortex.config.settings import load_settings
+from cortex.scanner.finder import scan_files
 
 DEFAULT_INDEX_ROOTS = (".",)
 DISALLOWED_INDEX_ROOT_GLOB_CHARS = "*?"

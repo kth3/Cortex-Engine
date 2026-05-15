@@ -11,9 +11,10 @@ SCRIPTS_DIR = THIS_DIR.parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cortex import db
-from cortex.graph_db import get_graph_db_path
-from cortex.indexer_utils import load_settings, scan_files
+from cortex import storage as db
+from cortex.storage.graph import get_graph_db_path
+from cortex.config.settings import load_settings
+from cortex.scanner.finder import scan_files
 from cortex.paths import resolve_cortex_home, settings_paths
 
 

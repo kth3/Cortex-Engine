@@ -4,9 +4,9 @@
 - 주의: limit, multiplier, fallback 논리 및 RRF ranking 알고리즘 정책을 변경하면 최종 검색 결과 순서가 크게 달라질 수 있으므로 임의 수정하지 않는다.
 - 예외 정책: 임베딩 실패(서버 오프라인 등) 시 시스템이 죽지 않고 FTS Fallback 검색으로 조용히 전환되도록 예외 처리가 구성되어 있다.
 """
-from cortex.db import get_connection
+from cortex.storage import get_connection
 from cortex.logger import get_logger
-from cortex.indexer_utils import get_tuning_params
+from cortex.config.tuning import get_tuning_params
 from cortex.retrieval.constants import DEFAULT_LIMIT
 from cortex.retrieval.fts import _fts_search
 from cortex.retrieval.semantic import _vector_search
@@ -252,7 +252,7 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
 
     # 코드 FTS도 이미 열린 conn을 재사용하여 커넥션 낭비 방지
     try:
-        from cortex.db import search_nodes_fts
+        from cortex.storage import search_nodes_fts
         fts_nodes = search_nodes_fts(conn, query, limit=limit)
         rrf.add("code", fts_nodes, "fqn")
     except Exception:

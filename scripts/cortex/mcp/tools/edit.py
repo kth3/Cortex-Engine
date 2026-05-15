@@ -5,8 +5,8 @@
 """
 import os
 from pathlib import Path
-from cortex import db as pc_db
-from cortex import memory as pc_mem_mod
+from cortex import storage as pc_db
+from cortex.memories import working as pc_mem_mod
 from cortex.hooks import dispatch
 from cortex.editing import read_with_hash, strict_replace, record_edit_event
 

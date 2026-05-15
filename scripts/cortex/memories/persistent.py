@@ -1,8 +1,8 @@
 """
 영구 지식 저장소 관리자 (PersistentMemoryManager)
-- db.py의 memories 테이블(FTS5 포함)을 사용
+- storage 패키지의 memories 테이블(FTS5 포함)을 사용
 - agent-memory-mcp 흡수 통합 버전
-- 하이브리드 검색 로직은 search_engine.py로 위임
+- 하이브리드 검색 로직은 retrieval 패키지로 위임
 """
 import time
 import json
@@ -116,7 +116,7 @@ class PersistentMemoryManager:
 
     def search(self, project_id: str, query: str, category: str = None, limit: int = 10) -> list:
         """하이브리드 검색 (FTS5 + 벡터 유사도 병합)"""
-        from cortex import vector_engine as ve
+        from cortex.embeddings import provider as ve
 
         results_map = {}  # key -> data
 

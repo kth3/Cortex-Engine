@@ -59,7 +59,7 @@ class DebouncedIndexer(FileSystemEventHandler):
         self.last_event_time = 0
         self._delete_cooldown = {}
 
-        from cortex.indexer_utils import load_settings
+        from cortex.config.settings import load_settings
 
         settings = load_settings(str(WORKSPACE))
         rules = settings.get("indexing_rules", {})

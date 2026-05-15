@@ -11,8 +11,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from cortex.orchestration import manage_todo, create_contract
-from cortex import memory as pc_mem_mod
-from cortex import hooks_manager as pc_hooks
+from cortex.memories import working as pc_mem_mod
+from cortex.hooks import manager as pc_hooks
 
 CONTRACT_OBSERVATION_CATEGORY = "decision"
 AFTER_SAVE_OBSERVATION_HOOK = "after_save_observation"

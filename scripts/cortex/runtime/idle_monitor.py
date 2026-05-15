@@ -20,7 +20,7 @@ WORKSPACE = resolve_workspace(CORTEX_DIR)
 
 def get_idle_timeout() -> int:
     try:
-        from cortex.indexer_utils import load_settings
+        from cortex.config.settings import load_settings
 
         settings = load_settings(str(WORKSPACE))
         rules = settings.get("indexing_rules", {})

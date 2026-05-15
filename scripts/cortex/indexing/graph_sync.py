@@ -17,7 +17,7 @@ def sync_file_graph(
     GraphDB is an optional integration. Import or connection failures are allowed
     to propagate to the caller's best-effort boundary.
     """
-    from cortex.graph_db import GraphDB
+    from cortex.storage.graph import GraphDB
 
     gdb = GraphDB(workspace)
     gdb.execute(

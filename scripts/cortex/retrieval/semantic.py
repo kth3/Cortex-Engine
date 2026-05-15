@@ -3,7 +3,7 @@
 - 책임: sqlite-vec 기반의 벡터 유사도(의미론적) 검색을 담당한다.
 - 문맥적 의미가 유사한 문서나 코드를 찾는 데 강점을 가지며, 키워드가 정확히 일치하지 않아도 검색이 가능하다.
 """
-from cortex.db import get_connection
+from cortex.storage import get_connection
 from cortex.logger import get_logger
 from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 from cortex.retrieval.queries import VECTOR_MEMORY_ROWIDS, select_memories_by_rowids

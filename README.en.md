@@ -109,7 +109,7 @@ The SentenceTransformers/PyTorch embedding path is isolated inside a worker proc
 
 ## Cortex Modular Layout
 
-Following the recent architectural refactoring, the Cortex backend has been modularized by role. The old `cortex/db.py`, `cortex/search_engine.py`, etc., remain only as thin wrappers for backward compatibility. The actual implementation lives in the sub-packages:
+Following the recent architectural refactoring, the Cortex backend has been modularized by role. SQLite, GraphDB, search, embedding, and memory implementations live in the sub-packages:
 
 - `cortex/indexing/`: Indexing pipelines (extractions, persistence, graph sync)
 - `cortex/embeddings/`: Model loading, batch embeddings, and hardware detection

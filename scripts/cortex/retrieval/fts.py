@@ -4,7 +4,7 @@
 - Vector 검색이 잡지 못하는 정확한 식별자, 특수 용어, 고유 명사 검색에 강점을 가진다.
 """
 import json
-from cortex.db import get_connection
+from cortex.storage import get_connection
 from cortex.logger import get_logger
 from cortex.retrieval.constants import DEFAULT_LIMIT, DEFAULT_MULTIPLIER
 from cortex.retrieval.queries import FTS_MEMORIES, FTS_MEMORIES_WITH_CATEGORY

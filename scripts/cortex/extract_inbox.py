@@ -15,7 +15,7 @@ INBOX_PATH = os.path.join(WORKSPACE, ".agents", "history", "inbox.md")
 # Cortex Modules
 sys.path.insert(0, str(SCRIPTS_DIR.parent))
 try:
-    from cortex.db import get_connection
+    from cortex.storage import get_connection
 except ImportError:
     import sqlite3
     def get_connection(workspace):

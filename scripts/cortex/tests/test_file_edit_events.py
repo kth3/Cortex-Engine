@@ -16,7 +16,7 @@ SCRIPTS_DIR = THIS_DIR.parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cortex import db
+from cortex import storage as db
 from cortex.editing.engine import (
     EMPTY_FILE_HASH,
     ALLOWED_SOURCES,

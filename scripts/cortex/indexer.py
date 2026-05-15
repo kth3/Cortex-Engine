@@ -2,8 +2,8 @@
 Cortex 인덱싱 엔진 (v3.1 — Modularized + Logging)
 파일 스캔 → 지능형 필터링 → 파서 호출 → DB 저장 → 벡터 임베딩 → 증분 인덱싱
 
-유틸리티: indexer_utils.py
-벡터 배치: vectorizer.py
+유틸리티: config/scanner/utils 패키지
+벡터 배치: embeddings 패키지
 """
 import os
 import sys
@@ -17,11 +17,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cortex.logger import get_logger
 log = get_logger("indexer")
-from cortex import db
-from cortex.indexer_utils import (
-    strip_frontmatter, compute_hash, load_settings,
-    get_module_name, scan_files,
-)
+from cortex import storage as db
+from cortex.config.settings import load_settings
+from cortex.scanner.filters import get_module_name
+from cortex.scanner.finder import scan_files
+from cortex.utils.text import compute_hash, strip_frontmatter
 from cortex.embeddings import (
     batch_vectorize_nodes, batch_vectorize_memories, detect_gpu,
 )
@@ -339,7 +339,7 @@ def _release_local_cuda_model_after_indexing() -> None:
 def _sync_graph_from_sqlite(workspace, conn):
     # SQLite nodes/edges → Kuzu 그래프 DB 동기화
     try:
-        from cortex.graph_db import GraphDB
+        from cortex.storage.graph import GraphDB
         gdb = GraphDB(workspace)
         log.info("Building Kuzu graph from SQLite edges...")
         g_stats = gdb.build_from_sqlite(conn)
@@ -390,7 +390,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         res = index_file(workspace, rel_path, conn=conn, vectorize=False)
         _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
 
-    # 벡터 임베딩 배치 처리 (vectorizer.py 위임)
+    # 벡터 임베딩 배치 처리 (embeddings 패키지 위임)
     use_gpu = detect_gpu()
     if all_vector_items_by_prefix:
         batch_vectorize_nodes(conn, all_vector_items_by_prefix, use_gpu, workspace=workspace)
@@ -398,7 +398,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     # 규칙/프로토콜 동기화
     sync_rules_to_memories(workspace, conn)
 
-    # memories 벡터 인덱싱 (vectorizer.py 위임)
+    # memories 벡터 인덱싱 (embeddings 패키지 위임)
     try:
         batch_vectorize_memories(conn, use_gpu, workspace=workspace)
     except Exception as e:
@@ -437,7 +437,7 @@ if __name__ == "__main__":
         # 단일 파일 모드
         result = index_file(args.workspace, args.file)
         # 단일 파일 처리 후 엣지 해소
-        from cortex import db
+        from cortex import storage as db
         conn = db.get_connection(args.workspace)
         resolve_unresolved_edges(conn)
         conn.close()
