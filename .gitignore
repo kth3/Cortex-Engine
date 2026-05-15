@@ -11,6 +11,11 @@ uv.lock
 .uv-cache-local/
 *.egg-info/
 
+# knowledge.zip 전개 결과 (cortex-ctl knowledge enable 산물)
+knowledge/resources/
+knowledge/examples/
+knowledge/skills/
+
 # Dynamic Data (Protected)
 data/
 history/

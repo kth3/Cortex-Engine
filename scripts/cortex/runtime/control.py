@@ -216,15 +216,18 @@ def restart() -> None:
     start()
 
 
+_USAGE = "Usage: cortex-ctl [start|stop|restart|status|knowledge ...]"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        print("Usage: cortex-ctl [start|stop|restart|status]")
+        print(_USAGE)
         return 1
 
     command = args[0].lower()
     if command in {"-h", "--help", "help"}:
-        print("Usage: cortex-ctl [start|stop|restart|status]")
+        print(_USAGE)
         return 0
     if command == "start":
         start()
@@ -238,6 +241,9 @@ def main(argv: list[str] | None = None) -> int:
     if command == "status":
         status()
         return 0
+    if command == "knowledge":
+        from cortex.runtime import knowledge_cli
+        return knowledge_cli.main(args[1:])
 
     print(f"Unknown command: {command}")
     return 1
