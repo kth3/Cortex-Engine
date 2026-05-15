@@ -7,6 +7,9 @@ venv/
 .venv/
 uv.lock
 .env
+.pytest_cache/
+.uv-cache-local/
+*.egg-info/
 
 # Dynamic Data (Protected)
 data/
