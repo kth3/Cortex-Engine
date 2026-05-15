@@ -10,16 +10,18 @@ from pathlib import Path
 # Paths
 SCRIPTS_DIR = Path(__file__).resolve().parent # .cortex/scripts/cortex
 WORKSPACE = str(SCRIPTS_DIR.parent.parent.parent) # 프로젝트 루트
-INBOX_PATH = os.path.join(WORKSPACE, ".cortex", "history", "inbox.md")
 
 # Cortex Modules
 sys.path.insert(0, str(SCRIPTS_DIR.parent))
+from cortex.paths import history_dir
+INBOX_PATH = str(history_dir(WORKSPACE) / "inbox.md")
 try:
     from cortex.storage import get_connection
 except ImportError:
     import sqlite3
+    from cortex.paths import data_dir
     def get_connection(workspace):
-        db_path = os.path.join(workspace, ".cortex", "data", "memories.db")
+        db_path = str(data_dir(workspace) / "memories.db")
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn

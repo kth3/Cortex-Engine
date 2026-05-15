@@ -15,7 +15,7 @@ from cortex import storage as db
 from cortex.storage.graph import get_graph_db_path
 from cortex.config.settings import load_settings
 from cortex.scanner.finder import scan_files
-from cortex.paths import resolve_cortex_home, settings_paths
+from cortex.paths import data_dir, resolve_cortex_home, settings_paths
 
 
 SUPPORTED = {".py": ("python", lambda *_: None), ".md": ("markdown", lambda *_: None)}
@@ -39,22 +39,13 @@ def cortex_home_env(path: Path | None):
 
 
 class PathResolverTests(unittest.TestCase):
-    def test_db_paths_follow_cortex_home(self):
+    def test_db_paths_follow_workspace_data_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
-            with cortex_home_env(ws / ".cortex"):
-                self.assertEqual(
-                    Path(db.get_db_path(str(ws))).resolve(),
-                    (ws / ".cortex" / "data" / "memories.db").resolve(),
-                )
-                self.assertEqual(
-                    Path(db.get_db_path(str(ws / ".cortex"))).resolve(),
-                    (ws / ".cortex" / "data" / "memories.db").resolve(),
-                )
-                self.assertEqual(
-                    Path(get_graph_db_path(str(ws))).resolve(),
-                    (ws / ".cortex" / "data" / "graph_db_store").resolve(),
-                )
+            expected_db = (data_dir(ws) / "memories.db").resolve()
+            expected_graph = (data_dir(ws) / "graph_db_store").resolve()
+            self.assertEqual(Path(db.get_db_path(str(ws))).resolve(), expected_db)
+            self.assertEqual(Path(get_graph_db_path(str(ws))).resolve(), expected_graph)
 
     def test_resolve_cortex_home_from_env(self):
         with tempfile.TemporaryDirectory() as tmp:
