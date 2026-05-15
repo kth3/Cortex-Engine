@@ -4,6 +4,15 @@
 사용자 워크스페이스 내용에는 의존하지 않는다(개인화 평가가 아니다).
 """
 
+from cortex.eval.baseline import (
+    DiffReport,
+    MetricChange,
+    SNAPSHOT_VERSION,
+    compare_snapshots,
+    load_snapshot,
+    save_snapshot,
+    to_snapshot,
+)
 from cortex.eval.golden import GoldenCase, GoldenSetError, load_golden_set
 from cortex.eval.metrics import aggregate_scores, hit_at_k, mrr, recall_at_k
 from cortex.eval.runner import (
@@ -25,4 +34,11 @@ __all__ = [
     "fixture_workspace",
     "DEFAULT_GOLDEN_PATH",
     "DEFAULT_K_VALUES",
+    "SNAPSHOT_VERSION",
+    "to_snapshot",
+    "save_snapshot",
+    "load_snapshot",
+    "compare_snapshots",
+    "DiffReport",
+    "MetricChange",
 ]
