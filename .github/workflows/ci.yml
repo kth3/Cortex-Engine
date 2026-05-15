@@ -116,7 +116,7 @@ jobs:
 
           printf '%s\n' '---' 'name: dummy-skill' 'description: A dummy skill for CI knowledge embedding test' 'tags: [test, ci, cortex]' '---' '# Dummy Skill' '' 'This file proves that skill/knowledge markdown parsing and embedding works correctly.' > test_workspace/.cortex/skills/dummy-skill/SKILL.md
 
-          uv run python scripts/cortex/indexer.py "$CORTEX_WORKSPACE" --force
+          PYTHONPATH=scripts uv run python -m cortex.indexing.cli "$CORTEX_WORKSPACE" --force
 
           echo "Verifying generated artifacts and logic..."
           if [ ! -f ./test_workspace/.cortex/data/memories.db ]; then

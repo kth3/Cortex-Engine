@@ -117,8 +117,8 @@ def install_git_hooks(workspace):
         return False
 
     scripts = {
-        "post-checkout": "#!/bin/sh\npython3 .agents/scripts/cortex/indexer.py . &\n",
-        "post-merge": "#!/bin/sh\npython3 .agents/scripts/cortex/indexer.py . &\n",
+        "post-checkout": "#!/bin/sh\nPYTHONPATH=.cortex/scripts python3 -m cortex.indexing.cli . &\n",
+        "post-merge": "#!/bin/sh\nPYTHONPATH=.cortex/scripts python3 -m cortex.indexing.cli . &\n",
     }
 
     for name, content in scripts.items():

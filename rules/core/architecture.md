@@ -13,7 +13,7 @@ description: Cortex Architectural Integrity Rule (v1.0)
 - **이유**: AI의 코드 수정 성공률(AI Ergonomics) 극대화, 의존성 지옥 및 IPC 병목 회피.
 
 ## 2. 모놀리식 하드코딩 금지 (Anti-Monolithic)
-- **Core Separation**: `cortex_mcp.py` (엔진 진입점)와 `indexer.py` (인덱싱 흐름 제어)에는 직접적인 비즈니스 로직이나 언어별 상세 파싱 로직을 추가하지 않습니다.
+- **Core Separation**: MCP 진입점과 `cortex.indexing.cli`에는 직접적인 비즈니스 로직이나 언어별 상세 파싱 로직을 추가하지 않습니다. 인덱싱 흐름은 `cortex.indexing.*` 파이프라인 모듈로 분리합니다.
 - **Side-Effect Isolation**: 파일 수정 후의 동기화, 알림, 추가 검증 등 모든 사후 처리는 반드시 `hooks/` 폴더의 독립된 스크립트로 분리합니다.
 
 ## 3. 전략 패턴(Strategy Pattern) 기반 확장

@@ -29,3 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     stats = index_workspace(args.workspace, force=args.force)
     print(json.dumps(stats, indent=2))
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
