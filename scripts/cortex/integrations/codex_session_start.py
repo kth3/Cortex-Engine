@@ -1,64 +1,47 @@
-"""Codex SessionStart hook adapter for Cortex auto context."""
+"""Backward-compatible SessionStart entrypoint for Cortex Codex hooks."""
 from __future__ import annotations
 
 import argparse
-import os
+import json
 import sys
-from pathlib import Path
 
-from cortex.mcp.context import McpContext
-from cortex.mcp.tools.session import call_pc_auto_context
-from cortex.paths import resolve_workspace
-
-DEFAULT_TOKEN_BUDGET = 2000
-DEFAULT_SESSION_ID = "codex-session-start"
+from cortex.integrations.codex_hook import (
+    DEFAULT_TOKEN_BUDGET,
+    EVENT_SESSION_START,
+    _empty_output,
+    _read_stdin_json,
+    run_event,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Emit Cortex auto context for Codex SessionStart hooks.")
-    parser.add_argument("--workspace", default=None, help="Workspace path. Defaults to CORTEX_WORKSPACE or cwd.")
+    parser = argparse.ArgumentParser(description="Run the Cortex Codex SessionStart hook adapter.")
+    parser.add_argument("--workspace", default=None)
+    parser.add_argument("--cortex-home", default=None)
     parser.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET)
-    parser.add_argument("--quiet-empty", action="store_true", help="Do not print anything when no context is found.")
+    parser.add_argument("--quiet-empty", action="store_true", help=argparse.SUPPRESS)
     return parser
-
-
-def _resolve_explicit_workspace(start_path: str) -> Path:
-    curr = Path(start_path).resolve()
-    for parent in (curr, *curr.parents):
-        if (parent / ".git").exists():
-            return parent
-    return curr
-
-
-def _workspace(raw_workspace: str | None) -> str:
-    if raw_workspace:
-        return str(_resolve_explicit_workspace(raw_workspace))
-    return str(resolve_workspace(os.environ.get("CORTEX_WORKSPACE") or os.getcwd()))
-
-
-def _session_id() -> str:
-    return os.environ.get("CODEX_SESSION_ID") or os.environ.get("CORTEX_SESSION_ID") or DEFAULT_SESSION_ID
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    workspace = _workspace(args.workspace)
-    ctx = McpContext(workspace=workspace, session_id=_session_id(), scripts_dir=None)
-
+    payload, _raw = _read_stdin_json()
     try:
-        result = call_pc_auto_context(ctx, {"token_budget": args.token_budget})
+        print(
+            json.dumps(
+                run_event(
+                    EVENT_SESSION_START,
+                    payload,
+                    raw_workspace=args.workspace,
+                    raw_cortex_home=args.cortex_home,
+                    token_budget=args.token_budget,
+                ),
+                ensure_ascii=False,
+            )
+        )
     except Exception as exc:
-        print(f"[Cortex auto context unavailable: {exc}]", file=sys.stderr)
-        return 0
-
-    context = result.get("context", "")
-    if not context:
-        if not args.quiet_empty:
-            print("Cortex auto context: (empty)")
-        return 0
-
-    print("Cortex auto context:")
-    print(context)
+        print(f"[Cortex Codex SessionStart unavailable: {exc}]", file=sys.stderr)
+        print(_empty_output())
     return 0
 
 
