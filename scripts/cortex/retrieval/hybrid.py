@@ -98,6 +98,40 @@ def hybrid_search(workspace: str, query: str, category: str = None, limit: int =
     return final
 
 
+MAX_CODE_SNIPPET_CHARS = 400
+
+
+def _compact_text_preview(text: str | None, max_chars: int = MAX_CODE_SNIPPET_CHARS) -> str:
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    preview = "\n".join(lines[:6])
+    if len(preview) > max_chars:
+        return preview[: max_chars - 1].rstrip() + "…"
+    return preview
+
+
+def _code_result_snippet(row: dict) -> str:
+    signature = row.get("signature")
+    if signature:
+        return signature
+
+    for key in ("content", "code", "body", "text", "raw_body"):
+        preview = _compact_text_preview(row.get(key))
+        if preview:
+            return preview
+
+    fqn = row.get("fqn") or row.get("name") or "<unknown>"
+    file_path = row.get("file_path") or row.get("path") or "<unknown>"
+    line_start = row.get("start_line") or row.get("line_start")
+    line_end = row.get("end_line") or row.get("line_end")
+    if line_start and line_end:
+        return f"{fqn} ({file_path}:{line_start}-{line_end})"
+    if line_start:
+        return f"{fqn} ({file_path}:{line_start})"
+    return f"{fqn} ({file_path})"
+
+
 def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIMIT, ve_module=None) -> list:
     """
     코드(vec_nodes) + 지식(vec_memories) + 동적메모리(observations FTS/LIKE)를
@@ -225,7 +259,7 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
                 "key": item.get("fqn", ""),
                 "category": item.get("type", "unknown"),
                 "file_path": item.get("file_path", ""),
-                "snippet": item.get("signature") or "→ Capsule 참조 (코드 생략됨)",
+                "snippet": _code_result_snippet(item),
             }
         elif domain == "knowledge":
             boost = _heuristic_boost(item.get("key", ""), item.get("category", ""), query)
