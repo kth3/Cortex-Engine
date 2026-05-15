@@ -43,3 +43,40 @@
   category: pattern
   content: "SQLite 연결은 작업 종료 시 finally 블록에서 conn.close()를 호출하여 자원 누수와 WAL 파일 락 점유를 방지한다."
   tags: ["sqlite", "lifecycle"]
+
+# === Distractor 메모리 (정답과 FTS 토큰이 겹치지만 정답이 아닌 항목) ===
+
+- key: insight.rrf-latency-tradeoff
+  category: insight
+  content: "RRF 병합은 두 검색 결과를 순회하므로 단일 소스 대비 latency가 증가한다. k 값이 클수록 순위 차이가 완만해져 소스 간 균형이 맞지만 상위권 정밀도가 떨어진다."
+  tags: ["search", "rrf", "performance"]
+
+- key: insight.fts5-tokenizer-locale
+  category: insight
+  content: "FTS5 기본 unicode61 토크나이저는 한국어 형태소 분석을 지원하지 않는다. prefix 검색으로 부분 보완이 가능하지만 조사 분리는 불완전하다."
+  tags: ["fts", "sqlite", "i18n"]
+
+- key: insight.sqlite-wal-checkpoint
+  category: insight
+  content: "sqlite WAL 모드에서 체크포인트가 지연되면 WAL 파일이 무한히 커질 수 있다. 주기적으로 PRAGMA wal_checkpoint(TRUNCATE)를 호출하여 디스크 사용량을 관리한다."
+  tags: ["sqlite", "wal", "maintenance"]
+
+- key: insight.tree-sitter-error-recovery
+  category: insight
+  content: "Tree-sitter 파서는 구문 오류가 있는 소스에서도 부분 파싱을 수행한다. ERROR 노드가 나타나면 해당 범위의 grammar 복구를 시도하되, 자식 노드는 신뢰할 수 없다."
+  tags: ["parser", "tree-sitter", "error-handling"]
+
+- key: insight.edge-cycle-detection
+  category: insight
+  content: "edge 그래프에 순환 참조가 존재하면 resolution 무한 루프가 발생할 수 있다. 방문 집합(visited set)으로 사이클을 탐지하고 해당 edge를 unresolved 상태로 남긴다."
+  tags: ["indexing", "edges", "graph"]
+
+- key: insight.fts-rebuild-performance
+  category: insight
+  content: "FTS5 인덱스의 trigger 기반 동기화가 깨진 경우, INSERT INTO fts_table(fts_table) VALUES('rebuild')로 전체 재구축한다. 대형 테이블에서는 수 초가 소요될 수 있다."
+  tags: ["fts", "trigger", "rebuild"]
+
+- key: insight.migration-rollback-strategy
+  category: insight
+  content: "SQLite는 ALTER TABLE DROP COLUMN을 지원하지 않으므로, schema migration 롤백 시에는 새 테이블 생성 후 데이터 복사 방식을 사용해야 한다."
+  tags: ["sqlite", "migration", "rollback"]

@@ -144,3 +144,125 @@
   docstring: "버전별 DDL 변경(컬럼 추가 등)을 멱등하게 적용한다."
   language: python
   category: SOURCE
+
+# === Distractor 노드 (정답과 FTS 토큰이 겹치지만 정답이 아닌 항목) ===
+
+- id: dist-hybrid-search-cache
+  type: function
+  name: hybrid_search_cache
+  fqn: pkg/search/cache.py::hybrid_search_cache
+  file_path: pkg/search/cache.py
+  start_line: 5
+  end_line: 25
+  signature: "def hybrid_search_cache(conn, ttl: int = 300) -> dict"
+  docstring: "hybrid search 결과를 TTL 기반으로 캐싱하여 반복 검색 속도를 높인다."
+  language: python
+  category: SOURCE
+
+- id: dist-unified-pipeline-validator
+  type: function
+  name: unified_pipeline_validate
+  fqn: pkg/search/validation.py::unified_pipeline_validate
+  file_path: pkg/search/validation.py
+  start_line: 3
+  end_line: 30
+  signature: "def unified_pipeline_validate(config: dict) -> list[str]"
+  docstring: "unified pipeline search 설정의 유효성을 검증하고 경고 목록을 반환한다."
+  language: python
+  category: SOURCE
+
+- id: dist-resolve-edge-conflicts
+  type: function
+  name: resolve_edge_conflicts
+  fqn: pkg/indexing/diagnostics.py::resolve_edge_conflicts
+  file_path: pkg/indexing/diagnostics.py
+  start_line: 10
+  end_line: 40
+  signature: "def resolve_edge_conflicts(conn) -> dict"
+  docstring: "resolve 과정에서 충돌하는 unresolved edges를 진단하고 통계를 반환한다."
+  language: python
+  category: SOURCE
+
+- id: dist-parse-python-imports
+  type: function
+  name: parse_python_imports
+  fqn: pkg/parser/imports.py::parse_python_imports
+  file_path: pkg/parser/imports.py
+  start_line: 1
+  end_line: 20
+  signature: "def parse_python_imports(source: str) -> list[str]"
+  docstring: "python module의 import 문만 parse하여 의존성 목록을 추출한다."
+  language: python
+  category: SOURCE
+
+- id: dist-parse-typescript-types
+  type: function
+  name: parse_typescript_types
+  fqn: pkg/parser/ts_types.py::parse_typescript_types
+  file_path: pkg/parser/ts_types.py
+  start_line: 5
+  end_line: 35
+  signature: "def parse_typescript_types(source: str) -> list[dict]"
+  docstring: "TypeScript 소스를 parse하여 타입 정의(interface, type alias)만 추출한다."
+  language: python
+  category: SOURCE
+
+- id: dist-get-connection-stats
+  type: function
+  name: get_connection_stats
+  fqn: pkg/storage/pool.py::get_connection_stats
+  file_path: pkg/storage/pool.py
+  start_line: 10
+  end_line: 30
+  signature: "def get_connection_stats() -> dict"
+  docstring: "get connection 풀의 활성 수와 WAL 크기를 반환한다."
+  language: python
+  category: SOURCE
+
+- id: dist-init-schema-validation
+  type: function
+  name: init_schema_validation
+  fqn: pkg/storage/version.py::init_schema_validation
+  file_path: pkg/storage/version.py
+  start_line: 1
+  end_line: 15
+  signature: "def init_schema_validation(conn) -> bool"
+  docstring: "init schema 이후 테이블 구조의 정합성을 검증한다."
+  language: python
+  category: SOURCE
+
+- id: dist-normalize-fts-tokens
+  type: function
+  name: normalize_fts_tokens
+  fqn: pkg/retrieval/tokenizer.py::normalize_fts_tokens
+  file_path: pkg/retrieval/tokenizer.py
+  start_line: 1
+  end_line: 18
+  signature: "def normalize_fts_tokens(raw_query: str) -> list[str]"
+  docstring: "FTS query의 각 토큰을 normalize하여 안전한 토큰 리스트로 반환한다."
+  language: python
+  category: SOURCE
+
+- id: dist-result-snippet-html
+  type: function
+  name: result_snippet_html
+  fqn: pkg/retrieval/snippets_html.py::result_snippet_html
+  file_path: pkg/retrieval/snippets_html.py
+  start_line: 3
+  end_line: 20
+  signature: "def result_snippet_html(row, max_chars: int = 400) -> str"
+  docstring: "검색 result의 snippet을 HTML 하이라이트 포맷으로 변환한다."
+  language: python
+  category: SOURCE
+
+- id: dist-rrf-weight-debugger
+  type: function
+  name: _rrf_weight_debugger
+  fqn: pkg/search/debug.py::_rrf_weight_debugger
+  file_path: pkg/search/debug.py
+  start_line: 1
+  end_line: 25
+  signature: "def _rrf_weight_debugger(results: list, k: int = 60) -> list[dict]"
+  docstring: "RRF 가중치 계산 과정을 디버깅용으로 시각화한다."
+  language: python
+  category: SOURCE

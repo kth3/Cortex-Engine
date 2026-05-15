@@ -6,28 +6,28 @@
     5
   ],
   "aggregate": {
-    "mrr": 1.0,
-    "hit@1": 1.0,
+    "mrr": 0.8529411764705882,
+    "hit@1": 0.7058823529411765,
     "hit@3": 1.0,
     "hit@5": 1.0,
-    "recall@1": 1.0,
+    "recall@1": 0.7058823529411765,
     "recall@3": 1.0,
     "recall@5": 1.0
   },
   "cases": {
     "code-hybrid-search-function": {
-      "mrr": 1.0,
-      "hit@1": 1.0,
-      "recall@1": 1.0,
+      "mrr": 0.5,
+      "hit@1": 0.0,
+      "recall@1": 0.0,
       "hit@3": 1.0,
       "recall@3": 1.0,
       "hit@5": 1.0,
       "recall@5": 1.0
     },
     "code-unified-pipeline": {
-      "mrr": 1.0,
-      "hit@1": 1.0,
-      "recall@1": 1.0,
+      "mrr": 0.5,
+      "hit@1": 0.0,
+      "recall@1": 0.0,
       "hit@3": 1.0,
       "recall@3": 1.0,
       "hit@5": 1.0,
@@ -70,18 +70,18 @@
       "recall@5": 1.0
     },
     "code-storage-connection": {
-      "mrr": 1.0,
-      "hit@1": 1.0,
-      "recall@1": 1.0,
+      "mrr": 0.5,
+      "hit@1": 0.0,
+      "recall@1": 0.0,
       "hit@3": 1.0,
       "recall@3": 1.0,
       "hit@5": 1.0,
       "recall@5": 1.0
     },
     "code-init-schema": {
-      "mrr": 1.0,
-      "hit@1": 1.0,
-      "recall@1": 1.0,
+      "mrr": 0.5,
+      "hit@1": 0.0,
+      "recall@1": 0.0,
       "hit@3": 1.0,
       "recall@3": 1.0,
       "hit@5": 1.0,
@@ -97,9 +97,9 @@
       "recall@5": 1.0
     },
     "code-result-snippet": {
-      "mrr": 1.0,
-      "hit@1": 1.0,
-      "recall@1": 1.0,
+      "mrr": 0.5,
+      "hit@1": 0.0,
+      "recall@1": 0.0,
       "hit@3": 1.0,
       "recall@3": 1.0,
       "hit@5": 1.0,
