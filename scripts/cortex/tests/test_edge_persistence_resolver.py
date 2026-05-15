@@ -110,13 +110,90 @@ class TestEdgePersistenceResolver(unittest.TestCase):
     def test_resolver_csharp_monobehaviour(self):
         self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('src', 'class', 'Player', 'Player', 'player.cs', 1, 1, 'c_sharp')")
         self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt', 'class', 'MonoBehaviour', 'UnityEngine.MonoBehaviour', 'unity.cs', 1, 1, 'c_sharp')")
-        
+
         edges = [{"source_id": "src", "target_id": "__unresolved__::MonoBehaviour", "type": "INHERITS", "target_kind_hint": "class"}]
         insert_edges(self.conn, edges)
         resolve_unresolved_edges(self.conn)
         row = self.conn.execute("SELECT target_id, resolution_status FROM edges").fetchone()
         self.assertEqual(row[0], "tgt")
         self.assertEqual(row[1], "resolved")
+
+    def test_resolver_priority1_fqn_hint_exact_match(self):
+        # Priority 1: target_fqn_hint가 nodes.fqn과 정확히 일치하는 후보 1개
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('src', 'function', 'src_func', 'src', 'src.py', 1, 1, 'python')")
+        # 같은 name을 가진 다른 후보가 있어도 fqn_hint가 일치하는 노드를 우선 선택해야 한다
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt_other', 'function', 'helper', 'other.module.helper', 'other.py', 1, 1, 'python')")
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt_hit', 'function', 'helper', 'pkg.mod.helper', 'pkg/mod.py', 1, 1, 'python')")
+
+        edges = [{
+            "source_id": "src",
+            "target_id": "__unresolved__::helper",
+            "type": "CALLS",
+            "target_name": "helper",
+            "target_fqn_hint": "pkg.mod.helper",
+        }]
+        insert_edges(self.conn, edges)
+        resolve_unresolved_edges(self.conn)
+        row = self.conn.execute("SELECT target_id, resolution_status FROM edges").fetchone()
+        self.assertEqual(row[0], "tgt_hit")
+        self.assertEqual(row[1], "resolved")
+
+    def test_resolver_priority3_language_only(self):
+        # Priority 3: target_kind_hint가 없거나 어떤 후보와도 매칭되지 않을 때,
+        # source_lang과 일치하는 후보가 1개면 단일 매칭으로 resolve
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('src', 'function', 'src_func', 'src', 'src.py', 1, 1, 'python')")
+        # python language + name 일치 후보 1개
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt_py', 'function', 'shared_name', 'pkg.shared_name', 'pkg.py', 1, 1, 'python')")
+        # 다른 language의 동일 name 후보는 매칭 대상이 아니어야 한다
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt_cs', 'function', 'shared_name', 'shared_name', 'a.cs', 1, 1, 'c_sharp')")
+
+        edges = [{
+            "source_id": "src",
+            "target_id": "__unresolved__::shared_name",
+            "type": "CALLS",
+            "target_name": "shared_name",
+            # kind_hint를 일부러 어떤 후보와도 맞지 않게 두어 Priority 2가 비도록 한다
+            "target_kind_hint": "class",
+        }]
+        insert_edges(self.conn, edges)
+        resolve_unresolved_edges(self.conn)
+        row = self.conn.execute("SELECT target_id, resolution_status FROM edges").fetchone()
+        self.assertEqual(row[0], "tgt_py")
+        self.assertEqual(row[1], "resolved")
+
+    def test_resolver_priority4_name_only_when_no_source_language(self):
+        # Priority 4: source 노드의 language가 비어 있어 Priority 2/3 모두 비면 name 매칭으로 fallback
+        # _source_language_map은 nodes 테이블 JOIN으로 얻으므로 src 노드를 등록하지 않아 language가 없는 상태를 만든다.
+        # 단, edges는 외래키 검증을 하지 않으므로 src_id 'src_missing'은 단순 문자열로 사용 가능.
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('tgt_only', 'function', 'unique_name', 'mod.unique_name', 'mod.py', 1, 1, 'python')")
+
+        edges = [{
+            "source_id": "src_missing",
+            "target_id": "__unresolved__::unique_name",
+            "type": "CALLS",
+            "target_name": "unique_name",
+        }]
+        insert_edges(self.conn, edges)
+        resolve_unresolved_edges(self.conn)
+        row = self.conn.execute("SELECT target_id, resolution_status FROM edges").fetchone()
+        self.assertEqual(row[0], "tgt_only")
+        self.assertEqual(row[1], "resolved")
+
+    def test_resolver_no_match_keeps_unresolved(self):
+        # 후보 0개: target_id와 resolution_status는 변경되지 않아야 한다
+        self.conn.execute("INSERT INTO nodes (id, type, name, fqn, file_path, start_line, end_line, language) VALUES ('src', 'function', 'src_func', 'src', 'src.py', 1, 1, 'python')")
+
+        edges = [{
+            "source_id": "src",
+            "target_id": "__unresolved__::nonexistent_symbol",
+            "type": "CALLS",
+            "target_name": "nonexistent_symbol",
+        }]
+        insert_edges(self.conn, edges)
+        resolve_unresolved_edges(self.conn)
+        row = self.conn.execute("SELECT target_id, resolution_status FROM edges").fetchone()
+        self.assertEqual(row[0], "__unresolved__::nonexistent_symbol")
+        self.assertEqual(row[1], "unresolved")
 
 if __name__ == '__main__':
     unittest.main()
