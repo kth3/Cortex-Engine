@@ -12,7 +12,7 @@ def require_virtualenv() -> None:
         return
 
     print("\n[ERROR] Cortex must be run within the virtual environment.")
-    print("💡 Hint: Use 'uv run python scripts/cortex/cortex_ctl.py' or activate .venv first.\n")
+    print("💡 Hint: Use 'uv run cortex-ctl' or activate .venv first.\n")
     sys.exit(1)
 
 

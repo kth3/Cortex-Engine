@@ -22,10 +22,6 @@ SERVER_VERSION = "3.8.0"
 
 SESSION_ID_LENGTH = 8
 
-CORTEX_CTL_DIRNAME = "cortex"
-CORTEX_CTL_FILENAME = "cortex_ctl.py"
-CORTEX_CTL_START_ARG = "start"
-
 PARENT_WATCH_INTERVAL_SECONDS = 2
 TERMINATION_MESSAGE = "[Cortex] MCP server terminated.\n"
 
@@ -151,22 +147,16 @@ def parent_watcher():
         _sleep_parent_watch_interval()
 
 
-def _cortex_ctl_script() -> Path:
-    return SCRIPTS_DIR / CORTEX_CTL_DIRNAME / CORTEX_CTL_FILENAME
-
-
 def _start_cortex_engine_if_available() -> None:
     try:
         import subprocess
 
-        ctl_script = _cortex_ctl_script()
-        if ctl_script.exists():
-            subprocess.Popen(
-                [sys.executable, str(ctl_script), CORTEX_CTL_START_ARG],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+        subprocess.Popen(
+            [sys.executable, "-m", "cortex.runtime.cli", "start"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     except:
         pass
 

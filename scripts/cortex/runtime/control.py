@@ -219,12 +219,12 @@ def restart() -> None:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        print("Usage: python cortex_ctl.py [start|stop|restart|status]")
+        print("Usage: cortex-ctl [start|stop|restart|status]")
         return 1
 
     command = args[0].lower()
     if command in {"-h", "--help", "help"}:
-        print("Usage: python cortex_ctl.py [start|stop|restart|status]")
+        print("Usage: cortex-ctl [start|stop|restart|status]")
         return 0
     if command == "start":
         start()

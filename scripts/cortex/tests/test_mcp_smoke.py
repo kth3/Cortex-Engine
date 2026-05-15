@@ -1,8 +1,9 @@
-"""cortex_mcp.py 직접 stdio JSON-RPC smoke test.
+"""Cortex MCP stdio JSON-RPC smoke test.
 재시작 후 변경된 도구 동작 검증용.
 """
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -67,20 +68,12 @@ requests = [
 
 payload = "\n".join(json.dumps(r) for r in requests) + "\n"
 
-p = subprocess.Popen(
-    [sys.executable, str(MCP)],
-    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    cwd=str(WS),
-)
-try:
-    out, err = p.communicate(payload.encode("utf-8"), timeout=120)
-except subprocess.TimeoutExpired:
-    p.kill()
-    out, err = p.communicate()
-    print("TIMEOUT")
-
-print("=" * 70)
-failures = []
+def _mcp_commands():
+    commands = [("file-entrypoint", [sys.executable, str(MCP)])]
+    console = shutil.which("cortex-mcp")
+    if console:
+        commands.append(("console-entrypoint", [console]))
+    return commands
 
 
 def check(label, condition, detail=""):
@@ -90,61 +83,6 @@ def check(label, condition, detail=""):
         failures.append(label)
 
 
-results = {}
-for line in out.decode("utf-8", errors="replace").splitlines():
-    s = line.strip()
-    if not s.startswith("{"):
-        continue
-    try:
-        obj = json.loads(s)
-    except json.JSONDecodeError:
-        continue
-    rid = obj.get("id")
-    results[rid] = obj
-
-# T1: tools/list 검증
-tl = results.get(2, {}).get("result", {}).get("tools", [])
-tool_names = [t["name"] for t in tl]
-print(f"[T1] tools/list count={len(tool_names)}")
-check("pc_capsule present", 'pc_capsule' in tool_names)
-check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
-check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)
-cap = next((t for t in tl if t["name"] == "pc_capsule"), None)
-if cap:
-    cap_props = cap.get("inputSchema", {}).get("properties", {})
-    check("pc_capsule.auto_chain schema", 'auto_chain' in cap_props)
-    check("pc_capsule.token_budget schema", 'token_budget' in cap_props)
-ig = next((t for t in tl if t["name"] == "pc_impact_graph"), None)
-if ig:
-    ig_props = ig.get("inputSchema", {}).get("properties", {})
-    check("pc_impact_graph.max_nodes schema", 'max_nodes' in ig_props)
-    check("pc_impact_graph.max_depth default", ig_props.get('max_depth', {}).get('default') == 2)
-mc = next((t for t in tl if t["name"] == "pc_memory_consolidate"), None)
-if mc:
-    mc_props = mc.get("inputSchema", {}).get("properties", {})
-    check("pc_memory_consolidate.dry_run default", mc_props.get('dry_run', {}).get('default') is True)
-ri = next((t for t in tl if t["name"] == "pc_reindex"), None)
-if ri:
-    check("pc_reindex destructive warning", 'DESTRUCTIVE' in ri.get('description', ''))
-
-# T2: pc_index_status
-print()
-idx = results.get(3, {}).get("result")
-if isinstance(idx, dict):
-    # MCP wraps result in content-style or direct dict; handle both
-    if "content" in idx:
-        content_text = idx["content"][0]["text"] if idx["content"] else "{}"
-        try:
-            idx_data = json.loads(content_text)
-        except Exception:
-            idx_data = {}
-    else:
-        idx_data = idx
-    check("pc_index_status schema_version", idx_data.get('schema_version') == '2', repr(idx_data.get('schema_version')))
-
-# T3: dry_run consolidate
-print()
-mc_res = results.get(4, {}).get("result")
 def _extract(res):
     if isinstance(res, dict) and "content" in res:
         try:
@@ -152,43 +90,120 @@ def _extract(res):
         except Exception:
             return res
     return res
-mc_data = _extract(mc_res)
-print(f"[T3] memory_consolidate dry_run=true(default) 응답:")
-if isinstance(mc_data, dict):
-    check("memory_consolidate dry_run executed false", mc_data.get('executed') is False)
-    check("memory_consolidate dry_run would_delete", mc_data.get('would_delete') == ['nonexistent_a', 'nonexistent_b'])
-    check("memory_consolidate dry_run would_write present", bool(mc_data.get('would_write')))
 
-# T4: impact_graph 메타필드
-print()
-ig_res = _extract(results.get(5, {}).get("result"))
-print(f"[T4] impact_graph 응답 키 = {sorted(ig_res.keys()) if isinstance(ig_res, dict) else 'ERR'}")
-if isinstance(ig_res, dict):
-    for k in ("truncated", "limit", "returned_count", "total_seen"):
-        print(f"  {k} = {ig_res.get(k)}")
-    check("impact_graph metadata keys", all(k in ig_res for k in ("truncated", "limit", "returned_count", "total_seen")))
-else:
-    check("impact_graph metadata keys", False, "non-dict response")
 
-# T5: index_roots add dry-run
-print()
-ir_res = _extract(results.get(6, {}).get("result"))
-if isinstance(ir_res, dict):
-    check("index_roots_add dry_run executed false", ir_res.get('executed') is False)
-    check("index_roots_add scan_count present", isinstance(ir_res.get('scan_count'), int))
+def _run_mcp(command):
+    p = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cwd=str(WS),
+    )
+    try:
+        return p.communicate(payload.encode("utf-8"), timeout=120)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+        print("TIMEOUT")
+        return out, err
 
-# 후속 검증: DB에 smoke_dryrun_2026이 실제로 없어야 함 (dry_run 안전성)
-print()
-conn = sqlite3.connect(str(DB_PATH))
-row = conn.execute("SELECT key FROM memories WHERE key='smoke_dryrun_2026'").fetchone()
-check("dry_run did not write memory row", not bool(row))
-conn.close()
 
-if err:
+def _parse_results(out):
+    results = {}
+    for line in out.decode("utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if not s.startswith("{"):
+            continue
+        try:
+            obj = json.loads(s)
+        except json.JSONDecodeError:
+            continue
+        rid = obj.get("id")
+        results[rid] = obj
+    return results
+
+
+def _check_results(results, err):
+    # T1: tools/list 검증
+    tl = results.get(2, {}).get("result", {}).get("tools", [])
+    tool_names = [t["name"] for t in tl]
+    print(f"[T1] tools/list count={len(tool_names)}")
+    check("pc_capsule present", 'pc_capsule' in tool_names)
+    check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
+    check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)
+    cap = next((t for t in tl if t["name"] == "pc_capsule"), None)
+    if cap:
+        cap_props = cap.get("inputSchema", {}).get("properties", {})
+        check("pc_capsule.auto_chain schema", 'auto_chain' in cap_props)
+        check("pc_capsule.token_budget schema", 'token_budget' in cap_props)
+    ig = next((t for t in tl if t["name"] == "pc_impact_graph"), None)
+    if ig:
+        ig_props = ig.get("inputSchema", {}).get("properties", {})
+        check("pc_impact_graph.max_nodes schema", 'max_nodes' in ig_props)
+        check("pc_impact_graph.max_depth default", ig_props.get('max_depth', {}).get('default') == 2)
+    mc = next((t for t in tl if t["name"] == "pc_memory_consolidate"), None)
+    if mc:
+        mc_props = mc.get("inputSchema", {}).get("properties", {})
+        check("pc_memory_consolidate.dry_run default", mc_props.get('dry_run', {}).get('default') is True)
+    ri = next((t for t in tl if t["name"] == "pc_reindex"), None)
+    if ri:
+        check("pc_reindex destructive warning", 'DESTRUCTIVE' in ri.get('description', ''))
+
     print()
-    print("=== STDERR (last 15 lines) ===")
-    for l in err.decode("utf-8", errors="replace").splitlines()[-15:]:
-        print(l)
+    idx = results.get(3, {}).get("result")
+    if isinstance(idx, dict):
+        if "content" in idx:
+            content_text = idx["content"][0]["text"] if idx["content"] else "{}"
+            try:
+                idx_data = json.loads(content_text)
+            except Exception:
+                idx_data = {}
+        else:
+            idx_data = idx
+        check("pc_index_status schema_version", idx_data.get('schema_version') == '2', repr(idx_data.get('schema_version')))
+
+    print()
+    mc_data = _extract(results.get(4, {}).get("result"))
+    print(f"[T3] memory_consolidate dry_run=true(default) 응답:")
+    if isinstance(mc_data, dict):
+        check("memory_consolidate dry_run executed false", mc_data.get('executed') is False)
+        check("memory_consolidate dry_run would_delete", mc_data.get('would_delete') == ['nonexistent_a', 'nonexistent_b'])
+        check("memory_consolidate dry_run would_write present", bool(mc_data.get('would_write')))
+
+    print()
+    ig_res = _extract(results.get(5, {}).get("result"))
+    print(f"[T4] impact_graph 응답 키 = {sorted(ig_res.keys()) if isinstance(ig_res, dict) else 'ERR'}")
+    if isinstance(ig_res, dict):
+        for k in ("truncated", "limit", "returned_count", "total_seen"):
+            print(f"  {k} = {ig_res.get(k)}")
+        check("impact_graph metadata keys", all(k in ig_res for k in ("truncated", "limit", "returned_count", "total_seen")))
+    else:
+        check("impact_graph metadata keys", False, "non-dict response")
+
+    print()
+    ir_res = _extract(results.get(6, {}).get("result"))
+    if isinstance(ir_res, dict):
+        check("index_roots_add dry_run executed false", ir_res.get('executed') is False)
+        check("index_roots_add scan_count present", isinstance(ir_res.get('scan_count'), int))
+
+    print()
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT key FROM memories WHERE key='smoke_dryrun_2026'").fetchone()
+    check("dry_run did not write memory row", not bool(row))
+    conn.close()
+
+    if err:
+        print()
+        print("=== STDERR (last 15 lines) ===")
+        for l in err.decode("utf-8", errors="replace").splitlines()[-15:]:
+            print(l)
+
+
+failures = []
+for label, command in _mcp_commands():
+    print("=" * 70)
+    print(f"MCP smoke command: {label}")
+    out, err = _run_mcp(command)
+    _check_results(_parse_results(out), err)
 
 if failures:
     print()

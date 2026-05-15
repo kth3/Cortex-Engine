@@ -27,11 +27,34 @@ dependencies = [
     "tree-sitter-typescript>=0.23.2",
 ]
 
-[dependency-groups]
+[project.scripts]
+cortex-index = "cortex.indexing.cli:main"
+cortex-eval = "cortex.eval.__main__:main"
+cortex-mcp = "cortex.mcp.server:main"
+cortex-ctl = "cortex.runtime.cli:main"
+cortex-codex-session-start = "cortex.integrations.codex_session_start:main"
+
+[project.optional-dependencies]
 gpu-accel = [
-    # Linux x86_64 전용 wheel — Windows에서는 이 그룹 설치 불필요
-    "flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl ; sys_platform == 'linux'",
+    # Linux 전용 optional extra — 기본 설치/평가 실행에서는 설치하지 않는다.
+    "flash-attn==2.8.3 ; sys_platform == 'linux'",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["cortex*"]
+
+[tool.uv]
+default-groups = []
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }

@@ -34,7 +34,6 @@ jobs:
         shell: bash
 
     env:
-      PYTHONPATH: scripts
       PYTHONUTF8: "1"
 
     steps:
@@ -116,7 +115,9 @@ jobs:
 
           printf '%s\n' '---' 'name: dummy-skill' 'description: A dummy skill for CI knowledge embedding test' 'tags: [test, ci, cortex]' '---' '# Dummy Skill' '' 'This file proves that skill/knowledge markdown parsing and embedding works correctly.' > test_workspace/.cortex/skills/dummy-skill/SKILL.md
 
-          PYTHONPATH=scripts uv run python -m cortex.indexing.cli "$CORTEX_WORKSPACE" --force
+          uv run cortex-index "$CORTEX_WORKSPACE" --force
+
+          uv run cortex-eval --compare scripts/cortex/eval/baseline.json
 
           echo "Verifying generated artifacts and logic..."
           if [ ! -f ./test_workspace/.cortex/data/memories.db ]; then

@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project C:/path/to/.cortex cortex-codex-session-start --workspace C:/path/to/workspace"
+          }
+        ]
+      }
+    ]
+  }
+}
