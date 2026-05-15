@@ -1,7 +1,7 @@
 """file_edit_events 스키마/헬퍼 검증 — Stage 0 T1~T9.
 
 운영 DB(memories.db)를 건드리지 않도록 모든 테스트는 tempfile + 격리된 워크스페이스 사용.
-실행: uv run --project .agents python .agents/scripts/cortex/tests/test_file_edit_events.py
+실행: uv run --project .cortex python .cortex/scripts/cortex/tests/test_file_edit_events.py
 """
 import os
 import sys
@@ -36,7 +36,7 @@ def _new_workspace_with_db():
     os.environ["CORTEX_HOME"] = os.path.join(tmpdir, ".cortex")
     
     try:
-        # cortex db.get_db_path는 .agents 자동 감지 → 임시 워크스페이스에 .agents/data 생성
+        # cortex storage.get_db_path는 .cortex 자동 감지 → 임시 워크스페이스에 .cortex/data 생성
         conn = db.get_connection(tmpdir)
         db.init_schema(conn)
     finally:

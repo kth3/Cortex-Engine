@@ -21,7 +21,7 @@ log = get_logger(LOG_NAME)
 
 
 def get_db_path(workspace: str) -> str:
-    """DB 파일 경로: 프로젝트 내 .agents/data/memories.db"""
+    """DB 파일 경로: 프로젝트 내 .cortex/data/memories.db"""
     return str(data_dir(workspace) / DB_FILENAME)
 
 

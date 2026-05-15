@@ -20,14 +20,14 @@ log = get_logger("indexing.rules_sync")
 
 
 RULE_DIRS = {
-    "rule": (".agents", "rules"),
-    "protocol": (".agents", "rules", "core", "protocols"),
-    "resource": (".agents", "knowledge", "resources"),
-    "example": (".agents", "knowledge", "examples"),
-    "success_pattern": (".agents", "docs", "success_patterns"),
-    "anti_pattern": (".agents", "docs", "anti_patterns"),
-    "insight": (".agents", "docs", "insights"),
-    "architecture": (".agents", "docs", "architecture"),
+    "rule": (".cortex", "rules"),
+    "protocol": (".cortex", "rules", "core", "protocols"),
+    "resource": (".cortex", "knowledge", "resources"),
+    "example": (".cortex", "knowledge", "examples"),
+    "success_pattern": (".cortex", "docs", "success_patterns"),
+    "anti_pattern": (".cortex", "docs", "anti_patterns"),
+    "insight": (".cortex", "docs", "insights"),
+    "architecture": (".cortex", "docs", "architecture"),
     "reference": ("references",),
 }
 

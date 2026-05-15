@@ -60,7 +60,7 @@ AI 에이전트가 `.cortex` 내부의 수천 개 파일을 직접 스캔하여 
 - `CORTEX_HOME`: Cortex 인프라가 위치한 디렉터리입니다. 일반적으로 `<workspace>/.cortex`입니다.
 - `CORTEX_WORKSPACE`: 실제 인덱싱 및 편집 대상 프로젝트 루트입니다.
 - `CORTEX_ENV_PATH`: `.env` 파일 위치를 명시적으로 지정할 때만 사용합니다.
-- `.agents`는 레거시 호환 대상으로만 남아 있으며, 신규 설치 및 CI 검증은 `.cortex` 기준입니다.
+- 신규 설치 및 CI 검증은 `.cortex` 기준입니다.
 
 `CORTEX_HOME`과 `CORTEX_WORKSPACE`는 분리할 수 있습니다. 예를 들어 홈 디렉터리에 설치된 Cortex로 여러 프로젝트를 인덱싱할 수 있습니다.
 

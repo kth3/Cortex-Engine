@@ -3,8 +3,7 @@ from pathlib import Path
 import os
 
 DEFAULT_CORTEX_HOME_NAME = ".cortex"
-LEGACY_AGENT_HOME_NAME = ".agents"
-CORTEX_HOME_NAMES = (DEFAULT_CORTEX_HOME_NAME, LEGACY_AGENT_HOME_NAME)
+CORTEX_HOME_NAMES = (DEFAULT_CORTEX_HOME_NAME,)
 
 def resolve_workspace(start_path: str | os.PathLike | None = None) -> Path:
     env_ws = os.environ.get("CORTEX_WORKSPACE")
@@ -25,7 +24,7 @@ def resolve_cortex_home(workspace: str | os.PathLike | None = None) -> Path:
 
     base = Path(workspace or os.getcwd()).resolve()
 
-    # 현재 실행 경로가 .cortex나 .agents 내부라면 해당 폴더 자체를 반환
+    # 현재 실행 경로가 .cortex 내부라면 해당 폴더 자체를 반환
     for name in CORTEX_HOME_NAMES:
         if name in base.parts:
             idx = base.parts.index(name)

@@ -24,7 +24,7 @@ def build_node_rows(
     workspace_id: str,
 ) -> tuple[list[tuple], list[dict]]:
     """Convert parser nodes into DB rows and vectorization payloads."""
-    category = "SKILL" if "skills/" in rel_path else ("RULE" if rel_path.startswith(".agents/") else "SOURCE")
+    category = "SKILL" if "skills/" in rel_path else ("RULE" if rel_path.startswith(".cortex/") else "SOURCE")
     node_rows: list[tuple] = []
     vector_items: list[dict] = []
 

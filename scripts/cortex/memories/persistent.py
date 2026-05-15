@@ -243,10 +243,10 @@ def append_markdown_with_archive(workspace: str, target_filename: str, content: 
     import os
     import datetime
     import shutil
-    md_path = os.path.join(workspace, ".agents", "history", target_filename)
+    md_path = os.path.join(workspace, ".cortex", "history", target_filename)
 
     if os.path.exists(md_path) and os.path.getsize(md_path) > 50 * 1024:
-        archive_dir = os.path.join(workspace, ".agents", "history", "archive")
+        archive_dir = os.path.join(workspace, ".cortex", "history", "archive")
         os.makedirs(archive_dir, exist_ok=True)
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         name_part, ext = os.path.splitext(target_filename)

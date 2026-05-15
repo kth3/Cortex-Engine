@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def create_contract(workspace, session_id, lane_id, task_name, instructions, files=None):
-    artifacts_dir = Path(workspace) / ".agents" / "artifacts"
+    artifacts_dir = Path(workspace) / ".cortex" / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

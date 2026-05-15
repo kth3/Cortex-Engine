@@ -13,8 +13,8 @@ def run():
     # 경로 설정
     HOOKS_DIR = Path(__file__).resolve().parent
     WORKSPACE = str(HOOKS_DIR.parent.parent)
-    DB_PATH = os.path.join(WORKSPACE, ".agents", "memories.db")
-    INBOX_PATH = os.path.join(WORKSPACE, ".agents", "history", "inbox.md")
+    DB_PATH = os.path.join(WORKSPACE, ".cortex", "memories.db")
+    INBOX_PATH = os.path.join(WORKSPACE, ".cortex", "history", "inbox.md")
 
     if not os.path.exists(DB_PATH):
         return

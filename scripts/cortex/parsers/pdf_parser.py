@@ -84,7 +84,7 @@ def parse_pdf_file(file_path: str) -> dict:
     nodes = []
     
     # Cortex 환경의 절대 경로를 계산
-    # file_path는 보통 워크스페이스 기준 상대 경로 (예: .agents/knowledge/examples/...)
+    # file_path는 보통 워크스페이스 기준 상대 경로 (예: .cortex/knowledge/examples/...)
     # parser 실행 시 워크스페이스 루트에서 실행된다고 가정
     abs_path = os.path.abspath(file_path)
     

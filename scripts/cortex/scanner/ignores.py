@@ -4,7 +4,7 @@ import fnmatch
 DEFAULT_IGNORES = [
     "node_modules", "__pycache__", ".git", ".venv", "venv",
     "dist", "build", ".gradle", ".idea", ".vscode",
-    ".cortex", ".agents", "target", ".next", "*.min.js", "*.min.css",
+    ".cortex", "target", ".next", "*.min.js", "*.min.css",
     "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out",
     "Library", "Temp", "Logs", "obj",  # Unity 캐시
 ]

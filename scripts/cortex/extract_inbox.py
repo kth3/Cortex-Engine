@@ -8,9 +8,9 @@ import os
 from pathlib import Path
 
 # Paths
-SCRIPTS_DIR = Path(__file__).resolve().parent # .agents/scripts/cortex
+SCRIPTS_DIR = Path(__file__).resolve().parent # .cortex/scripts/cortex
 WORKSPACE = str(SCRIPTS_DIR.parent.parent.parent) # 프로젝트 루트
-INBOX_PATH = os.path.join(WORKSPACE, ".agents", "history", "inbox.md")
+INBOX_PATH = os.path.join(WORKSPACE, ".cortex", "history", "inbox.md")
 
 # Cortex Modules
 sys.path.insert(0, str(SCRIPTS_DIR.parent))
@@ -19,7 +19,7 @@ try:
 except ImportError:
     import sqlite3
     def get_connection(workspace):
-        db_path = os.path.join(workspace, ".agents", "memories.db")
+        db_path = os.path.join(workspace, ".cortex", "data", "memories.db")
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn

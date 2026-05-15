@@ -17,7 +17,7 @@
 
 ```bash
 # GPU 가속 의존성 포함 전체 동기화 (단일 명령어)
-uv sync --project .agents --group gpu-accel
+uv sync --project .cortex --group gpu-accel
 ```
 
 > **참고**: 위 명령어 한 줄로 PyTorch CUDA 12.4 빌드 + Flash-Attention 프리컴파일 wheel이 모두 설치됩니다.
@@ -30,5 +30,5 @@ uv sync --project .agents --group gpu-accel
 설치 후 아래 명령을 실행하여 `bf16` 지원 여부를 확인할 수 있습니다.
 
 ```bash
-uv run --project .agents python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}'); print(f'BF16 Supported: {torch.cuda.is_bf16_supported()}')"
+uv run --project .cortex python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}'); print(f'BF16 Supported: {torch.cuda.is_bf16_supported()}')"
 ```

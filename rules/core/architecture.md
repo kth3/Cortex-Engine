@@ -17,7 +17,7 @@ description: Cortex Architectural Integrity Rule (v1.0)
 - **Side-Effect Isolation**: 파일 수정 후의 동기화, 알림, 추가 검증 등 모든 사후 처리는 반드시 `hooks/` 폴더의 독립된 스크립트로 분리합니다.
 
 ## 3. 전략 패턴(Strategy Pattern) 기반 확장
-- **Parser Registry**: 신규 언어 지원 시 `.agents/scripts/cortex/parsers/`에 `*_parser.py` 모듈을 추가하고 `SUPPORTED_EXTENSIONS`를 정의하십시오.
+- **Parser Registry**: 신규 언어 지원 시 `.cortex/scripts/cortex/parsers/`에 `*_parser.py` 모듈을 추가하고 `SUPPORTED_EXTENSIONS`를 정의하십시오.
 - **Dynamic Dispatch**: `HookManager`를 통해 런타임에 필요한 훅만 호출되도록 설계하여, 엔진의 복잡도를 낮게 유지하십시오.
 
 ## 4. 예방적 방어 (Preventive Defense)

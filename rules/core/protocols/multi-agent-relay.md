@@ -38,5 +38,5 @@ description: Protocol: Multi-Agent Parallel Relay (v2.0)
 
 ## 5. Artifact 기반 Handoff (Contract-First)
 - Agent A는 작업을 마치고 `relay.py release` (또는 `pc_session_sync` 자동화) 호출 시 `contract_id`를 전달합니다.
-- Agent B가 `acquire` 도구를 사용하거나 세션 시작 시 `pc_auto_context`를 호출하면, 자동으로 인계된 계약서(`.agents/artifacts/{contract_id}`) 위치가 노출됩니다. 
+- Agent B가 `acquire` 도구를 사용하거나 세션 시작 시 `pc_auto_context`를 호출하면, 자동으로 인계된 계약서(`.cortex/artifacts/{contract_id}`) 위치가 노출됩니다. 
 - 다음 주자는 작업 시작 전 해당 파일을 반드시 `read_file` 등으로 완독해야 합니다.

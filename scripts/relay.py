@@ -181,7 +181,7 @@ def acquire(agent_id, task, lane_id="default"):
         print(f"[LOCKED] Agent '{agent_id}' acquired lane '{lane_id}' for task '{task}'.")
         if lane.get("contract_id"):
             print(f"[CONTRACT] Previous contract on file: {lane['contract_id']}")
-            print(f"           Read it before starting: .agents/artifacts/{lane['contract_id']}")
+            print(f"           Read it before starting: .cortex/artifacts/{lane['contract_id']}")
         return board
     
     _locked_transaction(_acquire)

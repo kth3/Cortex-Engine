@@ -68,7 +68,7 @@ This boundary keeps the Python implementation intact while making future CLI hoo
 
 ### 3. `.cortex` Path Model
 
-The default path is `.cortex`. `.agents` remains only for legacy compatibility; installation, documentation, and CI are aligned around `.cortex`.
+The default path is `.cortex`. Installation, documentation, and CI are aligned around `.cortex`.
 
 - `CORTEX_HOME`: Cortex infrastructure root
 - `CORTEX_WORKSPACE`: actual project root to index and edit

@@ -6,7 +6,7 @@ from .lock import FileLock
 
 
 def get_todo_path(workspace):
-    return os.path.join(workspace, ".agents", "history", "todo.json")
+    return os.path.join(workspace, ".cortex", "history", "todo.json")
 
 
 def manage_todo(workspace, action, task=None, task_id=None):

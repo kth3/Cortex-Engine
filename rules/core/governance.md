@@ -15,7 +15,7 @@ description: 규칙 승격 및 거버넌스 지침 (Rule Promotion & Governance)
 
 ## 2. 규칙 파일 크기 제한 (Instruction Budget)
 - **단일 파일**: 규칙 파일 1개는 100줄(약 4,000자)을 초과하지 않는다. 초과 시 분리하거나 DB로 이동한다.
-- **총합 제한**: `.agents/rules/` 하위 전체 규칙 파일의 합계는 500줄(약 12,000자)을 초과하지 않는다.
+- **총합 제한**: `.cortex/rules/` 하위 전체 규칙 파일의 합계는 500줄(약 12,000자)을 초과하지 않는다.
 - **초과 대응**: 제한을 초과할 경우, `cognitive.md`의 인지 경제성 원칙에 따라 사용 빈도가 낮은 규칙을 DB(`pc_memory_write`)로 이동시킨다.
 
 ## 3. 관리 및 환류 (Reciprocal Sync)

@@ -14,7 +14,7 @@ trigger: model_decision
 
 ## 2. 절차
 1. **상태 분석**: 현재 세션 또는 최근 작업에서 발생한 기술적 결정 사항 식별.
-2. **ADR 생성**: 결정 사항을 `.agents/docs/adr/` 디렉토리에 생성 (또는 프로젝트 구조에 맞는 adr 디렉토리). 파일명은 `NNNN-short-description.md` 형식을 따름.
+2. **ADR 생성**: 결정 사항을 `.cortex/docs/adr/` 디렉토리에 생성 (또는 프로젝트 구조에 맞는 adr 디렉토리). 파일명은 `NNNN-short-description.md` 형식을 따름.
 3. **연결 및 보고**: 생성 후 작업 내역(Walkthrough)에 명시.
 
 > [!IMPORTANT]

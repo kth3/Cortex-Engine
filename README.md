@@ -68,7 +68,7 @@ graph TD
 
 ### 3. `.cortex` Path Model
 
-신규 기준 경로는 `.cortex`입니다. `.agents`는 레거시 호환 경로로 남아 있으나, 설치/문서/CI는 `.cortex` 기준으로 정리됩니다.
+신규 기준 경로는 `.cortex`입니다. 설치/문서/CI 모두 `.cortex` 기준으로 정리됩니다.
 
 - `CORTEX_HOME`: Cortex 인프라 루트
 - `CORTEX_WORKSPACE`: 실제 작업 대상 프로젝트 루트
