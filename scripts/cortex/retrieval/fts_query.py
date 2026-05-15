@@ -8,7 +8,7 @@ def escape_fts_phrase(value: str) -> str:
     return value.replace('"', '""')
 
 
-def normalize_fts_query(query: str) -> str:
+def normalize_fts_query(query: str | None) -> str:
     """
     공백 기준으로만 검색어를 분리한다.
     파일 경로, snake_case, camelCase, dotted path는 한 토큰처럼 보존한다.
