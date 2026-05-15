@@ -10,7 +10,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cortex.orchestrator import manage_todo, create_contract
+from cortex.orchestration import manage_todo, create_contract
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks
 

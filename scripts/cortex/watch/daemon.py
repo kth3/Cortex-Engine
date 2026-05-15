@@ -25,7 +25,7 @@ CORTEX_HOME = resolve_cortex_home(WORKSPACE)
 
 try:
     from cortex import indexer as pc_indexer
-    from cortex.vectorizer import detect_gpu
+    from cortex.embeddings.hardware import detect_gpu
 except ImportError as e:
     logger.error(f"Critical ImportError in Watcher: {e}")
     traceback.print_exc()

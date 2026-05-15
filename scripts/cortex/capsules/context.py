@@ -11,7 +11,7 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
     conn = get_connection(workspace_path)
 
     if category and category.upper() == "SKILL":
-        from cortex.persistent_memory import PersistentMemoryManager
+        from cortex.memories.persistent import PersistentMemoryManager
 
         pm = PersistentMemoryManager(workspace_path)
         skill_results = pm.search_knowledge(query, category="skill", limit=5)
@@ -27,7 +27,7 @@ def generate_context_capsule(workspace_path, query, token_budget=4000, category=
     vec_rowids = []
     try:
         from cortex import vector_engine as ve
-        from cortex.vectorizer import detect_gpu
+        from cortex.embeddings.hardware import detect_gpu
 
         query_vec = ve.get_embeddings([query], use_gpu=detect_gpu())[0]
         vec_query = "SELECT rowid FROM vec_nodes WHERE embedding MATCH ? AND k = 10"

@@ -17,7 +17,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from cortex import db
-from cortex.edit_engine import (
+from cortex.editing.engine import (
     EMPTY_FILE_HASH,
     ALLOWED_SOURCES,
     normalize_event_path,

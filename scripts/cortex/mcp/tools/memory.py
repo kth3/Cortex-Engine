@@ -7,7 +7,7 @@ import os
 import json
 import datetime
 import shutil
-from cortex.persistent_memory import PersistentMemoryManager
+from cortex.memories.persistent import PersistentMemoryManager
 from cortex import paths as pc_paths
 from cortex import memory as pc_mem_mod
 from cortex import hooks_manager as pc_hooks

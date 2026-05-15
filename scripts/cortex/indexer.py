@@ -275,7 +275,7 @@ def _resolve_unresolved_edges(conn) -> None:
 
 
 def _sync_skills(workspace):
-    from cortex.skill_manager import SkillManager
+    from cortex.skills.manager import SkillManager
     log.info("Auto-syncing skills to memories DB...")
     try:
         sm = SkillManager(workspace)

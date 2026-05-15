@@ -162,7 +162,7 @@ def todo_worker(args):
     """워커가 manage_todo("add")를 반복 호출하여 동시 쓰기 테스트"""
     worker_id, workspace = args
     sys.path.insert(0, str(SCRIPTS_DIR))
-    from cortex.orchestrator import manage_todo
+    from cortex.orchestration import manage_todo
 
     successes = 0
     errors = []

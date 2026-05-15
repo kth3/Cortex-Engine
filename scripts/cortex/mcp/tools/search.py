@@ -7,7 +7,7 @@ from cortex import db as pc_db
 from cortex import capsule as pc_capsule_mod
 from cortex import skeleton as pc_skeleton_mod
 from cortex import memory as pc_mem_mod
-from cortex.search_engine import unified_pipeline_search
+from cortex.retrieval.hybrid import unified_pipeline_search
 from cortex import vector_engine as ve
 
 DEFAULT_SKELETON_DETAIL = "standard"
