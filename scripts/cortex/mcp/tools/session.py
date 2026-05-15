@@ -228,17 +228,19 @@ def _append_entry_with_budget(sections, total_chars, entry, token_budget):
     return total_chars + len(entry), True
 
 
+from cortex.retrieval.snippets import text_result_snippet
+
 def _recent_memory_entry(
     row, category, snippet_chars=AUTO_CONTEXT_STANDARD_SNIPPET_CHARS
 ):
     data = dict(row)
-    snippet = data["content"][:snippet_chars]
+    snippet = text_result_snippet(data, max_chars=snippet_chars)
     return f"[{category}] {data['key']}: {snippet}"
 
 
 def _popular_memory_entry(row):
     data = dict(row)
-    snippet = data["content"][:AUTO_CONTEXT_POPULAR_SNIPPET_CHARS]
+    snippet = text_result_snippet(data, max_chars=AUTO_CONTEXT_POPULAR_SNIPPET_CHARS)
     return (
         f"[{data['category']}] {data['key']} (hits:{data['access_count']}): {snippet}",
         data["key"],

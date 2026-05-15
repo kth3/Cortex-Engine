@@ -21,6 +21,8 @@ from cortex.retrieval.queries import (
 
 log = get_logger("search_engine")
 
+from cortex.retrieval.snippets import result_snippet
+
 def hybrid_search(workspace: str, query: str, category: str = None, limit: int = DEFAULT_LIMIT, ve_module=None) -> list:
     """영구 지식 및 전문가 스킬 하이브리드 검색 (FTS5 + sqlite-vec + RRF 스코어링)
     
@@ -83,53 +85,19 @@ def hybrid_search(workspace: str, query: str, category: str = None, limit: int =
             raw = fts_result_map[k]
             item = {f: raw[f] for f in KEEP_FIELDS if f in raw}
             if "content" in item:
-                item["content"] = item["content"][:snippet_len]
+                item["content"] = result_snippet(item, domain="knowledge", max_chars=snippet_len)
             item["_score_detail"] = {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)}
             item["_total_score"] = round(rrf_val + boost_val, 6)
             final.append(item)
         elif k in vec_map:
             final.append({
                 "key": k,
-                "content": vec_map[k].get("text", "")[:snippet_len],
+                "content": result_snippet({"content": vec_map[k].get("text", "")}, domain="knowledge", max_chars=snippet_len),
                 "category": item_info.get(k, "skill"),
                 "_score_detail": {"rrf": round(rrf_val, 6), "boost": round(boost_val, 6)},
                 "_total_score": round(rrf_val + boost_val, 6)
             })
     return final
-
-
-MAX_CODE_SNIPPET_CHARS = 400
-
-
-def _compact_text_preview(text: str | None, max_chars: int = MAX_CODE_SNIPPET_CHARS) -> str:
-    if not text:
-        return ""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    preview = "\n".join(lines[:6])
-    if len(preview) > max_chars:
-        return preview[: max_chars - 1].rstrip() + "…"
-    return preview
-
-
-def _code_result_snippet(row: dict) -> str:
-    signature = row.get("signature")
-    if signature:
-        return signature
-
-    for key in ("content", "code", "body", "text", "raw_body"):
-        preview = _compact_text_preview(row.get(key))
-        if preview:
-            return preview
-
-    fqn = row.get("fqn") or row.get("name") or "<unknown>"
-    file_path = row.get("file_path") or row.get("path") or "<unknown>"
-    line_start = row.get("start_line") or row.get("line_start")
-    line_end = row.get("end_line") or row.get("line_end")
-    if line_start and line_end:
-        return f"{fqn} ({file_path}:{line_start}-{line_end})"
-    if line_start:
-        return f"{fqn} ({file_path}:{line_start})"
-    return f"{fqn} ({file_path})"
 
 
 def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIMIT, ve_module=None) -> list:
@@ -259,7 +227,7 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
                 "key": item.get("fqn", ""),
                 "category": item.get("type", "unknown"),
                 "file_path": item.get("file_path", ""),
-                "snippet": _code_result_snippet(item),
+                "snippet": result_snippet(item, domain="code", max_chars=snippet_len),
             }
         elif domain == "knowledge":
             boost = _heuristic_boost(item.get("key", ""), item.get("category", ""), query)
@@ -267,17 +235,18 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
                 "domain": "knowledge",
                 "key": item.get("key", ""),
                 "category": item.get("category", "unknown"),
-                "snippet": item.get("content", "")[:snippet_len],
+                "snippet": result_snippet(item, domain="knowledge", max_chars=snippet_len),
             }
         else: # observation
             res = {
                 "domain": "observation",
                 "key": str(item.get("id", "")),
                 "category": item.get("type", "observation"),
-                "snippet": item.get("content", "")[:snippet_len],
+                "snippet": result_snippet(item, domain="observation", max_chars=snippet_len),
             }
             
         res["_total_score"] = round(base_score + boost, 6)
         final.append(res)
         
     return final
+

@@ -2,23 +2,23 @@ name: Cortex Agents CI
 
 on:
   push:
-    branches: [ "main", "dev", "dev-win", "dev-*", "dev/**" ]
+    # branches: [ "main", "dev", "dev-win", "dev-*", "dev/**" ]
     paths:
-      - 'scripts/**'
-      - 'settings.yaml'
-      - 'pyproject.toml'
-      - '.github/workflows/**'
-      - '!**/*.md'
-      - '!docs/**'
+      - "scripts/**"
+      - "settings.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/**"
+      - "!**/*.md"
+      - "!docs/**"
   pull_request:
-    branches: [ "main", "dev", "dev-win", "dev-*", "dev/**" ]
+    branches: ["main", "dev", "dev-win", "dev-*", "dev/**"]
     paths:
-      - 'scripts/**'
-      - 'settings.yaml'
-      - 'pyproject.toml'
-      - '.github/workflows/**'
-      - '!**/*.md'
-      - '!docs/**'
+      - "scripts/**"
+      - "settings.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/**"
+      - "!**/*.md"
+      - "!docs/**"
 
 jobs:
   build-and-test:

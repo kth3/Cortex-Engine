@@ -1,3 +1,6 @@
+BOOST_CATEGORIES = frozenset({"rule", "skill", "decision", "protocol", "architecture"})
+PENALTY_CATEGORIES = frozenset({"resource", "example"})
+
 def _heuristic_boost(item_key: str, item_category: str, query: str) -> float:
     """휴리스틱 가중치 계산
     
@@ -11,9 +14,9 @@ def _heuristic_boost(item_key: str, item_category: str, query: str) -> float:
         boost += 0.5
     elif q_low in k_low:
         boost += 0.1
-    if item_category in ["rule", "skill", "decision", "protocol", "architecture"]:
+    if item_category in BOOST_CATEGORIES:
         boost += 0.05
     # 외부 레퍼런스 페널티: RRF Hub 편향 현상 방지
-    if item_category in ["resource", "example"]:
+    if item_category in PENALTY_CATEGORIES:
         boost -= 0.3
     return boost
