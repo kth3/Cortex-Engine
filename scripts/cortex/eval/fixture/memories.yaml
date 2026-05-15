@@ -1,0 +1,45 @@
+# 평가 fixture — knowledge 도메인 메모리 데이터 (저장소 동봉, 사용자 워크스페이스와 무관)
+# 골든셋의 expected_keys는 이 파일의 key 값을 참조한다.
+#
+# 작성 원칙: 모든 항목은 cortex 엔진이 다루는 기술 도메인의 일반 사실만 담는다.
+# 사용자 개인 컨벤션, 이 프로젝트의 정책·결정·작업 컨텍스트는 포함하지 않는다.
+
+- key: skill.rrf-tuning
+  category: skill
+  content: "RRF(Reciprocal Rank Fusion)의 k 파라미터는 60이 표준이며, 값이 낮을수록 상위권 결과의 가중치가 커진다."
+  tags: ["search", "rrf", "ranking"]
+
+- key: skill.fts5-prefix-query
+  category: skill
+  content: "FTS5 MATCH 절에서 prefix 검색은 토큰 끝에 별표를 붙여 표현한다. 정규화 함수가 사용자 입력을 안전하게 변환한다."
+  tags: ["search", "fts", "sqlite"]
+
+- key: skill.sqlite-vec-extension
+  category: skill
+  content: "sqlite-vec 확장은 enable_load_extension(True) 후 sqlite_vec.load(conn)로 활성화한다. 확장 로드에 실패하면 시스템은 FTS5만으로 fallback 동작한다."
+  tags: ["search", "sqlite", "vec"]
+
+- key: skill.tree-sitter-grammar
+  category: skill
+  content: "Tree-sitter는 언어별 grammar wheel을 import해 Parser.set_language로 주입한다. 노드 순회는 walk() cursor 기반 탐색을 사용한다."
+  tags: ["parser", "tree-sitter"]
+
+- key: protocol.edge-resolution-priority
+  category: protocol
+  content: "엣지 해소는 네 단계 우선순위로 동작한다. Priority 1은 fqn_hint, Priority 2는 language와 kind hint, Priority 3은 language only, Priority 4는 name only fallback이다."
+  tags: ["indexing", "edges"]
+
+- key: protocol.fts-trigger-sync
+  category: protocol
+  content: "FTS5 가상 테이블은 content 테이블의 INSERT·UPDATE·DELETE 트리거로 자동 동기화한다. 트리거가 없거나 누락되면 검색 인덱스가 stale 상태가 된다."
+  tags: ["fts", "sqlite", "trigger"]
+
+- key: protocol.schema-migration
+  category: protocol
+  content: "SQLite 스키마 마이그레이션은 PRAGMA table_info로 현재 컬럼을 조회한 뒤 누락된 컬럼만 ALTER TABLE ADD COLUMN으로 추가하는 멱등 패턴으로 적용한다."
+  tags: ["sqlite", "migration"]
+
+- key: pattern.connection-finally-close
+  category: pattern
+  content: "SQLite 연결은 작업 종료 시 finally 블록에서 conn.close()를 호출하여 자원 누수와 WAL 파일 락 점유를 방지한다."
+  tags: ["sqlite", "lifecycle"]

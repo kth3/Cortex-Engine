@@ -1,0 +1,125 @@
+# 평가 골든셋 v1 — fixture/nodes.yaml과 fixture/memories.yaml의 항목을 정답으로 한다.
+# 형식 명세는 cortex/eval/golden.py 모듈 docstring 참조.
+
+# === code 도메인 ===
+
+- id: code-hybrid-search-function
+  query: "hybrid search"
+  expected_keys:
+    - "pkg/search/hybrid.py::hybrid_search"
+  domain: code
+  tags: ["retrieval"]
+
+- id: code-unified-pipeline
+  query: "unified pipeline search"
+  expected_keys:
+    - "pkg/search/hybrid.py::unified_pipeline_search"
+  domain: code
+  tags: ["retrieval"]
+
+- id: code-rrf-accumulator
+  query: "RRFAccumulator"
+  expected_keys:
+    - "pkg/search/hybrid.py::RRFAccumulator"
+  domain: code
+  tags: ["retrieval", "rrf"]
+
+- id: code-edge-resolver
+  query: "resolve unresolved edges"
+  expected_keys:
+    - "pkg/indexing/edge_resolver.py::resolve_unresolved_edges"
+  domain: code
+  tags: ["indexing"]
+
+- id: code-python-parser
+  query: "parse python module"
+  expected_keys:
+    - "pkg/parser/python_parser.py::parse_python_module"
+  domain: code
+  tags: ["parser"]
+
+- id: code-typescript-parser
+  query: "parse typescript"
+  expected_keys:
+    - "pkg/parser/treesitter_ts.py::parse_typescript"
+  domain: code
+  tags: ["parser"]
+
+- id: code-storage-connection
+  query: "get connection"
+  expected_keys:
+    - "pkg/storage/connection.py::get_connection"
+  domain: code
+  tags: ["storage"]
+
+- id: code-init-schema
+  query: "init schema"
+  expected_keys:
+    - "pkg/storage/schema.py::init_schema"
+  domain: code
+  tags: ["storage"]
+
+- id: code-fts-normalize
+  query: "normalize fts query"
+  expected_keys:
+    - "pkg/retrieval/fts_query.py::normalize_fts_query"
+  domain: code
+  tags: ["fts"]
+
+- id: code-result-snippet
+  query: "result snippet"
+  expected_keys:
+    - "pkg/retrieval/snippets.py::result_snippet"
+  domain: code
+  tags: ["snippets"]
+
+# === knowledge 도메인 ===
+
+- id: knowledge-rrf-tuning
+  query: "RRF tuning"
+  expected_keys:
+    - "skill.rrf-tuning"
+  domain: knowledge
+  tags: ["search"]
+
+- id: knowledge-fts-prefix
+  query: "FTS5 prefix query"
+  expected_keys:
+    - "skill.fts5-prefix-query"
+  domain: knowledge
+  tags: ["search", "fts"]
+
+- id: knowledge-sqlite-vec
+  query: "sqlite-vec extension load"
+  expected_keys:
+    - "skill.sqlite-vec-extension"
+  domain: knowledge
+  tags: ["search", "sqlite"]
+
+- id: knowledge-treesitter-grammar
+  query: "tree-sitter grammar"
+  expected_keys:
+    - "skill.tree-sitter-grammar"
+  domain: knowledge
+  tags: ["parser"]
+
+- id: knowledge-edge-priority
+  query: "edge resolution priority"
+  expected_keys:
+    - "protocol.edge-resolution-priority"
+  domain: knowledge
+  tags: ["indexing"]
+
+- id: knowledge-fts-trigger
+  query: "FTS trigger sync"
+  expected_keys:
+    - "protocol.fts-trigger-sync"
+  domain: knowledge
+  tags: ["fts", "trigger"]
+
+- id: knowledge-schema-migration
+  query: "schema migration"
+  expected_keys:
+    - "protocol.schema-migration"
+  domain: knowledge
+  tags: ["sqlite", "migration"]

@@ -1,0 +1,146 @@
+# 평가 fixture — code 도메인 노드 데이터 (저장소 동봉, 사용자 워크스페이스와 무관)
+# 골든셋의 expected_keys는 이 파일의 fqn 값을 참조한다.
+
+- id: pkg-search-hybrid-search
+  type: function
+  name: hybrid_search
+  fqn: pkg/search/hybrid.py::hybrid_search
+  file_path: pkg/search/hybrid.py
+  start_line: 10
+  end_line: 80
+  signature: "def hybrid_search(query: str, limit: int = 10, ve_module=None) -> list"
+  docstring: "Reciprocal Rank Fusion으로 FTS와 벡터 검색 결과를 병합한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-search-unified-pipeline-search
+  type: function
+  name: unified_pipeline_search
+  fqn: pkg/search/hybrid.py::unified_pipeline_search
+  file_path: pkg/search/hybrid.py
+  start_line: 90
+  end_line: 200
+  signature: "def unified_pipeline_search(query: str, limit: int = 10, ve_module=None) -> list"
+  docstring: "코드·지식·동적메모리 도메인을 단일 임베딩으로 교차 RRF 검색."
+  language: python
+  category: SOURCE
+
+- id: pkg-search-rrf-accumulator
+  type: class
+  name: RRFAccumulator
+  fqn: pkg/search/hybrid.py::RRFAccumulator
+  file_path: pkg/search/hybrid.py
+  start_line: 210
+  end_line: 260
+  signature: "class RRFAccumulator"
+  docstring: "도메인별 RRF 점수를 누적하고 boost와 함께 정렬된 결과를 반환."
+  language: python
+  category: SOURCE
+
+- id: pkg-indexing-edge-resolver
+  type: function
+  name: resolve_unresolved_edges
+  fqn: pkg/indexing/edge_resolver.py::resolve_unresolved_edges
+  file_path: pkg/indexing/edge_resolver.py
+  start_line: 30
+  end_line: 120
+  signature: "def resolve_unresolved_edges(conn) -> None"
+  docstring: "파서가 미해결로 표시한 엣지 target_id를 우선순위 1~4로 해소한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-parser-python
+  type: function
+  name: parse_python_module
+  fqn: pkg/parser/python_parser.py::parse_python_module
+  file_path: pkg/parser/python_parser.py
+  start_line: 5
+  end_line: 60
+  signature: "def parse_python_module(source: str, path: str) -> ParseResult"
+  docstring: "Python 소스를 AST로 파싱하여 노드와 엣지를 추출한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-parser-treesitter-ts
+  type: function
+  name: parse_typescript
+  fqn: pkg/parser/treesitter_ts.py::parse_typescript
+  file_path: pkg/parser/treesitter_ts.py
+  start_line: 8
+  end_line: 90
+  signature: "def parse_typescript(source: str, path: str) -> ParseResult"
+  docstring: "Tree-sitter TypeScript 어댑터. 함수·클래스·인터페이스를 추출한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-storage-get-connection
+  type: function
+  name: get_connection
+  fqn: pkg/storage/connection.py::get_connection
+  file_path: pkg/storage/connection.py
+  start_line: 15
+  end_line: 35
+  signature: "def get_connection(workspace: str) -> sqlite3.Connection"
+  docstring: "SQLite 연결을 생성하고 WAL과 sqlite-vec 확장을 로드한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-storage-init-schema
+  type: function
+  name: init_schema
+  fqn: pkg/storage/schema.py::init_schema
+  file_path: pkg/storage/schema.py
+  start_line: 100
+  end_line: 200
+  signature: "def init_schema(conn: sqlite3.Connection) -> None"
+  docstring: "테이블·FTS·인덱스·트리거 등 DB 스키마 전체를 초기화한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-fts-normalize-query
+  type: function
+  name: normalize_fts_query
+  fqn: pkg/retrieval/fts_query.py::normalize_fts_query
+  file_path: pkg/retrieval/fts_query.py
+  start_line: 10
+  end_line: 45
+  signature: "def normalize_fts_query(query: str) -> str"
+  docstring: "FTS5 MATCH 절에 안전한 prefix 쿼리로 정규화한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-ranking-heuristic-boost
+  type: function
+  name: _heuristic_boost
+  fqn: pkg/retrieval/ranking.py::_heuristic_boost
+  file_path: pkg/retrieval/ranking.py
+  start_line: 4
+  end_line: 22
+  signature: "def _heuristic_boost(item_key: str, item_category: str, query: str) -> float"
+  docstring: "검색 결과에 카테고리·정확 매칭 가중치를 더한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-snippet-result
+  type: function
+  name: result_snippet
+  fqn: pkg/retrieval/snippets.py::result_snippet
+  file_path: pkg/retrieval/snippets.py
+  start_line: 50
+  end_line: 90
+  signature: "def result_snippet(row, domain: str | None = None, max_chars: int = 400) -> str"
+  docstring: "검색 결과 행에서 도메인별로 적절한 snippet 문자열을 추출한다."
+  language: python
+  category: SOURCE
+
+- id: pkg-migrations-apply
+  type: function
+  name: apply_migrations
+  fqn: pkg/storage/migrations.py::apply_migrations
+  file_path: pkg/storage/migrations.py
+  start_line: 5
+  end_line: 60
+  signature: "def apply_migrations(conn: sqlite3.Connection) -> None"
+  docstring: "버전별 DDL 변경(컬럼 추가 등)을 멱등하게 적용한다."
+  language: python
+  category: SOURCE
