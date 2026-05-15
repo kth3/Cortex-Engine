@@ -11,7 +11,7 @@ def _heuristic_boost(item_key: str, item_category: str, query: str) -> float:
         boost += 0.5
     elif q_low in k_low:
         boost += 0.1
-    if item_category in ["rule", "skill", "decision", "protocol"]:
+    if item_category in ["rule", "skill", "decision", "protocol", "architecture"]:
         boost += 0.05
     # 외부 레퍼런스 페널티: RRF Hub 편향 현상 방지
     if item_category in ["resource", "example"]:

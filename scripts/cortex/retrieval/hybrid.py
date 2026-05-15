@@ -225,7 +225,7 @@ def unified_pipeline_search(workspace: str, query: str, limit: int = DEFAULT_LIM
                 "key": item.get("fqn", ""),
                 "category": item.get("type", "unknown"),
                 "file_path": item.get("file_path", ""),
-                "snippet": "→ Capsule 참조 (코드 생략됨)",
+                "snippet": item.get("signature") or "→ Capsule 참조 (코드 생략됨)",
             }
         elif domain == "knowledge":
             boost = _heuristic_boost(item.get("key", ""), item.get("category", ""), query)
