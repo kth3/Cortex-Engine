@@ -6,9 +6,10 @@
 from pathlib import Path
 import yaml
 from cortex import storage as pc_db
-from cortex import indexer as pc_indexer
 from cortex import paths as pc_paths
 from cortex.config.settings import load_settings
+from cortex.indexing import SUPPORTED_EXTENSIONS
+from cortex.indexing.workspace import index_workspace
 from cortex.scanner.finder import scan_files
 
 DEFAULT_INDEX_ROOTS = (".",)
@@ -86,7 +87,7 @@ def _validated_index_root(ctx, raw_path):
 def _index_roots_scan_count(ctx, candidate_roots):
     settings = load_settings(ctx.workspace)
     settings.setdefault("indexing_rules", {})["index_roots"] = candidate_roots
-    return len(scan_files(ctx.workspace, pc_indexer.SUPPORTED_EXTENSIONS, settings_override=settings))
+    return len(scan_files(ctx.workspace, SUPPORTED_EXTENSIONS, settings_override=settings))
 
 
 def call_pc_index_roots_list(ctx, args):
@@ -126,7 +127,7 @@ def call_pc_index_roots_remove(ctx, args):
 
 
 def call_pc_reindex(ctx, args):
-    return pc_indexer.index_workspace(ctx.workspace, force=args.get("force", False))
+    return index_workspace(ctx.workspace, force=args.get("force", False))
 
 
 def call_pc_index_status(ctx, args):

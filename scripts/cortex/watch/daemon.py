@@ -24,12 +24,12 @@ WORKSPACE = resolve_workspace(CORTEX_DIR)
 CORTEX_HOME = resolve_cortex_home(WORKSPACE)
 
 try:
-    from cortex import indexer as pc_indexer
     from cortex.embeddings.hardware import detect_gpu
+    from cortex.indexing.file_pipeline import index_file
 except ImportError as e:
     logger.error(f"Critical ImportError in Watcher: {e}")
     traceback.print_exc()
-    pc_indexer = None
+    index_file = None
     detect_gpu = lambda: "unknown"
 
 
@@ -111,7 +111,7 @@ class DebouncedIndexer(FileSystemEventHandler):
 
             try:
                 start_t = time.time()
-                result = pc_indexer.index_file(str(WORKSPACE), file_path)
+                result = index_file(str(WORKSPACE), file_path)
                 elapsed = (time.time() - start_t) * 1000
 
                 if isinstance(result, dict) and "error" in result:
