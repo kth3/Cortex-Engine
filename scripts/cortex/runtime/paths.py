@@ -16,5 +16,5 @@ WORKER_PORT = 42385
 TARGET_PORTS = [ENGINE_PORT, WORKER_PORT]
 
 SERVER_SCRIPT = CORTEX_DIR / "vector_engine_server.py"
-WATCHER_SCRIPT = CORTEX_DIR / "watcher.py"
+WATCHER_SCRIPT = CORTEX_DIR / "watch" / "daemon.py"
 LOCK_FILE = LOG_DIR / "cortex_ctl.lock"

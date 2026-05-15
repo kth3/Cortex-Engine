@@ -65,7 +65,7 @@ class PerformStopTests(unittest.TestCase):
         logger = Mock()
         mock_service_scripts.return_value = [
             (Path("/a/server.py"), "Engine Server"),
-            (Path("/a/watcher.py"), "Watcher"),
+            (Path("/a/watch/daemon.py"), "Watcher"),
         ]
         mock_get_pids.side_effect = [[101, 102], [201]]
 
