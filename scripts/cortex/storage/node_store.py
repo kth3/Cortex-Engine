@@ -2,13 +2,11 @@ import sqlite3
 
 def search_nodes_fts(conn: sqlite3.Connection, query: str, category: str = None, limit: int = 10):
     """FTS5 전문 검색 - 구문 검색(phrase search)을 유지하도록 공백으로만 토큰화, 카테고리 필터링 지원"""
-    clean_query = query.replace('"', '').replace("'", "")
-    tokens = [f'"{t}"*' for t in clean_query.split() if len(t) >= 2]
-    if not tokens:
+    from cortex.retrieval.fts_query import normalize_fts_query
+    safe_tokens = normalize_fts_query(query)
+    if not safe_tokens:
         return []
     
-    # 각 토큰을 FTS5 prefix 토큰으로 변환: "token1"* OR "token2"*
-    safe_tokens = " OR ".join(tokens)
     try:
         if category:
             rows = conn.execute(
