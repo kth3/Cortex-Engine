@@ -64,7 +64,18 @@ def insert_nodes(conn, node_rows: list[tuple]) -> None:
 
 def insert_edges(conn, edges: Iterable[dict]) -> None:
     """Persist parser edge rows while ignoring duplicate edge triplets."""
-    edge_rows = [(edge["source_id"], edge["target_id"], edge.get("type", "CALLS")) for edge in edges]
+    edge_rows = [(
+        edge["source_id"],
+        edge["target_id"],
+        edge.get("type", "CALLS"),
+        edge.get("target_name"),
+        edge.get("target_kind_hint"),
+        edge.get("target_fqn_hint"),
+        "unresolved" if edge["target_id"].startswith("__unresolved_fqn__") or edge["target_id"].startswith("__unresolved__") else "resolved",
+        1.0, # resolution_confidence
+        edge.get("call_site_line"),
+        edge.get("confidence", 1.0)
+    ) for edge in edges]
     if edge_rows:
         conn.executemany(INSERT_EDGE_IGNORE_SQL, edge_rows)
 

@@ -55,10 +55,17 @@ def _create_core_tables(conn: sqlite3.Connection):
         source_id   TEXT NOT NULL,
         target_id   TEXT NOT NULL,
         type        TEXT NOT NULL DEFAULT 'CALLS',
+        target_name TEXT,
+        target_kind_hint TEXT,
+        target_fqn_hint TEXT,
+        resolution_status TEXT DEFAULT 'unresolved',
+        resolution_confidence REAL DEFAULT 1.0,
         call_site_line INTEGER,
         confidence  REAL DEFAULT 1.0,
         UNIQUE(source_id, target_id, type)
     );
+    CREATE INDEX IF NOT EXISTS idx_edges_hint_name ON edges(target_name);
+    CREATE INDEX IF NOT EXISTS idx_edges_hint_kind ON edges(target_kind_hint);
     """)
 
 

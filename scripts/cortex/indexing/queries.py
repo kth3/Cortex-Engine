@@ -30,7 +30,8 @@ UPSERT_NODE_SQL = """
 """
 
 INSERT_EDGE_IGNORE_SQL = (
-    "INSERT OR IGNORE INTO edges (source_id, target_id, type) VALUES (?, ?, ?)"
+    "INSERT OR IGNORE INTO edges (source_id, target_id, type, target_name, target_kind_hint, target_fqn_hint, resolution_status, resolution_confidence, call_site_line, confidence) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 UPSERT_FILE_CACHE_ENTRY_SQL = (
@@ -51,8 +52,9 @@ SELECT_EDGE_ID_LANG_BY_EDGE_ID_SQL_TEMPLATE = "SELECT e.id, n.language FROM edge
 SELECT_NODE_ID_NAME_BY_NAME_LANG_SQL_TEMPLATE = "SELECT id, name FROM nodes WHERE name IN ({placeholders}) AND language = ?"
 SELECT_NODE_ID_NAME_BY_NAME_SQL_TEMPLATE = "SELECT id, name FROM nodes WHERE name IN ({placeholders})"
 
-SELECT_UNRESOLVED_EDGES_SQL = "SELECT id, target_id FROM edges WHERE target_id LIKE '__unresolved%'"
-UPDATE_EDGE_TARGET_ID_SQL = "UPDATE OR IGNORE edges SET target_id = ? WHERE id = ?"
+SELECT_UNRESOLVED_EDGES_SQL = "SELECT id, target_id, type, target_name, target_kind_hint, target_fqn_hint FROM edges WHERE resolution_status = 'unresolved' OR target_id LIKE '__unresolved%'"
+UPDATE_EDGE_TARGET_ID_SQL = "UPDATE OR IGNORE edges SET target_id = ?, resolution_status = 'resolved' WHERE id = ?"
+UPDATE_EDGE_STATUS_SQL = "UPDATE OR IGNORE edges SET resolution_status = ? WHERE id = ?"
 
 SELECT_MEMORY_CONTENT_BY_KEY_SQL = "SELECT content FROM memories WHERE key = ?"
 UPSERT_MEMORY_RULE_SQL = """INSERT INTO memories (key, project_id, category, content, tags, relationships, created_at, updated_at)
