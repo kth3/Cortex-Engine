@@ -39,6 +39,40 @@ def test_release_clears_file_claims(tmp_path, monkeypatch):
     assert board["lanes"]["lane-a"]["files_to_modify"] == []
 
 
+def test_force_release_clears_unity_file_claims(tmp_path, monkeypatch):
+    import relay
+
+    state_file = tmp_path / "state" / "board.json"
+    monkeypatch.setattr(relay, "STATE_FILE", str(state_file))
+
+    relay.acquire("agent-a", "task-a", "lane-a")
+    relay.claim_files_to_modify("lane-a", ["Scenes/Main.unity"])
+    relay.force_release("lane-a")
+
+    board = json.loads(state_file.read_text(encoding="utf-8"))
+    assert board["lanes"]["lane-a"]["files_to_modify"] == []
+
+
+def test_zombie_eviction_clears_unity_file_claims(tmp_path, monkeypatch):
+    import relay
+
+    state_file = tmp_path / "state" / "board.json"
+    monkeypatch.setattr(relay, "STATE_FILE", str(state_file))
+
+    relay.acquire("agent-a", "task-a", "lane-a")
+    relay.claim_files_to_modify("lane-a", ["Scenes/Main.unity"])
+
+    board = json.loads(state_file.read_text(encoding="utf-8"))
+    board["lanes"]["lane-a"]["locked_at"] = "2000-01-01T00:00:00Z"
+    state_file.write_text(json.dumps(board), encoding="utf-8")
+
+    relay.acquire("agent-b", "task-b", "lane-a")
+
+    board = json.loads(state_file.read_text(encoding="utf-8"))
+    assert board["lanes"]["lane-a"]["active_agent_id"] == "agent-b"
+    assert board["lanes"]["lane-a"]["files_to_modify"] == []
+
+
 def test_create_contract_schema_exposes_files_to_modify():
     from cortex.mcp.registry import TOOL_PC_CREATE_CONTRACT, list_tools
 
@@ -70,3 +104,55 @@ def test_create_contract_blocks_claimed_file(tmp_path, monkeypatch):
                 "files_to_modify": ["Scripts\\Relay.py"],
             },
         )
+
+
+def test_unity_risk_file_claim_marks_conflict(tmp_path, monkeypatch):
+    import relay
+
+    monkeypatch.setattr(relay, "STATE_FILE", str(tmp_path / "state" / "board.json"))
+
+    relay.acquire("agent-a", "task-a", "lane-a")
+    relay.claim_files_to_modify("lane-a", [".\\Scenes\\Main.UNITY"])
+    relay.acquire("agent-b", "task-b", "lane-b")
+
+    with pytest.raises(relay.FileClaimConflict) as exc_info:
+        relay.claim_files_to_modify("lane-b", ["Scenes/Main.unity"])
+
+    assert exc_info.value.conflicts == [("scenes/main.unity", "lane-a")]
+    assert "scenes/main.unity [Unity-risk] held by lane 'lane-a'" in str(exc_info.value)
+
+
+def test_status_marks_unity_risk_files(tmp_path, monkeypatch, capsys):
+    import relay
+
+    monkeypatch.setattr(relay, "STATE_FILE", str(tmp_path / "state" / "board.json"))
+
+    relay.acquire("agent-a", "task-a", "lane-a")
+    relay.claim_files_to_modify(
+        "lane-a",
+        ["ProjectSettings/ProjectSettings.asset", "scripts/relay.py"],
+    )
+
+    relay.status("lane-a")
+
+    output = capsys.readouterr().out
+    assert "projectsettings/projectsettings.asset [Unity-risk]" in output
+    assert "scripts/relay.py" in output
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Scenes/Main.unity",
+        "Assets/Bot.prefab",
+        "Assets/Data.asset",
+        "Assets/Bot.cs.meta",
+        "ProjectSettings/EditorBuildSettings.asset",
+        "Packages/manifest.json",
+        "Packages/packages-lock.json",
+    ],
+)
+def test_unity_risk_file_patterns(path):
+    import relay
+
+    assert relay.is_unity_risk_file(path)

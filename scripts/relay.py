@@ -9,6 +9,10 @@ STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "state", "boa
 
 # 좀비 락 자동 탈취 기준 시간 (초)
 ZOMBIE_LOCK_THRESHOLD_SECONDS = 2 * 60 * 60  # 2시간
+UNITY_RISK_SUFFIXES = (".unity", ".prefab", ".asset", ".meta")
+UNITY_RISK_EXACT_PATHS = ("packages/manifest.json", "packages/packages-lock.json")
+UNITY_RISK_PREFIXES = ("projectsettings/",)
+UNITY_RISK_MARKER = "[Unity-risk]"
 
 
 _DEFAULT_LANE = {
@@ -31,7 +35,7 @@ class FileClaimConflict(RuntimeError):
         self.lane_id = lane_id
         self.conflicts = conflicts
         detail = "; ".join(
-            f"{path} held by lane '{owner}'" for path, owner in conflicts
+            f"{format_file_claim(path)} held by lane '{owner}'" for path, owner in conflicts
         )
         super().__init__(f"File claim conflict for lane '{lane_id}': {detail}")
 
@@ -66,6 +70,28 @@ def normalize_files(files):
             seen.add(normalized)
             result.append(normalized)
     return result
+
+
+def is_unity_risk_file(path):
+    """Unity/UVC에서 충돌 비용이 큰 파일인지 판정한다."""
+    normalized = _normalize_file_path(path)
+    if not normalized:
+        return False
+    return (
+        normalized.endswith(UNITY_RISK_SUFFIXES)
+        or normalized in UNITY_RISK_EXACT_PATHS
+        or any(normalized.startswith(prefix) for prefix in UNITY_RISK_PREFIXES)
+    )
+
+
+def format_file_claim(path):
+    if is_unity_risk_file(path):
+        return f"{path} {UNITY_RISK_MARKER}"
+    return path
+
+
+def format_file_claims(files):
+    return [format_file_claim(path) for path in normalize_files(files)]
 
 
 def _ensure_lane_schema(lane):
@@ -185,7 +211,7 @@ def status(lane_id=None):
             if l.get("locked_at"):
                 print(f"  Locked:   {l['locked_at']}")
             if l.get("files_to_modify"):
-                print(f"  Files:    {', '.join(l['files_to_modify'])}")
+                print(f"  Files:    {', '.join(format_file_claims(l['files_to_modify']))}")
             
             # Zombie lock 경고
             if _is_zombie(l, board.get("updated_at")):
