@@ -10,8 +10,6 @@ from pathlib import Path
 
 import pytest
 
-collect_ignore = ["test_mcp_smoke.py"]
-
 _FAKE_CODEX_HOOK = Path("/tmp/fake-bin/cortex-codex-hook")
 _FAKE_CLAUDE_HOOK = Path("/tmp/fake-bin/cortex-claude-hook")
 

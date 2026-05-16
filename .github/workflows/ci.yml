@@ -51,7 +51,7 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Sync Dependencies
-        run: uv sync
+        run: uv sync --group dev
 
       - name: Verify Environment Setup
         run: |
@@ -79,16 +79,7 @@ jobs:
 
       - name: Run Comprehensive Regression Tests
         run: |
-          for test_file in scripts/cortex/tests/test_*.py; do
-            case "$test_file" in
-              *test_mcp_smoke.py)
-                echo "Skipping $test_file (covered by dedicated MCP smoke step)"
-                continue
-                ;;
-            esac
-            echo "Running $test_file"
-            uv run python "$test_file"
-          done
+          uv run python -m pytest scripts/cortex/tests -q -m "not smoke"
 
       - name: Test Core Indexing & Embedding Engine
         env:
@@ -152,4 +143,4 @@ jobs:
           CORTEX_HOME: ${{ github.workspace }}/test_workspace/.cortex
           CORTEX_WORKSPACE: ${{ github.workspace }}/test_workspace
         run: |
-          uv run python scripts/cortex/tests/test_mcp_smoke.py
+          uv run python -m pytest scripts/cortex/tests/test_mcp_smoke.py -q -m smoke

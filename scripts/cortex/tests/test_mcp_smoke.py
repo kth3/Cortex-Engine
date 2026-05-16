@@ -7,7 +7,11 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 if ROOT.name == ".cortex":
@@ -22,25 +26,9 @@ else:
 MCP = AGENTS_HOME / "scripts" / "cortex_mcp.py"
 MCP_FQN_PREFIX = ".cortex\\scripts" if AGENTS_HOME.name == ".cortex" else "scripts"
 RUNTIME_WORKSPACE = Path(os.environ.get("CORTEX_WORKSPACE", str(WS))).resolve()
-DB_PATH = RUNTIME_WORKSPACE / ".cortex" / "data" / "memories.db"
 INDEX_ROOTS_TEST_PATH = "src" if (RUNTIME_WORKSPACE / "src").exists() else (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
+IMPACT_FQN = f"{MCP_FQN_PREFIX}\\smoke.py::smoke_symbol"
 
-
-def detect_impact_fqn():
-    if DB_PATH.exists():
-        conn = sqlite3.connect(str(DB_PATH))
-        try:
-            row = conn.execute(
-                "SELECT fqn FROM nodes WHERE fqn IS NOT NULL AND fqn != '' ORDER BY LENGTH(fqn) DESC LIMIT 1"
-            ).fetchone()
-        finally:
-            conn.close()
-        if row and row[0]:
-            return row[0]
-    return f"{MCP_FQN_PREFIX}\\cortex_mcp.py::call_pc_capsule"
-
-
-IMPACT_FQN = detect_impact_fqn()
 
 requests = [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -96,11 +84,103 @@ def _extract(res):
     return res
 
 
-def _run_mcp(command):
+def _smoke_env(data_home):
+    env = os.environ.copy()
+    env["CORTEX_HOME"] = str(AGENTS_HOME)
+    env["CORTEX_WORKSPACE"] = str(RUNTIME_WORKSPACE)
+    env["CORTEX_DATA_HOME"] = str(data_home)
+    env.pop("CORTEX_WORKSPACE_KEY", None)
+    return env
+
+
+def _with_env(env, fn):
+    old = {key: os.environ.get(key) for key in ("CORTEX_HOME", "CORTEX_WORKSPACE", "CORTEX_DATA_HOME", "CORTEX_WORKSPACE_KEY")}
+    try:
+        for key in old:
+            if key in env:
+                os.environ[key] = env[key]
+            else:
+                os.environ.pop(key, None)
+        return fn()
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _prepare_smoke_db(env):
+    def prepare():
+        from cortex.storage.connection import get_connection
+        from cortex.storage.schema import init_schema
+
+        conn = get_connection(str(RUNTIME_WORKSPACE))
+        try:
+            init_schema(conn)
+            now = int(time.time())
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO nodes(
+                    id, type, name, fqn, file_path, start_line, end_line,
+                    signature, docstring, language, module, category
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "smoke-node",
+                    "function",
+                    "smoke_symbol",
+                    IMPACT_FQN,
+                    "scripts/cortex/tests/test_mcp_smoke.py",
+                    1,
+                    1,
+                    "def smoke_symbol()",
+                    "MCP smoke fixture node",
+                    "python",
+                    "smoke",
+                    "SOURCE",
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO memories(
+                    key, project_id, category, content, tags, relationships,
+                    access_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "smoke.memory",
+                    "default",
+                    "insight",
+                    "MCP smoke fixture memory for pc_auto_context.",
+                    "smoke",
+                    "",
+                    0,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _with_env(env, prepare)
+
+
+def _db_path(env):
+    def resolve():
+        from cortex.storage.connection import get_db_path
+
+        return Path(get_db_path(str(RUNTIME_WORKSPACE)))
+
+    return _with_env(env, resolve)
+
+
+def _run_mcp(command, env):
     p = subprocess.Popen(
         command,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        cwd=str(WS),
+        cwd=str(WS), env=env,
     )
     try:
         return p.communicate(payload.encode("utf-8"), timeout=120)
@@ -126,7 +206,7 @@ def _parse_results(out):
     return results
 
 
-def _check_results(results, err):
+def _check_results(results, err, env):
     # T1: tools/list 검증
     tl = results.get(2, {}).get("result", {}).get("tools", [])
     tool_names = [t["name"] for t in tl]
@@ -204,7 +284,7 @@ def _check_results(results, err):
         check("pc_auto_context response keys", False, "non-dict response")
 
     print()
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(_db_path(env)))
     row = conn.execute("SELECT key FROM memories WHERE key='smoke_dryrun_2026'").fetchone()
     check("dry_run did not write memory row", not bool(row))
     conn.close()
@@ -217,18 +297,38 @@ def _check_results(results, err):
 
 
 failures = []
-for label, command in _mcp_commands():
-    print("=" * 70)
-    print(f"MCP smoke command: {label}")
-    out, err = _run_mcp(command)
-    _check_results(_parse_results(out), err)
 
-if failures:
+
+def run_smoke():
+    global failures
+    failures = []
+    with tempfile.TemporaryDirectory(prefix="cortex-mcp-smoke-", ignore_cleanup_errors=True) as data_home:
+        env = _smoke_env(data_home)
+        _prepare_smoke_db(env)
+        for label, command in _mcp_commands():
+            print("=" * 70)
+            print(f"MCP smoke command: {label}")
+            out, err = _run_mcp(command, env)
+            _check_results(_parse_results(out), err, env)
+
+    if failures:
+        print()
+        print("FAILED SMOKE CHECKS:")
+        for item in failures:
+            print(f"  - {item}")
+        raise AssertionError(f"MCP smoke failed: {', '.join(failures)}")
+
     print()
-    print("FAILED SMOKE CHECKS:")
-    for item in failures:
-        print(f"  - {item}")
-    sys.exit(1)
+    print("ALL MCP SMOKE CHECKS PASSED")
 
-print()
-print("ALL MCP SMOKE CHECKS PASSED")
+
+@pytest.mark.smoke
+def test_mcp_stdio_json_rpc_smoke():
+    run_smoke()
+
+
+if __name__ == "__main__":
+    try:
+        run_smoke()
+    except AssertionError:
+        sys.exit(1)

@@ -195,7 +195,7 @@ When registering MCP manually, pass `CORTEX_HOME`, `CORTEX_WORKSPACE`, and optio
 
 ## CI Coverage
 
-GitHub Actions verifies dependency sync, `py_compile`, runtime import smoke checks, unit regression tests, test workspace indexing, and MCP JSON-RPC smoke tests on Windows and Ubuntu. Long-running daemon behavior, real GPU/CUDA memory behavior, and local model cache state remain local validation targets.
+GitHub Actions verifies `uv sync --group dev`, `py_compile`, runtime import smoke checks, `pytest -m "not smoke"` regression tests, test workspace indexing, and `pytest -m smoke` MCP JSON-RPC smoke tests on Windows and Ubuntu. Long-running daemon behavior, real GPU/CUDA memory behavior, and local model cache state remain local validation targets. Use the [OS Validation Runbook](./docs/runbook-os-validation.md) for local process and VRAM checks.
 
 ---
 

@@ -207,8 +207,9 @@ for path in Path('scripts').rglob('*.py'):
 print('py_compile ok')
 PY
 
-# Unit regression tests
-uv run python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+# Unit regression tests and MCP smoke
+uv run --group dev python -m pytest scripts/cortex/tests/ -q -m "not smoke"
+uv run --group dev python -m pytest scripts/cortex/tests/test_mcp_smoke.py -q -m smoke
 
 # Runtime control
 uv run cortex-ctl status
@@ -216,7 +217,7 @@ uv run cortex-ctl stop
 uv run cortex-ctl start
 ```
 
-If the embedding model is not cached, the first model-backed run may download it. Use `--warm-models` to pre-download.
+If the embedding model is not cached, the first model-backed run may download it. Use `--warm-models` to pre-download. For OS-level process and VRAM validation, follow the [OS Validation Runbook](./docs/runbook-os-validation.md).
 
 ---
 

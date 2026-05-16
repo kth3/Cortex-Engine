@@ -47,6 +47,11 @@ dev = [
     "pytest>=9.0.0",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "smoke: end-to-end smoke tests that start subprocesses or exercise MCP stdio",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

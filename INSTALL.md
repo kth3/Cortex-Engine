@@ -69,7 +69,7 @@ cd Cortex-agents_infra
 uv sync
 
 # 3) GPU 가속 설치 (NVIDIA Ampere 이상, Linux 전용)
-uv sync --group gpu-accel
+uv sync --extra gpu-accel
 
 # 4) 로컬 entry point로 호출
 uv run cortex-ctl bootstrap --include-all
@@ -195,8 +195,9 @@ for path in Path('scripts').rglob('*.py'):
 print('py_compile ok')
 PY
 
-# 회귀 테스트 (test_mcp_smoke는 standalone이라 컬렉션 제외)
-uv run python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+# 회귀 테스트와 MCP smoke 분리
+uv run --group dev python -m pytest scripts/cortex/tests/ -q -m "not smoke"
+uv run --group dev python -m pytest scripts/cortex/tests/test_mcp_smoke.py -q -m smoke
 
 # 런타임 제어
 uv run cortex-ctl status
@@ -204,7 +205,7 @@ uv run cortex-ctl stop
 uv run cortex-ctl start
 ```
 
-임베딩 모델 캐시가 없는 환경에서는 첫 실행 시 모델 다운로드가 발생할 수 있습니다(`--warm-models`로 사전 처리 가능). CI에서는 문법/import/회귀/MCP smoke를 중점 검증하고, 장시간 GPU/daemon 실기동 검증은 로컬 검증 대상으로 둡니다.
+임베딩 모델 캐시가 없는 환경에서는 첫 실행 시 모델 다운로드가 발생할 수 있습니다(`--warm-models`로 사전 처리 가능). CI에서는 문법/import/회귀/MCP smoke를 중점 검증하고, 장시간 GPU/daemon 실기동 검증은 로컬 검증 대상으로 둡니다. OS별 프로세스/VRAM 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)을 따릅니다.
 
 ---
 

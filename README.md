@@ -254,14 +254,14 @@ cortex-ctl migrate              # 실제 이동
 
 GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
-- `uv sync` 기반 의존성 설치
+- `uv sync --group dev` 기반 의존성 설치
 - `scripts/**/*.py` 전체 `py_compile`
 - runtime 모듈 import smoke
-- `scripts/cortex/tests/test_*.py` 회귀 테스트
+- `pytest -m "not smoke"` 회귀 테스트
 - `.cortex` 기준 테스트 워크스페이스 인덱싱
-- MCP JSON-RPC smoke test
+- `pytest -m smoke` MCP JSON-RPC smoke test
 
-장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다.
+장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)에 정리합니다.
 
 ---
 
