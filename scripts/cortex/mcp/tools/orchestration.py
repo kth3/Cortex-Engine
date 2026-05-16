@@ -40,15 +40,46 @@ def call_todo_manager(ctx, args):
     )
 
 
+def _workspace_relative_files(workspace, files):
+    workspace_path = Path(workspace).resolve()
+    normalized = []
+    seen = set()
+
+    for file_path in files or []:
+        path_text = str(file_path).strip()
+        if not path_text:
+            continue
+
+        path = Path(path_text)
+        try:
+            absolute_path = path.resolve() if path.is_absolute() else (workspace_path / path).resolve()
+            path_text = absolute_path.relative_to(workspace_path).as_posix()
+        except ValueError:
+            path_text = path.as_posix()
+
+        if sys.platform.startswith("win"):
+            path_text = path_text.casefold()
+        if path_text not in seen:
+            seen.add(path_text)
+            normalized.append(path_text)
+
+    return normalized
+
+
 def call_create_contract(ctx, args):
-    """creates a contract for a task"""
+    """작업 계약을 생성한다."""
+    files_to_modify = _workspace_relative_files(ctx.workspace, args.get("files_to_modify"))
+    if files_to_modify:
+        import relay
+        relay.claim_files_to_modify(args["lane_id"], files_to_modify)
+
     res = create_contract(
         ctx.workspace,
         ctx.session_id,
         args["lane_id"],
         args["task_name"],
         args["instructions"],
-        args.get("files_to_modify"),
+        files_to_modify,
     )
     _save_contract_observation(ctx, res["contract_id"], res["path"])
     return res

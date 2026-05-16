@@ -276,6 +276,7 @@ def _pc_create_contract_tool():
             "lane_id": _string_property(),
             "task_name": _string_property(),
             "instructions": _string_property(),
+            "files_to_modify": _array_string_property(),
         },
         ["lane_id", "task_name", "instructions"],
     )

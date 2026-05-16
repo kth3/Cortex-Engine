@@ -2,7 +2,7 @@ import json
 import os
 import sys
 import portalocker
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # 경로 설정
 STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "state", "board.json")
@@ -19,8 +19,21 @@ _DEFAULT_LANE = {
     "handoff_to": None,
     "handoff_message": None,
     "contract_id": None,
-    "locked_at": None  # 락 획득 시각 (좀비 감지용)
+    "locked_at": None,  # 락 획득 시각 (좀비 감지용)
+    "files_to_modify": []
 }
+
+
+class FileClaimConflict(RuntimeError):
+    """다른 활성 lane이 요청 파일을 이미 점유한 경우 발생한다."""
+
+    def __init__(self, lane_id, conflicts):
+        self.lane_id = lane_id
+        self.conflicts = conflicts
+        detail = "; ".join(
+            f"{path} held by lane '{owner}'" for path, owner in conflicts
+        )
+        super().__init__(f"File claim conflict for lane '{lane_id}': {detail}")
 
 def _default_board():
     """빈 보드 기본 스키마"""
@@ -30,6 +43,36 @@ def _default_board():
             "default": dict(_DEFAULT_LANE)
         }
     }
+
+
+def _normalize_file_path(path):
+    if not path:
+        return None
+
+    normalized = os.path.normpath(str(path).strip()).replace("\\", "/")
+    if normalized in ("", "."):
+        return None
+    if os.name == "nt":
+        normalized = normalized.casefold()
+    return normalized
+
+
+def normalize_files(files):
+    seen = set()
+    result = []
+    for path in files or []:
+        normalized = _normalize_file_path(path)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
+
+def _ensure_lane_schema(lane):
+    for key, value in _DEFAULT_LANE.items():
+        if key not in lane:
+            lane[key] = list(value) if isinstance(value, list) else value
+    lane["files_to_modify"] = normalize_files(lane.get("files_to_modify"))
 
 def _ensure_dir():
     """STATE_FILE 상위 디렉토리 보장 (FileNotFoundError 방지)"""
@@ -70,9 +113,12 @@ def _locked_transaction(fn):
                     "handoff_to": board.get("handoff_to"),
                     "handoff_message": board.get("handoff_message"),
                     "contract_id": board.get("contract_id"),
-                    "locked_at": None
+                    "locked_at": None,
+                    "files_to_modify": []
                 }
                 board = {"updated_at": board.get("updated_at"), "lanes": {"default": old_data}}
+            for lane in board["lanes"].values():
+                _ensure_lane_schema(lane)
             
             result = fn(board)
             
@@ -113,6 +159,7 @@ def _auto_evict_zombie(board, lane_id, lane):
     lane["handoff_to"] = None
     lane["handoff_message"] = f"Auto-evicted zombie lock (was: {old_agent} on '{old_task}')"
     lane["locked_at"] = None
+    lane["files_to_modify"] = []
     print(f"[ZOMBIE-EVICT] Lane '{lane_id}' auto-released: agent '{old_agent}' exceeded {ZOMBIE_LOCK_THRESHOLD_SECONDS // 3600}h timeout.")
 
 def status(lane_id=None):
@@ -137,6 +184,8 @@ def status(lane_id=None):
                 print(f"  Message:  \"{l['handoff_message']}\"")
             if l.get("locked_at"):
                 print(f"  Locked:   {l['locked_at']}")
+            if l.get("files_to_modify"):
+                print(f"  Files:    {', '.join(l['files_to_modify'])}")
             
             # Zombie lock 경고
             if _is_zombie(l, board.get("updated_at")):
@@ -178,6 +227,7 @@ def acquire(agent_id, task, lane_id="default"):
         lane["status"] = "BUSY"
         lane["handoff_message"] = None
         lane["locked_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        lane["files_to_modify"] = normalize_files(lane.get("files_to_modify"))
         print(f"[LOCKED] Agent '{agent_id}' acquired lane '{lane_id}' for task '{task}'.")
         if lane.get("contract_id"):
             print(f"[CONTRACT] Previous contract on file: {lane['contract_id']}")
@@ -185,6 +235,39 @@ def acquire(agent_id, task, lane_id="default"):
         return board
     
     _locked_transaction(_acquire)
+
+
+def _find_file_claim_conflicts(board, lane_id, files):
+    requested = set(normalize_files(files))
+    conflicts = []
+    if not requested:
+        return conflicts
+
+    for other_lane_id, lane in board.get("lanes", {}).items():
+        if other_lane_id == lane_id or lane.get("status") != "BUSY":
+            continue
+        for path in normalize_files(lane.get("files_to_modify")):
+            if path in requested:
+                conflicts.append((path, other_lane_id))
+    return conflicts
+
+
+def claim_files_to_modify(lane_id, files):
+    """lane의 수정 예정 파일을 예약하고, BUSY lane과 겹치면 차단한다."""
+    normalized_files = normalize_files(files)
+
+    def _claim(board):
+        if lane_id not in board["lanes"]:
+            board["lanes"][lane_id] = dict(_DEFAULT_LANE)
+
+        conflicts = _find_file_claim_conflicts(board, lane_id, normalized_files)
+        if conflicts:
+            raise FileClaimConflict(lane_id, conflicts)
+
+        board["lanes"][lane_id]["files_to_modify"] = normalized_files
+        return board
+
+    return _locked_transaction(_claim)
 
 def release(agent_id, lane_id="default", handoff_to=None, message=None, contract_id=None, phase="DONE"):
     def _release(board):
@@ -206,6 +289,7 @@ def release(agent_id, lane_id="default", handoff_to=None, message=None, contract
         lane["handoff_message"] = msg
         lane["contract_id"] = contract_id
         lane["locked_at"] = None
+        lane["files_to_modify"] = []
         
         if not handoff_to:
             lane["active_agent_id"] = None
@@ -235,6 +319,7 @@ def force_release(lane_id="default"):
         lane["handoff_to"] = None
         lane["handoff_message"] = f"Force-released by operator (was: {old_agent})"
         lane["locked_at"] = None
+        lane["files_to_modify"] = []
         print(f"[FORCE-RELEASED] Lane '{lane_id}' has been forcefully released. (was held by: {old_agent})")
         return board
     
