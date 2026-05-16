@@ -173,13 +173,55 @@ uv tool upgrade cortex-agent
 
 ```text
 cortex-ctl start | stop | restart | status        # MCP 엔진 라이프사이클
-cortex-ctl bootstrap [--include-all] [--enable-knowledge] [--dry-run]
-                                                  # Codex+Claude hook 통합 등록
+cortex-ctl bootstrap [--include-all] [--enable-knowledge]
+                     [--hf-token <T>] [--warm-models]
+                     [--embedding-model <id>] [--embedding-max-seq-length <n>]
+                     [--dry-run]                  # Codex+Claude hook 통합 + .env upsert
 cortex-ctl knowledge enable | disable | status [--force]
                                                   # knowledge.zip opt-in 전개
 cortex-ctl migrate [--source <ws>] [--dry-run] [--force]
                                                   # 레거시 <ws>/.cortex/data 를 ~/.cortex/workspaces/<key>/ 로 이동
 ```
+
+### HuggingFace 토큰
+
+cortex는 토큰을 세 가지 소스에서 자동으로 찾습니다. 다음 중 **하나만** 해두면 됩니다:
+
+| 방식 | 동작 |
+|---|---|
+| `cortex-ctl bootstrap --hf-token <T>` | `~/.cortex/.env`에 `HF_TOKEN=<T>` upsert (cortex 격리) |
+| `huggingface-cli login` (1회) | `~/.cache/huggingface/token` 표준 위치에 저장 |
+| 셸 환경변수 `HF_TOKEN=<T>` | rc 파일에 `export HF_TOKEN=...` 추가 |
+
+우선순위는 huggingface_hub 라이브러리 표준: **명시 인자 > `HF_TOKEN` env > `~/.cache/huggingface/token` 파일**. 공개 모델만 쓸 때는 토큰이 없어도 동작하며, 게이트 모델·속도 가속이 필요할 때만 설정합니다.
+
+모델 캐시 기본 위치는 `~/.cache/huggingface/hub/` (Linux/WSL/Mac), Windows에서는 `%USERPROFILE%\.cache\huggingface\hub\`입니다. 다른 위치를 쓰려면 `HF_HOME` 환경변수로 루트를 변경합니다.
+
+### 임베딩 모델 변경
+
+기본 모델은 `Qwen/Qwen3-Embedding-0.6B` (컨텍스트 4096)입니다. 다른 모델로 옮기려면:
+
+```bash
+# .env에 영구 저장
+cortex-ctl bootstrap --embedding-model google/embeddinggemma-300m \
+                     --embedding-max-seq-length 2048 \
+                     --warm-models
+```
+
+또는 환경변수만:
+
+```bash
+export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
+export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
+```
+
+> **주의**: 임베딩 모델의 벡터 차원이 기존과 다르면 `memories.db`·`graph_db_store/`의 기존 벡터와 호환되지 않습니다. 모델 변경 후 한 번 재인덱싱이 필요합니다:
+>
+> ```bash
+> cortex-index --force
+> ```
+>
+> 자세한 정책은 `rules/core/indexing-policy.md`를 참고하십시오.
 
 ### Hook 통합 (양쪽 어댑터)
 

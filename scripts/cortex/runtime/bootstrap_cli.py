@@ -40,24 +40,47 @@ def _save_hf_token(token: str) -> dict:
     return {"status": "saved", "path": str(env_path)}
 
 
-def _warm_models(token: str | None, dry_run: bool) -> dict:
+def _warm_models(token: str | None, model_id: str | None, dry_run: bool) -> dict:
     if dry_run:
         return {"status": "dry-run-skip"}
     try:
-        from cortex.embeddings.provider import MODEL_ID
+        from cortex.embeddings.provider import MODEL_ID as default_model_id
         from huggingface_hub import snapshot_download
     except Exception as exc:
         return {"status": "import-error", "error": str(exc)}
+    target_model = (model_id or "").strip() or default_model_id
     try:
         snapshot_download(
-            repo_id=MODEL_ID,
+            repo_id=target_model,
             token=token or os.environ.get(HF_TOKEN_ENV_KEY) or None,
             resume_download=True,
             max_workers=4,
         )
     except Exception as exc:
-        return {"status": "error", "model": MODEL_ID, "error": str(exc)}
-    return {"status": "ok", "model": MODEL_ID}
+        return {"status": "error", "model": target_model, "error": str(exc)}
+    return {"status": "ok", "model": target_model}
+
+
+def _save_embedding_config(model_id: str | None, max_seq_length: int | None) -> dict:
+    env_path = data_home() / ".env"
+    saved: dict = {}
+    if model_id:
+        _upsert_env(env_path, "CORTEX_EMBEDDING_MODEL", model_id)
+        saved["model"] = model_id
+    if max_seq_length is not None:
+        _upsert_env(env_path, "CORTEX_EMBEDDING_MAX_SEQ_LENGTH", str(max_seq_length))
+        saved["max_seq_length"] = max_seq_length
+    payload: dict = {
+        "status": "saved",
+        "path": str(env_path),
+        "saved": saved,
+    }
+    if model_id:
+        payload["warning"] = (
+            "Embedding model changed. Existing vectors may be incompatible. "
+            "Run 'cortex-index --force' to rebuild the index if dimensions differ."
+        )
+    return payload
 
 
 def _hook_install_namespace(
@@ -154,8 +177,21 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
         else:
             result["hf_token"] = _save_hf_token(args.hf_token)
 
+    if args.embedding_model or args.embedding_max_seq_length is not None:
+        if args.dry_run:
+            result["embedding"] = {"status": "dry-run-skip"}
+        else:
+            result["embedding"] = _save_embedding_config(
+                args.embedding_model,
+                args.embedding_max_seq_length,
+            )
+
     if args.warm_models:
-        result["warm_models"] = _warm_models(token=args.hf_token, dry_run=args.dry_run)
+        result["warm_models"] = _warm_models(
+            token=args.hf_token,
+            model_id=args.embedding_model,
+            dry_run=args.dry_run,
+        )
 
     print(json.dumps(result, ensure_ascii=False))
     return 0
@@ -186,6 +222,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--warm-models",
         action="store_true",
         help="Pre-download the embedding model so the first MCP call doesn't pay the cost.",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Override embedding model (e.g. google/embeddinggemma-300m). Saved to <CORTEX_DATA_HOME>/.env.",
+    )
+    parser.add_argument(
+        "--embedding-max-seq-length",
+        type=int,
+        default=None,
+        help="Override model context window. Saved to <CORTEX_DATA_HOME>/.env.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan only — do not write files.")
     parser.set_defaults(handler=_run_bootstrap)

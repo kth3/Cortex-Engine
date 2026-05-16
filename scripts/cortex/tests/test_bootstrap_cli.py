@@ -302,6 +302,94 @@ class BootstrapWarmModelsTests(unittest.TestCase):
             warm.assert_called_once()
 
 
+class BootstrapEmbeddingConfigTests(unittest.TestCase):
+    def test_embedding_model_arg_writes_to_data_home_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--embedding-model", "google/embeddinggemma-300m"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["embedding"]["status"], "saved")
+            self.assertEqual(data["embedding"]["saved"]["model"], "google/embeddinggemma-300m")
+            self.assertIn("warning", data["embedding"])
+            env_path = Path(data["embedding"]["path"])
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m", content)
+
+    def test_embedding_max_seq_length_arg_writes_to_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--embedding-max-seq-length", "2048"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["embedding"]["saved"]["max_seq_length"], 2048)
+            self.assertNotIn("warning", data["embedding"])
+            env_path = Path(data["embedding"]["path"])
+            self.assertIn(
+                "CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048",
+                env_path.read_text(encoding="utf-8"),
+            )
+
+    def test_dry_run_skips_embedding_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--embedding-model", "google/embeddinggemma-300m", "--dry-run"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["embedding"]["status"], "dry-run-skip")
+
+    def test_warm_models_uses_embedding_model_arg(self):
+        from cortex.runtime import bootstrap_cli as bcli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            with patch.object(bcli, "_warm_models", return_value={"status": "ok", "model": "google/embeddinggemma-300m"}) as warm:
+                _exit, _stdout = _run(
+                    ["--warm-models", "--embedding-model", "google/embeddinggemma-300m"],
+                    codex_home=codex_home,
+                    claude_home=claude_home,
+                    workspace=workspace,
+                )
+
+            call_kwargs = warm.call_args.kwargs
+            self.assertEqual(call_kwargs["model_id"], "google/embeddinggemma-300m")
+
+
 class BootstrapDispatchTests(unittest.TestCase):
     def test_bootstrap_routes_to_bootstrap_cli(self):
         with patch.object(bootstrap_cli, "main", return_value=0) as cli_main:
