@@ -209,9 +209,11 @@ for path in Path('scripts').rglob('*.py'):
 print('py_compile ok')
 PY
 
-# Unit regression tests and MCP smoke
-uv run --group dev python -m pytest scripts/cortex/tests/ -q -m "not smoke"
-uv run --group dev python -m pytest scripts/cortex/tests/test_mcp_smoke.py -q -m smoke
+# Unit regression tests (test_mcp_smoke.py is a standalone script — skipped from collection)
+uv run --group dev python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+
+# MCP smoke runs as a standalone script that spawns cortex-mcp via stdio
+uv run python scripts/cortex/tests/test_mcp_smoke.py
 
 # Runtime control
 uv run cortex-ctl status

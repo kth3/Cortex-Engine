@@ -197,9 +197,11 @@ for path in Path('scripts').rglob('*.py'):
 print('py_compile ok')
 PY
 
-# 회귀 테스트와 MCP smoke 분리
-uv run --group dev python -m pytest scripts/cortex/tests/ -q -m "not smoke"
-uv run --group dev python -m pytest scripts/cortex/tests/test_mcp_smoke.py -q -m smoke
+# 회귀 테스트 (test_mcp_smoke.py는 standalone 스크립트라 컬렉션에서 제외)
+uv run --group dev python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+
+# MCP smoke는 별도 실행 (subprocess로 실 cortex-mcp를 띄우므로 standalone)
+uv run python scripts/cortex/tests/test_mcp_smoke.py
 
 # 런타임 제어
 uv run cortex-ctl status
