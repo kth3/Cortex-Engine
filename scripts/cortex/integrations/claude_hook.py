@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,8 +17,7 @@ from cortex.mcp.tools.search import call_pc_capsule, call_pc_skeleton
 from cortex.mcp.tools.session import call_pc_auto_context, call_pc_session_sync
 
 SETTINGS_FILENAME = "settings.json"
-HOOKS_DIRNAME = "hooks"
-LAUNCHER_FILENAME = "cortex_claude_hook.py"
+HOOK_ENTRY_NAME = "cortex-claude-hook"
 DEFAULT_TOKEN_BUDGET = 2000
 DEFAULT_SESSION_ID = "claude-hook"
 DEFAULT_HOOK_TIMEOUT_SECONDS = 45
@@ -39,7 +39,7 @@ SUPPORTED_RUN_EVENTS = (
 EDIT_TOOL_MATCHER = "Edit|Write|MultiEdit"
 EDIT_TOOL_NAMES = {"Edit", "Write", "MultiEdit"}
 
-HOOK_MARKER = "cortex_claude_hook.py"
+HOOK_MARKER = HOOK_ENTRY_NAME
 
 
 def _empty_output() -> str:
@@ -63,12 +63,25 @@ def _settings_path(claude_home: Path) -> Path:
     return claude_home / SETTINGS_FILENAME
 
 
-def _hooks_dir(claude_home: Path) -> Path:
-    return claude_home / HOOKS_DIRNAME
+def _default_hook_command_path() -> Path:
+    """Resolve the cortex-claude-hook entry point.
 
-
-def _launcher_path(claude_home: Path) -> Path:
-    return _hooks_dir(claude_home) / LAUNCHER_FILENAME
+    1. uv tool-installed shim on PATH (global install).
+    2. Current python's venv (development fallback).
+    """
+    found = shutil.which(HOOK_ENTRY_NAME)
+    if found:
+        return Path(found)
+    venv_bin = Path(sys.executable).parent
+    candidate = venv_bin / HOOK_ENTRY_NAME
+    if os.name == "nt":
+        candidate = candidate.with_suffix(".exe")
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(
+        f"'{HOOK_ENTRY_NAME}' not found in PATH or current venv. "
+        "Run 'uv tool install cortex-agent' or provide --hook-command."
+    )
 
 
 def _read_stdin_json() -> tuple[dict[str, Any], str]:
@@ -337,122 +350,13 @@ def run_event(
     return {}
 
 
-def _launcher_source() -> str:
-    return r'''#!/usr/bin/env python3
-"""Global launcher installed by cortex-claude-hook."""
-from __future__ import annotations
-
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
-
-LAUNCHER_TIMEOUT_SECONDS = 55
-
-
-def _emit_empty() -> None:
-    print("{}")
-
-
-def _read_payload() -> tuple[dict, str]:
-    raw = sys.stdin.read()
-    normalized = raw.lstrip("﻿")
-    if not normalized.strip():
-        return {}, raw
-    try:
-        payload = json.loads(normalized)
-    except Exception as exc:
-        print(f"[Cortex hook launcher ignored invalid JSON: {exc}]", file=sys.stderr)
-        return {}, raw
-    return payload if isinstance(payload, dict) else {}, raw
-
-
-def _find_cortex_home_from(start_path: str | None) -> Path | None:
-    if not start_path:
-        return None
-    curr = Path(start_path).expanduser().resolve()
-    for base in (curr, *curr.parents):
-        if base.name == ".cortex" and (base / "pyproject.toml").exists():
-            return base
-        candidate = base / ".cortex"
-        if (candidate / "pyproject.toml").exists():
-            return candidate.resolve()
-    return None
-
-
-def _resolve_cortex_home(payload: dict) -> Path | None:
-    from_payload = _find_cortex_home_from(payload.get("cwd"))
-    if from_payload is not None:
-        return from_payload
-
-    env_home = os.environ.get("CORTEX_HOME")
-    if env_home:
-        return Path(env_home).expanduser().resolve()
-
-    return _find_cortex_home_from(os.getcwd())
-
-
-def main() -> int:
-    event_name = sys.argv[1] if len(sys.argv) > 1 else ""
-    payload, raw = _read_payload()
-    if not event_name:
-        event_name = str(payload.get("hook_event_name") or "")
-    if not event_name:
-        _emit_empty()
-        return 0
-
-    cortex_home = _resolve_cortex_home(payload)
-    if cortex_home is None:
-        print("[Cortex hook launcher skipped: .cortex not found]", file=sys.stderr)
-        _emit_empty()
-        return 0
-
-    uv_command = os.environ.get("CORTEX_UV_COMMAND") or "uv"
-    command = [uv_command]
-    override_cache = os.environ.get("CORTEX_UV_CACHE_DIR")
-    if override_cache:
-        command += ["--cache-dir", override_cache]
-    command += [
-        "run",
-        "--project",
-        str(cortex_home),
-        "cortex-claude-hook",
-        "run",
-        event_name,
-    ]
-    try:
-        proc = subprocess.run(
-            command,
-            input=raw,
-            text=True,
-            capture_output=True,
-            timeout=LAUNCHER_TIMEOUT_SECONDS,
-        )
-    except Exception as exc:
-        print(f"[Cortex hook launcher failed: {exc}]", file=sys.stderr)
-        _emit_empty()
-        return 0
-
-    if proc.stderr:
-        print(proc.stderr.rstrip(), file=sys.stderr)
-    stdout = proc.stdout.strip()
-    print(stdout if stdout else "{}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''
-
-
-def _hook_command(launcher: Path, event_name: str, python_command: str) -> str:
+def _hook_command(hook_command_path: Path, event_name: str) -> str:
     if os.name == "nt":
-        return subprocess.list2cmdline([python_command, str(launcher), event_name])
+        return subprocess.list2cmdline([str(hook_command_path), "run", event_name])
     return " ".join(
         [
-            shlex.quote(python_command),
-            shlex.quote(str(launcher)),
+            shlex.quote(str(hook_command_path)),
+            "run",
             shlex.quote(event_name),
         ]
     )
@@ -540,24 +444,28 @@ def _install_events(args: argparse.Namespace) -> list[tuple[str, str | None]]:
 
 def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     claude_home = _claude_home(args.claude_home)
-    hooks_dir = _hooks_dir(claude_home)
-    launcher = _launcher_path(claude_home)
     settings_file = _settings_path(claude_home)
     event_pairs = _install_events(args)
+
+    hook_cmd = (
+        Path(args.hook_command).expanduser()
+        if getattr(args, "hook_command", None)
+        else _default_hook_command_path()
+    )
 
     data = _load_settings(settings_file)
     for event_name, matcher in event_pairs:
         _install_event_hook(
             data,
             event_name,
-            _hook_command(launcher, event_name, args.python_command),
+            _hook_command(hook_cmd, event_name),
             args.timeout,
             matcher=matcher,
         )
 
     result = {
         "claudeHome": str(claude_home),
-        "launcher": str(launcher),
+        "hookCommand": str(hook_cmd),
         "settingsFile": str(settings_file),
         "events": [event_name for event_name, _ in event_pairs],
         "settings": data,
@@ -567,8 +475,7 @@ def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     if args.dry_run:
         return result
 
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    launcher.write_text(_launcher_source(), encoding="utf-8")
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
     settings_file.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -586,7 +493,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--cortex-home", default=None)
     run_parser.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET)
 
-    install_parser = subparsers.add_parser("install", help="Install global Claude Code hook launcher and settings.json entries.")
+    install_parser = subparsers.add_parser("install", help="Register cortex-claude-hook entries in Claude Code settings.json.")
     install_parser.add_argument("--claude-home", default=None)
     install_parser.add_argument("--include-user-prompt-submit", action="store_true")
     install_parser.add_argument("--include-stop", action="store_true")
@@ -597,7 +504,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Install every supported event in addition to SessionStart.",
     )
-    install_parser.add_argument("--python-command", default=sys.executable)
+    install_parser.add_argument(
+        "--hook-command",
+        default=None,
+        help="Absolute path to cortex-claude-hook (defaults to PATH lookup, then current venv).",
+    )
     install_parser.add_argument("--timeout", type=int, default=DEFAULT_HOOK_TIMEOUT_SECONDS)
     install_parser.add_argument("--dry-run", action="store_true")
     return parser

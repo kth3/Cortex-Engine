@@ -64,8 +64,10 @@ class BootstrapTests(unittest.TestCase):
             self.assertIn("workspace_data_dir", data)
             self.assertEqual(data["codex"]["events"], ["SessionStart"])
             self.assertEqual(data["claude"]["events"], ["SessionStart"])
-            self.assertTrue((codex_home / "hooks" / "cortex_codex_hook.py").is_file())
-            self.assertTrue((claude_home / "hooks" / "cortex_claude_hook.py").is_file())
+            self.assertIn("cortex-codex-hook", data["codex"]["hookCommand"])
+            self.assertIn("cortex-claude-hook", data["claude"]["hookCommand"])
+            self.assertTrue((codex_home / "hooks.json").is_file())
+            self.assertTrue((claude_home / "settings.json").is_file())
 
     def test_include_all_propagates_to_both_adapters(self):
         with tempfile.TemporaryDirectory() as tmp:

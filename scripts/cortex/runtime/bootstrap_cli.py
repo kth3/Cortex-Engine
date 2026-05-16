@@ -14,7 +14,14 @@ from cortex.paths import resolve_workspace, workspace_data_dir
 from cortex.runtime import knowledge_cli
 
 
-def _hook_install_namespace(*, hook_home_key: str, include_all: bool, timeout: int, dry_run: bool) -> argparse.Namespace:
+def _hook_install_namespace(
+    *,
+    hook_home_key: str,
+    include_all: bool,
+    timeout: int,
+    dry_run: bool,
+    hook_command: str | None,
+) -> argparse.Namespace:
     return argparse.Namespace(
         **{hook_home_key: None},
         profile="safe",
@@ -23,7 +30,7 @@ def _hook_install_namespace(*, hook_home_key: str, include_all: bool, timeout: i
         include_pre_tool_use=include_all,
         include_post_tool_use=include_all,
         include_all=include_all,
-        python_command=sys.executable,
+        hook_command=hook_command,
         timeout=timeout,
         dry_run=dry_run,
     )
@@ -74,6 +81,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             include_all=args.include_all,
             timeout=codex_hook.DEFAULT_HOOK_TIMEOUT_SECONDS,
             dry_run=args.dry_run,
+            hook_command=args.codex_hook_command,
         )
         result["codex"] = codex_hook.install_hooks(codex_args)
 
@@ -83,6 +91,7 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             include_all=args.include_all,
             timeout=claude_hook.DEFAULT_HOOK_TIMEOUT_SECONDS,
             dry_run=args.dry_run,
+            hook_command=args.claude_hook_command,
         )
         result["claude"] = claude_hook.install_hooks(claude_args)
 
@@ -111,6 +120,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--enable-knowledge", action="store_true", help="Also expand knowledge.zip.")
     parser.add_argument("--force-knowledge", action="store_true", help="Overwrite existing knowledge expansion.")
+    parser.add_argument("--codex-hook-command", default=None, help="Override cortex-codex-hook path.")
+    parser.add_argument("--claude-hook-command", default=None, help="Override cortex-claude-hook path.")
     parser.add_argument("--dry-run", action="store_true", help="Plan only — do not write files.")
     parser.set_defaults(handler=_run_bootstrap)
     return parser

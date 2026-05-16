@@ -223,10 +223,10 @@ class ClaudeHookInstallTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertTrue(result["dryRun"])
             self.assertEqual(result["events"], ["SessionStart"])
-            self.assertFalse((claude_home / "hooks" / "cortex_claude_hook.py").exists())
+            self.assertIn("cortex-claude-hook", result["hookCommand"])
             self.assertFalse((claude_home / "settings.json").exists())
 
-    def test_install_writes_launcher_and_preserves_existing_settings(self):
+    def test_install_writes_settings_json_and_preserves_existing_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             claude_home = Path(tmp)
             existing = {
@@ -241,16 +241,14 @@ class ClaudeHookInstallTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(stderr, "")
-            launcher = claude_home / "hooks" / "cortex_claude_hook.py"
-            self.assertTrue(launcher.exists())
+            self.assertIn("cortex-claude-hook", result["hookCommand"])
             data = json.loads((claude_home / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(data["theme"], "dark")
             self.assertIn("Stop", data["hooks"])
             self.assertIn("SessionStart", data["hooks"])
             command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            self.assertIn("cortex_claude_hook.py", command)
+            self.assertIn("cortex-claude-hook", command)
             self.assertIn("SessionStart", command)
-            self.assertEqual(result["launcher"], str(launcher.resolve()))
 
     def test_install_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -263,7 +261,7 @@ class ClaudeHookInstallTests(unittest.TestCase):
                 handler
                 for group in data["hooks"]["SessionStart"]
                 for handler in group["hooks"]
-                if "cortex_claude_hook.py" in handler["command"]
+                if "cortex-claude-hook" in handler["command"]
             ]
             self.assertEqual(len(handlers), 1)
 
@@ -307,25 +305,13 @@ class ClaudeHookInstallTests(unittest.TestCase):
             self.assertNotIn("matcher", group)
 
 
-class ClaudeHookLauncherSourceTests(unittest.TestCase):
-    def test_launcher_uses_uv_global_cache_by_default(self):
-        source = claude_hook._launcher_source()
-        self.assertNotIn(".uv-cache-local", source)
-        self.assertIn("CORTEX_UV_CACHE_DIR", source)
-        self.assertIn("if override_cache", source)
-
-    def test_launcher_calls_cortex_claude_hook_entry(self):
-        source = claude_hook._launcher_source()
-        self.assertIn("cortex-claude-hook", source)
-
-
 class ClaudeHookExampleTests(unittest.TestCase):
-    def test_example_uses_global_launcher_shape(self):
+    def test_example_uses_global_hook_entry(self):
         example_path = THIS_DIR.parent / "integrations" / "claude_hooks.example.json"
         data = json.loads(example_path.read_text(encoding="utf-8"))
         command_hook = data["hooks"]["SessionStart"][0]["hooks"][0]
         self.assertEqual(command_hook["type"], "command")
-        self.assertIn("cortex_claude_hook.py", command_hook["command"])
+        self.assertIn("cortex-claude-hook", command_hook["command"])
         self.assertIn("SessionStart", command_hook["command"])
 
 

@@ -220,10 +220,10 @@ class CodexHookInstallTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertTrue(result["dryRun"])
             self.assertEqual(result["events"], ["SessionStart"])
-            self.assertFalse((codex_home / "hooks" / "cortex_codex_hook.py").exists())
+            self.assertIn("cortex-codex-hook", result["hookCommand"])
             self.assertFalse((codex_home / "hooks.json").exists())
 
-    def test_install_writes_launcher_and_preserves_existing_hooks(self):
+    def test_install_writes_hooks_json_and_preserves_existing_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             codex_home = Path(tmp)
             existing = {
@@ -243,15 +243,13 @@ class CodexHookInstallTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(stderr, "")
-            launcher = codex_home / "hooks" / "cortex_codex_hook.py"
-            self.assertTrue(launcher.exists())
+            self.assertIn("cortex-codex-hook", result["hookCommand"])
             data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
             self.assertIn("Stop", data["hooks"])
             self.assertIn("SessionStart", data["hooks"])
             command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            self.assertIn("cortex_codex_hook.py", command)
+            self.assertIn("cortex-codex-hook", command)
             self.assertIn("SessionStart", command)
-            self.assertEqual(result["launcher"], str(launcher.resolve()))
 
     def test_install_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,7 +262,7 @@ class CodexHookInstallTests(unittest.TestCase):
                 handler
                 for group in data["hooks"]["SessionStart"]
                 for handler in group["hooks"]
-                if "cortex_codex_hook.py" in handler["command"]
+                if "cortex-codex-hook" in handler["command"]
             ]
             self.assertEqual(len(handlers), 1)
 
@@ -328,18 +326,6 @@ class CodexHookInstallTests(unittest.TestCase):
             self.assertNotIn("matcher", group)
 
 
-class CodexHookLauncherSourceTests(unittest.TestCase):
-    def test_launcher_uses_uv_global_cache_by_default(self):
-        source = codex_hook._launcher_source()
-        self.assertNotIn(".uv-cache-local", source)
-        self.assertIn("CORTEX_UV_CACHE_DIR", source)
-        self.assertIn("if override_cache", source)
-
-    def test_launcher_passes_cache_dir_only_when_env_set(self):
-        source = codex_hook._launcher_source()
-        self.assertIn('command += ["--cache-dir", override_cache]', source)
-
-
 class CodexSessionStartCompatibilityTests(unittest.TestCase):
     def test_compat_entrypoint_delegates_to_session_start_runner(self):
         stdout = io.StringIO()
@@ -355,13 +341,13 @@ class CodexSessionStartCompatibilityTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
         self.assertEqual(run_event.call_args.args[0], "SessionStart")
 
-    def test_example_uses_global_launcher_shape(self):
+    def test_example_uses_global_hook_entry(self):
         example_path = THIS_DIR.parent / "integrations" / "codex_hooks.example.json"
         data = json.loads(example_path.read_text(encoding="utf-8"))
 
         command_hook = data["hooks"]["SessionStart"][0]["hooks"][0]
         self.assertEqual(command_hook["type"], "command")
-        self.assertIn("cortex_codex_hook.py", command_hook["command"])
+        self.assertIn("cortex-codex-hook", command_hook["command"])
         self.assertIn("SessionStart", command_hook["command"])
 
 

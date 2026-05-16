@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/example/.codex/hooks/cortex_codex_hook.py SessionStart"
+            "command": "cortex-codex-hook run SessionStart"
           }
         ]
       }

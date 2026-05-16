@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/example/.claude/hooks/cortex_claude_hook.py SessionStart"
+            "command": "cortex-claude-hook run SessionStart"
           }
         ]
       }
