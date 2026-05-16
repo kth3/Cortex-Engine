@@ -45,7 +45,29 @@ def _resolve_env_path() -> Path:
 ENV_PATH = _resolve_env_path()
 load_dotenv(ENV_PATH)
 
-MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+DEFAULT_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+DEFAULT_MAX_SEQ_LENGTH = 4096
+
+
+def _resolve_model_id() -> str:
+    raw = (os.environ.get("CORTEX_EMBEDDING_MODEL") or "").strip()
+    return raw or DEFAULT_MODEL_ID
+
+
+def _resolve_max_seq_length() -> int:
+    raw = (os.environ.get("CORTEX_EMBEDDING_MAX_SEQ_LENGTH") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return DEFAULT_MAX_SEQ_LENGTH
+
+
+MODEL_ID = _resolve_model_id()
+MAX_SEQ_LENGTH = _resolve_max_seq_length()
 
 _model = None
 _model_device = None
@@ -123,7 +145,7 @@ def _load_model(device: str = "cpu"):
             model_kwargs=model_kwargs, 
             token=hf_token
         )
-        _model.max_seq_length = 4096  # Qwen3 컨텍스트 윈도우 — 모델 토크나이저가 안전하게 truncate
+        _model.max_seq_length = MAX_SEQ_LENGTH  # 모델별 컨텍스트 윈도우 (CORTEX_EMBEDDING_MAX_SEQ_LENGTH로 override)
         
         if device in ["cuda", "mps"]:
             _model.to(dtype_choice)
