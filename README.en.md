@@ -4,15 +4,13 @@
 
 **"The Bridge between Human Intent and Agent Intelligence."**
 
-Cortex is a universal agent engineering infrastructure designed to persist fragmented agent memory and establish immediate task context for any project through MCP(Model Context Protocol). It combines local-first context indexing, hybrid search, graph analysis, and multi-agent coordination.
-
-The current architecture uses `.cortex` as the default path model and separates the previous monolithic control surface into dispatcher, server, worker, watcher, and runtime control layers.
+Cortex is a local-first agent infrastructure for persistent memory, semantic code search, graph analysis, and MCP integration. The current model installs Cortex once as a global tool and stores per-workspace data under `~/.cortex/workspaces/<key>/`, so user projects do not need to carry Cortex runtime files.
 
 ---
 
 ## System Architecture
 
-The MCP server, tool dispatcher, vector engine server, embedding worker, watcher, and process control layers are separated. `cortex_ctl.py` remains a thin entrypoint; the actual start/status/stop orchestration lives under `scripts/cortex/runtime/`.
+The MCP server, tool dispatcher, vector engine server, embedding worker, watcher, and runtime control layers are separated. `cortex-ctl` owns start/status/stop orchestration, while the embedding model is isolated in a worker process.
 
 ```mermaid
 graph TD
@@ -23,13 +21,12 @@ graph TD
     Engine --> Router[Engine Router]
     Router --> Worker[Embedding Worker]
     Router --> Idle[Idle Monitor]
-    CTL[cortex_ctl.py] --> Control[Runtime Control]
+    CTL[cortex-ctl] --> Control[Runtime Control]
     Control --> Process[Process Layer]
     Control --> Lock[Lock Layer]
     Control --> Logs[Logging Layer]
     Control --> Engine
     Control --> Watcher[Watcher Launcher]
-    Control --> LocalDaemon[Optional Local Daemon]
     Search --> DB[(SQLite / sqlite-vec / FTS5)]
     Search --> GDB[(Kuzu Graph DB)]
     Worker --> Model((SentenceTransformers))
@@ -39,135 +36,170 @@ graph TD
 
 ## Key Features
 
-### 1. Hybrid Context Engine & AST Parsing
+### 1. Hybrid Context Engine
 
-- **AST Structural Parsing (`Tree-sitter`)**: Extracts classes, functions, and call relationships from Python, C#, TypeScript, and related source files.
-- **Vector Search (`sqlite-vec`)**: Provides local SQLite-backed vector search without an external vector server.
-- **Graph Analysis (`Kuzu DB`)**: Tracks call, containment, and external reference relationships as a graph.
-- **FTS5 Text Search**: Supports keyword search and Reciprocal Rank Fusion scoring.
+- **Tree-sitter parsing**: extracts classes, functions, and call relationships from Python, C#, TypeScript, and related source files.
+- **Vector search**: uses `sqlite-vec` for local semantic search.
+- **Graph analysis**: stores call and containment relationships in Kuzu.
+- **FTS5 search**: combines keyword search with Reciprocal Rank Fusion scoring.
 
 ### 2. Runtime Modularization
 
-The runtime control layer is split as follows.
+The runtime is split into path resolution, IPC, process launch, locks, logging, control, engine routing, worker lifecycle, and watcher launch modules under `cortex/runtime/`. This keeps GPU/PyTorch dependencies inside the embedding worker and leaves control/server/router code relatively lightweight.
 
-- `runtime/paths.py`: ports, scripts, log files, and lock files
-- `runtime/ipc.py`: length-prefixed socket message transport
-- `runtime/environment.py`: child process environment construction
-- `runtime/process.py`: background process launch and PID handling
-- `runtime/lock.py`: mutual exclusion for ctl operations
-- `runtime/logging.py`: runtime logging setup
-- `runtime/control.py`: start/status/stop orchestration
-- `runtime/engine_server.py`: engine server entrypoint
-- `runtime/engine_router.py`: worker routing and idle monitor integration
-- `runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
-- `runtime/worker_manager.py`: worker lifecycle and status handling
-- `runtime/watcher_launcher.py`: watchdog watcher launcher
-- `runtime/local_daemon.py`: optional local daemon launcher
+### 3. Global Data Model
 
-This boundary keeps the Python implementation intact while making future CLI hook integration, partial Rust ports, and worker replacement more realistic.
+- `CORTEX_HOME`: Cortex package/runtime root.
+- `CORTEX_WORKSPACE`: project root to index and edit.
+- `CORTEX_DATA_HOME`: global data root, default `~/.cortex`.
+- `CORTEX_WORKSPACE_KEY`: optional shared key for grouping multiple folders into one Cortex workspace.
+- `CORTEX_ENV_PATH`: explicit dotenv path.
 
-### 3. `.cortex` Path Model
-
-The default path is `.cortex`. Installation, documentation, and CI are aligned around `.cortex`.
-
-- `CORTEX_HOME`: Cortex infrastructure root
-- `CORTEX_WORKSPACE`: actual project root to index and edit
-- `CORTEX_ENV_PATH`: explicit `.env` path when needed
-
-### 4. Multi-Lane Parallel Execution
-
-The relay layer supports lane-based coordination so multiple agents or terminals can work concurrently with reduced conflict.
-
-### 5. Hardware-Aware Embedding Strategy
-
-The SentenceTransformers/PyTorch embedding path is isolated inside a worker process. GPU/MPS/CUDA dependency stays in the Python worker, while the control/server/router layers remain less coupled to model runtime details.
+Code indexes, memory DBs, graph stores, and session history live under `<CORTEX_DATA_HOME>/workspaces/<key>/`. The default key is derived from the workspace path; set `CORTEX_WORKSPACE_KEY` when multiple repositories should share one Cortex data directory.
 
 ---
 
-## Directory Structure
+## Directory Model
 
 ```text
-.cortex/
-├── data/           # [Non-shared] state and hybrid DBs
-├── docs/           # [Non-shared] infrastructure documentation
-├── history/        # [Non-shared] session history and logs
-├── hooks/          # runtime lifecycle hooks
-├── rules/          # agent behavior rules and precision editing guidelines
-├── scripts/        # Cortex core modules, MCP server, and runtime control layer
-├── skills/         # [Non-shared] agent skill guides
-├── tasks/          # task documents for proactive tracking
-├── templates/      # system templates and ignore bundles
-├── knowledge/      # external knowledge library
-├── pyproject.toml  # uv dependency declaration
-├── .venv/          # [Non-shared] uv-managed virtual environment
-├── uv.lock         # package lockfile
-├── .env            # [Non-shared] environment variables
-└── settings.yaml   # global infrastructure settings
+.cortex/                                  # Cortex source/package root
+├── hooks/                                # runtime lifecycle hooks
+├── rules/                                # agent rules and editing policies
+├── scripts/                              # Cortex modules, MCP server, runtime control
+├── knowledge/
+│   └── knowledge.zip                     # optional knowledge seed
+├── pyproject.toml                        # uv dependency declaration
+└── settings.yaml                         # infrastructure settings
+
+~/.cortex/                                # CORTEX_DATA_HOME
+├── .env                                  # optional global Cortex environment
+└── workspaces/
+    └── <workspace-key>/
+        ├── memories.db
+        ├── graph_db_store/
+        └── history/
 ```
 
 ---
 
-## Cortex Modular Layout
+## Installation
 
-Following the recent architectural refactoring, the Cortex backend has been modularized by role. SQLite, GraphDB, search, embedding, and memory implementations live in the sub-packages:
-
-- `cortex/indexing/`: Indexing pipelines (extractions, persistence, graph sync)
-- `cortex/embeddings/`: Model loading, batch embeddings, and hardware detection
-- `cortex/retrieval/`: Hybrid search algorithms (FTS, semantic, RRF merging)
-- `cortex/storage/`: SQLite and GraphDB connection and schema management
-- `cortex/memories/`: Working memory and persistent knowledge CRUD
-- `cortex/config/`: YAML config loading and hardware-aware tuning
-- `cortex/scanner/`: `.gitignore`-aware file scanning
-- `cortex/parsers/`: Tree-sitter-based language parser registry
-- `cortex/runtime/`: Execution infrastructure (daemon workers, locks, IPC)
-
-> External Workspace path handling follows `runtime.paths` and the new `.cortex` path policy. Heavy dependencies like model downloads or GPU tokens are excluded from the base CI and are intended for separate local verification.
-
----
-
-## Installation & Usage
-
-See [INSTALL.md](./INSTALL.md) for the full guide.
-
-Core commands:
+See [INSTALL.en.md](./INSTALL.en.md) for the full installation guide.
 
 ```bash
-uv sync --project .cortex
-uv run --project .cortex python .cortex/scripts/cortex/indexer.py . --force
-uv run --project .cortex python .cortex/scripts/cortex_ctl.py status
-uv run --project .cortex python .cortex/scripts/cortex_ctl.py start
-uv run --project .cortex python .cortex/scripts/cortex_ctl.py stop
+# Install Cortex once as a uv tool.
+uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
+
+# Install supported Codex/Claude hooks and initialize the data directory.
+cortex-ctl bootstrap --include-all
+
+# Optional: save a HuggingFace token and warm the embedding model cache.
+cortex-ctl bootstrap --include-all --hf-token <YOUR_HF_TOKEN> --warm-models
 ```
 
-For MCP registration, explicitly set `PYTHONPATH`, `CORTEX_HOME`, and `CORTEX_WORKSPACE`.
+Update:
+
+```bash
+uv tool upgrade cortex-agent
+```
+
+Development mode from a source checkout:
+
+```bash
+uv sync
+uv run cortex-ctl bootstrap --include-all
+uv run cortex-index --force
+```
+
+---
+
+## `cortex-ctl` Surface
+
+```text
+cortex-ctl start | stop | restart | status
+cortex-ctl bootstrap [--include-all] [--enable-knowledge]
+                     [--hf-token <T>] [--warm-models]
+                     [--embedding-model <id>] [--embedding-max-seq-length <n>]
+                     [--dry-run]
+cortex-ctl knowledge enable | disable | status [--force]
+cortex-ctl migrate [--source <workspace>] [--dry-run] [--force]
+```
+
+---
+
+## HuggingFace Token Policy
+
+Cortex does not require `HF_TOKEN` for public models. Use one of these methods only when a gated model or faster authenticated access is needed:
+
+| Method | Behavior |
+|---|---|
+| `cortex-ctl bootstrap --hf-token <T>` | Stores `HF_TOKEN=<T>` in `~/.cortex/.env`. |
+| `HF_TOKEN=<T>` environment variable | Uses the shell-provided token. |
+| `huggingface-cli login` | Uses the standard `~/.cache/huggingface/token` file. |
+
+The implementation passes `token=None` when `HF_TOKEN` is unset or blank, so the HuggingFace library can still use its standard cached-token fallback.
+
+---
+
+## Embedding Model Policy
+
+Default model:
+
+```text
+Qwen/Qwen3-Embedding-0.6B
+max_seq_length = 4096
+```
+
+Override through bootstrap:
+
+```bash
+cortex-ctl bootstrap \
+  --embedding-model google/embeddinggemma-300m \
+  --embedding-max-seq-length 2048 \
+  --warm-models
+```
+
+Or through environment variables:
+
+```bash
+export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
+export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
+```
+
+`trust_remote_code` is disabled by default. The default Qwen embedding model requires it, so enable it explicitly after reviewing the model code:
+
+```bash
+export CORTEX_EMBEDDING_TRUST_REMOTE_CODE=true
+```
+
+Changing embedding model dimensions makes existing vectors incompatible. Run a full reindex after changing model family or vector dimension:
+
+```bash
+cortex-index --force
+```
+
+---
+
+## MCP Registration
+
+Codex and Claude Code hooks are installed through `cortex-ctl bootstrap`. MCP entrypoints remain available for platforms that support MCP directly:
+
+```bash
+cortex-mcp
+cortex-index <workspace> --force
+```
+
+When registering MCP manually, pass `CORTEX_HOME`, `CORTEX_WORKSPACE`, and optionally `CORTEX_WORKSPACE_KEY` explicitly so the server resolves the same workspace data directory across platforms.
 
 ---
 
 ## CI Coverage
 
-GitHub Actions verifies the following on Windows and Ubuntu:
-
-- dependency sync through `uv sync`
-- `py_compile` across all `scripts/**/*.py`
-- runtime module import smoke checks
-- `scripts/cortex/tests/test_*.py` regression tests
-- `.cortex`-based test workspace indexing
-- MCP JSON-RPC smoke test
-
-Long-running daemon behavior, real GPU/CUDA memory behavior, and local model cache state remain local validation targets because they depend on the host environment.
-
----
-
-## Inspirations
-
-- **Vexp**: workflow structure and DB schema patterns
-- **oh-my-agent**: role-based agent specialization and portable agent definitions
-- **oh-my-claudecode**: deep-interview and artifact handoff patterns
-- **oh-my-openagent**: hash-based precision editing and verification loop patterns
+GitHub Actions verifies dependency sync, `py_compile`, runtime import smoke checks, unit regression tests, test workspace indexing, and MCP JSON-RPC smoke tests on Windows and Ubuntu. Long-running daemon behavior, real GPU/CUDA memory behavior, and local model cache state remain local validation targets.
 
 ---
 
 ## License
 
 - **Code**: [MIT License](LICENSE)
-- **Knowledge Base**: The external knowledge library originates from [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills) and follows the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.
+- **Knowledge**: The external knowledge seed originates from [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills) and follows the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.

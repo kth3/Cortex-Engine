@@ -47,6 +47,7 @@ load_dotenv(ENV_PATH)
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_MAX_SEQ_LENGTH = 4096
+DEFAULT_TRUST_REMOTE_CODE = False
 
 
 def _resolve_model_id() -> str:
@@ -66,8 +67,27 @@ def _resolve_max_seq_length() -> int:
     return DEFAULT_MAX_SEQ_LENGTH
 
 
+def _resolve_trust_remote_code() -> bool:
+    raw = (os.environ.get("CORTEX_EMBEDDING_TRUST_REMOTE_CODE") or "").strip().lower()
+    if not raw:
+        return DEFAULT_TRUST_REMOTE_CODE
+    return raw in ("1", "true", "yes", "on")
+
+
+def _resolve_hf_token() -> str | None:
+    """Return explicit HF_TOKEN or None.
+
+    huggingface_hub treats `token=None` as 'use the cached token at
+    ~/.cache/huggingface/token (huggingface-cli login)' or anonymous access.
+    Never return an empty string — it disables the fallback.
+    """
+    raw = os.environ.get("HF_TOKEN", "").strip()
+    return raw or None
+
+
 MODEL_ID = _resolve_model_id()
 MAX_SEQ_LENGTH = _resolve_max_seq_length()
+TRUST_REMOTE_CODE = _resolve_trust_remote_code()
 
 _model = None
 _model_device = None
@@ -100,7 +120,7 @@ def _load_model(device: str = "cpu"):
         from huggingface_hub import snapshot_download
         import torch
         
-        hf_token = os.getenv("HF_TOKEN", "").strip() or None
+        hf_token = _resolve_hf_token()
 
         if sys.platform == "darwin":
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
@@ -133,7 +153,7 @@ def _load_model(device: str = "cpu"):
             dtype_choice = torch.float16
 
         model_kwargs = {
-            "trust_remote_code": True,
+            "trust_remote_code": TRUST_REMOTE_CODE,
             "torch_dtype": dtype_choice,
         }
 

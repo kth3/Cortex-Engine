@@ -22,3 +22,8 @@ description: Cortex Architectural Integrity Rule (v1.0)
 
 ## 4. 예방적 방어 (Preventive Defense)
 - **Guard Hooks**: 위험한 도구(`pc_strict_replace` 등) 호출 전에는 `before_tool_call` 훅을 통해 파라미터의 정당성을 자율 검증해야 합니다.
+
+## 5. 개발/자가 모드 정책 (Development / Self Mode)
+- `.cortex` 소스 트리 자체에서 개발할 때는 `uv run ...`으로 실행하고, 실제 작업 대상은 `CORTEX_WORKSPACE` 또는 현재 cwd의 상위 `.git` 탐색 결과로 결정합니다.
+- 데이터는 기본적으로 `CORTEX_DATA_HOME` 아래 `workspaces/<key>/`에 격리합니다. 여러 checkout을 같은 워크스페이스로 묶을 때만 `CORTEX_WORKSPACE_KEY`를 명시합니다.
+- WSL2에서는 Linux 홈 디렉터리 아래 checkout을 권장합니다. `/mnt/c/...` 같은 Windows mounted drive에서는 `portalocker` 기반 advisory lock 동작이 파일시스템 경계에서 불안정할 수 있으므로 장시간 daemon/worker 검증 경로로 쓰지 않습니다.
