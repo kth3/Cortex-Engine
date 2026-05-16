@@ -53,7 +53,7 @@ def _load_model_bg(state: WorkerState) -> None:
             state.current_device = "xpu"
 
         logger.info(f"[Worker] Background model loading started on {state.current_device}...")
-        from vector_engine import _load_model
+        from cortex.embeddings.provider import _load_model
 
         state.model = _load_model(device=state.current_device)
         logger.info(f"[Worker] Model loading complete. Engine Ready on {state.current_device}.")
