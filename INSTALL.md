@@ -89,6 +89,8 @@ uv run cortex-index --force
 | `CORTEX_DATA_HOME` | 워크스페이스별 DB·인덱스가 저장되는 글로벌 루트 | `~/.cortex` |
 | `CORTEX_WORKSPACE_KEY` | 멀티레포 그룹화 — 여러 폴더를 한 워크스페이스로 묶을 때 동일 값 박기 | (없음, 워크스페이스 절대경로 sha1 자동) |
 | `CORTEX_ENV_PATH` | `.env` 파일 위치 명시 | (없음) |
+| `CORTEX_START_TIMEOUT` | `cortex-ctl start`가 엔진을 기다리는 시간(초). WSL/CUDA 환경에선 60~120 권장 | 35 |
+| `CORTEX_DIAG_READY_TIMEOUT` | 진단 스크립트(`zombie-check.{sh,ps1}`)가 READY 도달까지 폴링하는 시간(초) | 90 |
 
 코드 인덱스(`memories.db`, `graph_db_store/`)와 히스토리는 `<CORTEX_DATA_HOME>/workspaces/<key>/` 아래에 격리됩니다.
 

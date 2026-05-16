@@ -52,10 +52,28 @@ logger = get_logger("ctl")
 STOP_PORT_RELEASE_GRACE_SECONDS = 2
 SERVER_STARTUP_SETTLE_SECONDS = 5
 LOCAL_DAEMON_SETTLE_SECONDS = 1
-ENGINE_READY_MAX_RETRIES = 35
+DEFAULT_ENGINE_READY_MAX_RETRIES = 35
 ENGINE_READY_POLL_INTERVAL_SECONDS = 1
 ENGINE_READY_WARNING_INTERVAL_RETRIES = 5
 CLEANUP_LOG_FILENAMES = ("watcher_output.log", "engine_server.log")
+
+
+def _resolve_start_timeout() -> int:
+    """Total seconds to wait for the engine before reporting a failure.
+
+    `CORTEX_START_TIMEOUT` env (positive integer) overrides the default.
+    Empty/non-integer/non-positive values fall back to the default. WSL2 +
+    CUDA users typically need 60-120s for the first model load.
+    """
+    raw = (os.environ.get("CORTEX_START_TIMEOUT") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return DEFAULT_ENGINE_READY_MAX_RETRIES
 
 
 def _service_scripts() -> list[tuple[Path, str]]:
@@ -126,25 +144,50 @@ def _is_local_daemon_running(local_daemon_script: Path | None) -> bool:
 
 
 def _wait_for_engine_ready(server_proc) -> bool:
-    logger.info("Waiting for Engine Server to initialize GPU...")
+    """Poll the engine for readiness up to CORTEX_START_TIMEOUT seconds.
 
-    for retry in range(ENGINE_READY_MAX_RETRIES):
+    Returns True if the engine reaches `ok`, or if the timeout is hit while the
+    engine is still in `loading` (it will keep loading in the background).
+    Returns False only when the engine crashed or the IPC endpoint is
+    unreachable/error at deadline.
+    """
+    max_retries = _resolve_start_timeout()
+    logger.info(
+        f"Waiting for Engine Server to initialize GPU (timeout {max_retries}s, "
+        f"CORTEX_START_TIMEOUT to override)..."
+    )
+
+    last_status = "unreachable"
+    for retry in range(max_retries):
         if server_proc.poll() is not None:
             logger.error(
                 f"CRITICAL: Engine Server crashed during startup (code={server_proc.returncode})."
             )
             return False
 
-        if send_minimal_ping():
+        last_status = send_minimal_ping_status()
+        if last_status == "ok":
             return True
 
         if retry > 0 and retry % ENGINE_READY_WARNING_INTERVAL_RETRIES == 0:
             logger.warning(
-                f"Engine Server not ready yet (retry {retry}/{ENGINE_READY_MAX_RETRIES})..."
+                f"Engine Server not ready yet (status={last_status}, "
+                f"retry {retry}/{max_retries})..."
             )
         time.sleep(ENGINE_READY_POLL_INTERVAL_SECONDS)
 
-    logger.error("CRITICAL: Engine Server failed to start. Check cortex.log.")
+    if last_status == "loading":
+        logger.info(
+            "Engine Server is still loading in background after "
+            f"{max_retries}s. Run 'cortex-ctl status' to track readiness, "
+            "or set CORTEX_START_TIMEOUT to wait longer synchronously."
+        )
+        return True
+
+    logger.error(
+        f"CRITICAL: Engine Server failed to become ready (last status={last_status}). "
+        "Check cortex.log."
+    )
     return False
 
 

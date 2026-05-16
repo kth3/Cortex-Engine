@@ -72,7 +72,30 @@ function Stage($title) {
 function Test-CortexReady {
     $status = Invoke-CortexCtl status 2>&1 | Out-String
     Write-Host $status
-    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[READY\]' -and $status -match 'IPC Endpoint\s+:\s+\[OK\]')
+    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[(READY|LOADING)\]' -and $status -match 'IPC Endpoint\s+:\s+\[OK\]')
+}
+
+function Test-CortexFullyReady {
+    $status = Invoke-CortexCtl status 2>&1 | Out-String
+    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[READY\]')
+}
+
+function Wait-CortexReady {
+    $timeout = if ($env:CORTEX_DIAG_READY_TIMEOUT) { [int]$env:CORTEX_DIAG_READY_TIMEOUT } else { 90 }
+    $elapsed = 0
+    while ($elapsed -lt $timeout) {
+        if (Test-CortexFullyReady) {
+            Write-Host "Engine reached READY after ${elapsed}s." -ForegroundColor Green
+            return "ready"
+        }
+        Start-Sleep -Seconds 1
+        $elapsed += 1
+    }
+    if (Test-CortexReady) {
+        Write-Host "Engine still LOADING after ${timeout}s (CORTEX_DIAG_READY_TIMEOUT). Accepting as healthy." -ForegroundColor Yellow
+        return "loading"
+    }
+    return "unreachable"
 }
 
 $failures = @()
@@ -91,8 +114,9 @@ if ($baselinePids.Count -gt 0) {
 Stage "1. cortex-ctl start"
 Invoke-CortexCtl start
 Start-Sleep -Seconds 4
-if (-not (Test-CortexReady)) {
-    $failures += "start 후 Engine Server READY 상태 확인 실패"
+$readyState = Wait-CortexReady
+if ($readyState -eq "unreachable") {
+    $failures += "start 후 Engine Server READY/LOADING 상태 확인 실패"
 }
 $afterStart = Get-CortexPids
 Write-Host "기동된 cortex 프로세스 수: $($afterStart.Count)"

@@ -54,6 +54,8 @@ The runtime is split into path resolution, IPC, process launch, locks, logging, 
 - `CORTEX_DATA_HOME`: global data root, default `~/.cortex`.
 - `CORTEX_WORKSPACE_KEY`: optional shared key for grouping multiple folders into one Cortex workspace.
 - `CORTEX_ENV_PATH`: explicit dotenv path.
+- `CORTEX_START_TIMEOUT`: seconds `cortex-ctl start` waits for the engine. Default 35; use 60-120 on WSL/CUDA. If the deadline elapses while the engine is still `loading`, `start` emits an INFO note and returns success while the engine keeps loading in the background.
+- `CORTEX_DIAG_READY_TIMEOUT`: seconds the diagnostic scripts (`zombie-check.{sh,ps1}`) poll for `READY` before accepting `LOADING`. Default 90.
 
 Code indexes, memory DBs, graph stores, and session history live under `<CORTEX_DATA_HOME>/workspaces/<key>/`. The default key is derived from the workspace path; set `CORTEX_WORKSPACE_KEY` when multiple repositories should share one Cortex data directory.
 

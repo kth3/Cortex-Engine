@@ -49,8 +49,33 @@ stage() {
 cortex_ready() {
     status="$(cortex_ctl status 2>&1)"
     printf '%s\n' "$status"
-    printf '%s\n' "$status" | grep -Eq 'Engine Server[[:space:]]*:[[:space:]]*RUNNING .*\[READY\]' &&
+    printf '%s\n' "$status" | grep -Eq 'Engine Server[[:space:]]*:[[:space:]]*RUNNING .*\[(READY|LOADING)\]' &&
         printf '%s\n' "$status" | grep -Eq 'IPC Endpoint[[:space:]]*:[[:space:]]*\[OK\]'
+}
+
+cortex_fully_ready() {
+    status="$(cortex_ctl status 2>&1)"
+    printf '%s\n' "$status" | grep -Eq 'Engine Server[[:space:]]*:[[:space:]]*RUNNING .*\[READY\]'
+}
+
+# Poll until status is READY or the timeout (CORTEX_DIAG_READY_TIMEOUT, default 90s)
+# elapses. Returns 0 if READY, 1 if still LOADING (acceptable), 2 if neither.
+wait_for_ready() {
+    local timeout="${CORTEX_DIAG_READY_TIMEOUT:-90}"
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if cortex_fully_ready; then
+            echo "Engine reached READY after ${elapsed}s."
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    if cortex_ready; then
+        echo "Engine still LOADING after ${timeout}s (CORTEX_DIAG_READY_TIMEOUT). Accepting as healthy."
+        return 1
+    fi
+    return 2
 }
 
 # 0. 기준선
@@ -67,9 +92,11 @@ fi
 stage "1. cortex-ctl start"
 cortex_ctl start || true
 sleep 4
-if ! cortex_ready; then
-    failures+=("start 후 Engine Server READY 상태 확인 실패")
-fi
+case "$(wait_for_ready; echo $?)" in
+    *0) : ;;
+    *1) : ;;
+    *)  failures+=("start 후 Engine Server READY/LOADING 상태 확인 실패") ;;
+esac
 echo "기동된 프로세스:"
 cortex_pids
 vram_after_start=$(vram_used_mib)

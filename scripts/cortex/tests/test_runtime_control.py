@@ -189,6 +189,7 @@ class StartTests(unittest.TestCase):
     @patch("cortex.runtime.control.control_lock")
     @patch("cortex.runtime.control.resolve_local_daemon_script")
     @patch("cortex.runtime.control.get_pids")
+    @patch("cortex.runtime.control.send_minimal_ping_status")
     @patch("cortex.runtime.control.send_minimal_ping")
     @patch("cortex.runtime.control._perform_stop")
     @patch("cortex.runtime.control.build_child_env", return_value={"A": "B"})
@@ -203,13 +204,15 @@ class StartTests(unittest.TestCase):
         _mock_build_child_env,
         mock_perform_stop,
         mock_send_minimal_ping,
+        mock_send_minimal_ping_status,
         mock_get_pids,
         mock_resolve_local_daemon_script,
         mock_control_lock,
     ):
         mock_control_lock.return_value = _lock_cm(True)
         mock_get_pids.side_effect = [[], []]
-        mock_send_minimal_ping.side_effect = [False, True]
+        mock_send_minimal_ping.return_value = False  # all_running check
+        mock_send_minimal_ping_status.return_value = "ok"  # _wait_for_engine_ready
         local_daemon = Path("/a/daemon.py")
         mock_resolve_local_daemon_script.return_value = local_daemon
         server_proc = Mock()
@@ -231,6 +234,7 @@ class StartTests(unittest.TestCase):
     @patch("cortex.runtime.control.control_lock")
     @patch("cortex.runtime.control.resolve_local_daemon_script")
     @patch("cortex.runtime.control.get_pids")
+    @patch("cortex.runtime.control.send_minimal_ping_status")
     @patch("cortex.runtime.control.send_minimal_ping")
     @patch("cortex.runtime.control._perform_stop")
     @patch("cortex.runtime.control.build_child_env", return_value={"A": "B"})
@@ -245,14 +249,16 @@ class StartTests(unittest.TestCase):
         _mock_build_child_env,
         mock_perform_stop,
         mock_send_minimal_ping,
+        mock_send_minimal_ping_status,
         mock_get_pids,
         mock_resolve_local_daemon_script,
         mock_control_lock,
     ):
         mock_control_lock.return_value = _lock_cm(True)
         mock_get_pids.side_effect = [[], []]
-        # all_running check + 35 retries all false
-        mock_send_minimal_ping.side_effect = [False] + [False] * 35
+        mock_send_minimal_ping.return_value = False  # all_running check
+        # _wait_for_engine_ready keeps seeing "unreachable" until deadline → CRITICAL
+        mock_send_minimal_ping_status.return_value = "unreachable"
         mock_resolve_local_daemon_script.return_value = None
         server_proc = Mock()
         server_proc.poll.return_value = None
@@ -266,7 +272,10 @@ class StartTests(unittest.TestCase):
         mock_perform_stop.assert_called_once()
         mock_launch_local_daemon.assert_not_called()
         self.assertTrue(
-            any("CRITICAL: Engine Server failed to start" in str(args[0]) for args, _ in logger.error.call_args_list)
+            any(
+                "CRITICAL: Engine Server failed to become ready" in str(args[0])
+                for args, _ in logger.error.call_args_list
+            )
         )
 
 

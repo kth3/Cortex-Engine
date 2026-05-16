@@ -75,6 +75,8 @@ graph TD
 - `CORTEX_DATA_HOME`: 워크스페이스별 DB·인덱스가 저장되는 글로벌 루트(기본 `~/.cortex`)
 - `CORTEX_WORKSPACE_KEY`: 멀티레포 그룹화 — 여러 폴더를 한 워크스페이스로 묶을 때 동일 값을 박는다
 - `CORTEX_ENV_PATH`: `.env` 파일 위치를 직접 지정할 때 사용
+- `CORTEX_START_TIMEOUT`: `cortex-ctl start`가 엔진 ready를 기다리는 시간(초). 기본 35, WSL/CUDA에선 60~120 권장. timeout 도달 시 엔진이 `loading` 상태라면 INFO 메시지와 함께 백그라운드 로딩을 인정하고 success 반환
+- `CORTEX_DIAG_READY_TIMEOUT`: 진단 스크립트(`zombie-check.{sh,ps1}`)의 READY 폴링 시간(초). 기본 90
 
 코드 인덱스(`memories.db`, `graph_db_store/`)와 히스토리는 `<CORTEX_DATA_HOME>/workspaces/<sha1>/` 하위에 격리되며, 사용자 프로젝트 폴더에는 cortex 흔적이 남지 않습니다. 패키지(코드)와 데이터(인덱스·메모리)가 분리된 구조라 cortex 본체 업데이트가 워크스페이스 데이터를 건드리지 않습니다.
 

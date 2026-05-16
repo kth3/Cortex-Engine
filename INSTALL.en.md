@@ -91,6 +91,8 @@ When running from WSL2, prefer a Linux-home checkout such as `~/src/...`. Adviso
 | `CORTEX_DATA_HOME` | Global data root for workspace DBs/indexes | `~/.cortex` |
 | `CORTEX_WORKSPACE_KEY` | Shared key for grouping multiple folders | sha1 of workspace absolute path |
 | `CORTEX_ENV_PATH` | Explicit dotenv path | unset |
+| `CORTEX_START_TIMEOUT` | Seconds `cortex-ctl start` waits for the engine. Use 60-120 on WSL/CUDA. | 35 |
+| `CORTEX_DIAG_READY_TIMEOUT` | Seconds the diagnostic scripts poll for READY before accepting LOADING. | 90 |
 
 Indexes (`memories.db`, `graph_db_store/`) and history are isolated under `<CORTEX_DATA_HOME>/workspaces/<key>/`.
 
