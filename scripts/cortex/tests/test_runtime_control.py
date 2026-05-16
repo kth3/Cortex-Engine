@@ -48,14 +48,14 @@ class PerformStopTests(unittest.TestCase):
     @patch("cortex.runtime.control.cleanup_ports")
     @patch("cortex.runtime.control.time.sleep")
     @patch("cortex.runtime.control.terminate_pid")
-    @patch("cortex.runtime.control.os.kill")
+    @patch("cortex.runtime.control._request_graceful_stop", return_value=True)
     @patch("cortex.runtime.control.get_pids")
     @patch("cortex.runtime.control._service_scripts")
     def test_perform_stop_with_pids_runs_full_cleanup_path(
         self,
         mock_service_scripts,
         mock_get_pids,
-        mock_os_kill,
+        mock_request_stop,
         mock_terminate_pid,
         mock_sleep,
         mock_cleanup_ports,
@@ -72,7 +72,8 @@ class PerformStopTests(unittest.TestCase):
         with patch.object(control, "logger", logger):
             control._perform_stop()
 
-        self.assertEqual(mock_os_kill.call_count, 3)
+        self.assertEqual(mock_request_stop.call_count, 3)
+        mock_request_stop.assert_has_calls([call(101), call(102), call(201)], any_order=False)
         mock_terminate_pid.assert_has_calls(
             [call(101, logger), call(102, logger), call(201, logger)],
             any_order=False,

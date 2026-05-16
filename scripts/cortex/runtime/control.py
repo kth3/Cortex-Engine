@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+import psutil
+
 from cortex.logger import get_logger
 
 from .environment import build_child_env
@@ -15,6 +17,35 @@ from .local_daemon import resolve_local_daemon_script
 from .lock import control_lock
 from .paths import CORTEX_HOME, ENGINE_HOST, ENGINE_PORT, LOG_DIR, SERVER_SCRIPT, WATCHER_SCRIPT
 from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_background_process, terminate_pid
+
+
+def _request_graceful_stop(pid: int) -> bool:
+    """Ask a child process to stop, OS-correctly.
+
+    POSIX: SIGTERM. Child SIGTERM handler can run cleanup.
+    Windows: CTRL_BREAK_EVENT to a child started with
+    CREATE_NEW_PROCESS_GROUP. Child SIGBREAK handler can run cleanup.
+    Falls back to terminate()/TerminateProcess on failure.
+    """
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return False
+    if os.name == "nt":
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+            return True
+        except (ValueError, PermissionError, psutil.AccessDenied, OSError):
+            try:
+                proc.terminate()
+                return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                return False
+    try:
+        proc.terminate()
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
 
 logger = get_logger("ctl")
 
@@ -59,11 +90,8 @@ def _perform_stop() -> None:
         if pids:
             for pid in pids:
                 logger.info(f"Terminating {label} (PID: {pid})...")
-                try:
-                    os.kill(pid, signal.SIGTERM)
+                if _request_graceful_stop(pid):
                     all_pids.append(pid)
-                except Exception:
-                    pass
         else:
             logger.info(f"{label} is not running.")
 

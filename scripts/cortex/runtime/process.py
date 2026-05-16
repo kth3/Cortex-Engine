@@ -63,13 +63,31 @@ def force_cleanup_ports(logger, current_pid: int) -> None:
     force_release_ports(logger, TARGET_PORTS, current_pid)
 
 
+def _isolation_kwargs(*, isolate: bool) -> dict:
+    """OS-correct flags for spawning a child in its own session/process group.
+
+    POSIX: start_new_session=True → setsid(), independent process group.
+    Windows: CREATE_NEW_PROCESS_GROUP enables CTRL_BREAK_EVENT delivery without
+    propagating to the parent console. CREATE_NO_WINDOW avoids spawning a
+    visible console for background processes.
+    """
+    if not isolate:
+        return {}
+    if os.name == "nt":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            flags |= subprocess.CREATE_NO_WINDOW
+        return {"creationflags": flags}
+    return {"start_new_session": True}
+
+
 def launch_background_process(script: Path, env: dict[str, str]) -> subprocess.Popen:
     return subprocess.Popen(
         uv_cmd(script),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env=env,
-        start_new_session=True,
+        **_isolation_kwargs(isolate=True),
     )
 
 
@@ -84,5 +102,5 @@ def launch_logged_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=env,
-        start_new_session=start_new_session,
+        **_isolation_kwargs(isolate=start_new_session),
     )

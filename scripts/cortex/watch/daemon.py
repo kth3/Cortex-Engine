@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 import time
 import traceback
@@ -135,6 +136,37 @@ class DebouncedIndexer(FileSystemEventHandler):
         logger.info("================================================")
 
 
+_SHUTDOWN_REQUESTED = False
+
+
+def _install_signal_handlers(observer):
+    """Register graceful shutdown handlers for the watcher.
+
+    - POSIX SIGTERM: 'cortex-ctl stop' or 'kill <pid>'.
+    - Windows SIGBREAK: CTRL_BREAK_EVENT delivered by 'cortex-ctl stop' when
+      the watcher was launched with CREATE_NEW_PROCESS_GROUP.
+    """
+
+    def _on_signal(signum, _frame):
+        global _SHUTDOWN_REQUESTED
+        _SHUTDOWN_REQUESTED = True
+        logger.info(f"[watcher] Received signal {signum}. Stopping observer...")
+        try:
+            observer.stop()
+        except Exception as exc:
+            logger.error(f"[watcher] observer.stop() failed: {exc}")
+
+    try:
+        signal.signal(signal.SIGTERM, _on_signal)
+    except (ValueError, OSError):
+        pass
+    if hasattr(signal, "SIGBREAK"):
+        try:
+            signal.signal(signal.SIGBREAK, _on_signal)
+        except (ValueError, OSError):
+            pass
+
+
 def main():
     env_file = CORTEX_HOME / ".env"
     if env_file.exists():
@@ -147,11 +179,13 @@ def main():
     print_ready_banner()
 
     observer.start()
+    _install_signal_handlers(observer)
+
     last_heartbeat = 0
     heartbeat_interval = 60
 
     try:
-        while True:
+        while observer.is_alive() and not _SHUTDOWN_REQUESTED:
             time.sleep(1)
             event_handler.process_queue()
 
@@ -162,9 +196,14 @@ def main():
                 )
                 last_heartbeat = now
     except KeyboardInterrupt:
-        observer.stop()
-
-    observer.join()
+        logger.info("[watcher] KeyboardInterrupt received. Stopping observer...")
+    finally:
+        try:
+            observer.stop()
+        except Exception:
+            pass
+        observer.join(timeout=5)
+        logger.info("[watcher] Shutdown complete.")
 
 
 if __name__ == "__main__":
