@@ -216,7 +216,7 @@ def restart() -> None:
     start()
 
 
-_USAGE = "Usage: cortex-ctl [start|stop|restart|status|knowledge ...|migrate ...]"
+_USAGE = "Usage: cortex-ctl [start|stop|restart|status|knowledge ...|migrate ...|bootstrap ...]"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,6 +247,9 @@ def main(argv: list[str] | None = None) -> int:
     if command == "migrate":
         from cortex.runtime import migrate_cli
         return migrate_cli.main(args[1:])
+    if command == "bootstrap":
+        from cortex.runtime import bootstrap_cli
+        return bootstrap_cli.main(args[1:])
 
     print(f"Unknown command: {command}")
     return 1
