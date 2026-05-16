@@ -16,9 +16,41 @@
 
 $ErrorActionPreference = "Stop"
 
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$TargetScripts = @(
+    (Join-Path $RepoRoot "scripts\cortex\vector_engine_server.py"),
+    (Join-Path $RepoRoot "scripts\cortex\watch\daemon.py"),
+    (Join-Path $RepoRoot "scripts\cortex\runtime\engine_worker.py")
+) | ForEach-Object { (Resolve-Path $_).Path }
+
+if (Get-Command cortex-ctl -ErrorAction SilentlyContinue) {
+    $CortexCtl = @("cortex-ctl")
+} else {
+    $CortexCtl = @("uv", "run", "cortex-ctl")
+}
+
+function Invoke-CortexCtl {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    $ErrorActionPreference = "Continue"
+    $cmd = $CortexCtl[0]
+    $prefix = @()
+    if ($CortexCtl.Count -gt 1) {
+        $prefix = $CortexCtl[1..($CortexCtl.Count - 1)]
+    }
+    & $cmd @prefix @Args
+}
+
 function Get-CortexPids {
+    $patterns = $TargetScripts | ForEach-Object { [regex]::Escape($_) }
     $procs = Get-CimInstance Win32_Process |
-        Where-Object { $_.CommandLine -match 'cortex|vector_engine_server|watch[\\/]daemon\.py' }
+        Where-Object {
+            $cmd = $_.CommandLine
+            if (-not $cmd) { return $false }
+            foreach ($pattern in $patterns) {
+                if ($cmd -match $pattern) { return $true }
+            }
+            return $false
+        }
     return $procs | Select-Object ProcessId, Name, CommandLine
 }
 
@@ -37,6 +69,12 @@ function Stage($title) {
     Write-Host "=== $title ===" -ForegroundColor Cyan
 }
 
+function Test-CortexReady {
+    $status = Invoke-CortexCtl status 2>&1 | Out-String
+    Write-Host $status
+    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[READY\]' -and $status -match 'IPC Endpoint\s+:\s+\[OK\]')
+}
+
 $failures = @()
 
 # 0. 기준선
@@ -51,8 +89,11 @@ if ($baselinePids.Count -gt 0) {
 
 # 1. 정상 start → stop
 Stage "1. cortex-ctl start"
-& cortex-ctl start
+Invoke-CortexCtl start
 Start-Sleep -Seconds 4
+if (-not (Test-CortexReady)) {
+    $failures += "start 후 Engine Server READY 상태 확인 실패"
+}
 $afterStart = Get-CortexPids
 Write-Host "기동된 cortex 프로세스 수: $($afterStart.Count)"
 $afterStart | Format-Table ProcessId, Name -AutoSize | Out-Host
@@ -60,7 +101,7 @@ $vramAfterStart = Get-VramUsedMb
 Write-Host "VRAM 사용량(MiB): $(if ($vramAfterStart -ne $null) { $vramAfterStart } else { 'n/a' })"
 
 Stage "2. cortex-ctl stop"
-& cortex-ctl stop
+Invoke-CortexCtl stop
 Start-Sleep -Seconds 4
 $afterStop = Get-CortexPids
 Write-Host "stop 직후 잔존 프로세스 수: $($afterStop.Count)"
@@ -79,8 +120,11 @@ if ($baselineVram -ne $null -and $vramAfterStop -ne $null) {
 
 # 2. 강제 종료 시나리오
 Stage "3. cortex-ctl start (재기동)"
-& cortex-ctl start
+Invoke-CortexCtl start
 Start-Sleep -Seconds 4
+if (-not (Test-CortexReady)) {
+    $failures += "재기동 후 Engine Server READY 상태 확인 실패"
+}
 $beforeKill = Get-CortexPids
 Write-Host "재기동된 프로세스: $($beforeKill.Count)"
 

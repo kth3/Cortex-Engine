@@ -10,9 +10,24 @@
 set -u
 
 failures=()
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+target_regex="$(printf '%s\n' \
+    "$repo_root/scripts/cortex/vector_engine_server.py" \
+    "$repo_root/scripts/cortex/watch/daemon.py" \
+    "$repo_root/scripts/cortex/runtime/engine_worker.py" |
+    sed 's/[.[\*^$()+?{}|]/\\&/g' |
+    paste -sd '|' -)"
+
+cortex_ctl() {
+    if command -v cortex-ctl >/dev/null 2>&1; then
+        cortex-ctl "$@"
+    else
+        uv run cortex-ctl "$@"
+    fi
+}
 
 cortex_pids() {
-    pgrep -af 'cortex|vector_engine_server|watch/daemon\.py' || true
+    pgrep -af "$target_regex" || true
 }
 
 cortex_pid_count() {
@@ -31,6 +46,13 @@ stage() {
     printf "\n=== %s ===\n" "$1"
 }
 
+cortex_ready() {
+    status="$(cortex_ctl status 2>&1)"
+    printf '%s\n' "$status"
+    printf '%s\n' "$status" | grep -Eq 'Engine Server[[:space:]]*:[[:space:]]*RUNNING .*\[READY\]' &&
+        printf '%s\n' "$status" | grep -Eq 'IPC Endpoint[[:space:]]*:[[:space:]]*\[OK\]'
+}
+
 # 0. 기준선
 stage "0. 기준선 (cortex 미기동)"
 baseline_count=$(cortex_pid_count)
@@ -43,15 +65,18 @@ fi
 
 # 1. 정상 start → stop
 stage "1. cortex-ctl start"
-cortex-ctl start || true
+cortex_ctl start || true
 sleep 4
+if ! cortex_ready; then
+    failures+=("start 후 Engine Server READY 상태 확인 실패")
+fi
 echo "기동된 프로세스:"
 cortex_pids
 vram_after_start=$(vram_used_mib)
 echo "VRAM 사용량(MiB): ${vram_after_start:-n/a}"
 
 stage "2. cortex-ctl stop"
-cortex-ctl stop || true
+cortex_ctl stop || true
 sleep 4
 after_stop_count=$(cortex_pid_count)
 echo "stop 직후 잔존 프로세스 수: $after_stop_count"
@@ -70,13 +95,16 @@ fi
 
 # 2. 강제 종료 시나리오
 stage "3. cortex-ctl start (재기동)"
-cortex-ctl start || true
+cortex_ctl start || true
 sleep 4
+if ! cortex_ready; then
+    failures+=("재기동 후 Engine Server READY 상태 확인 실패")
+fi
 echo "재기동된 프로세스:"
 cortex_pids
 
 stage "4. SIGKILL — cortex 자식 프로세스 강제 종료"
-worker_pids=$(pgrep -f 'vector_engine_server|watch/daemon\.py' || true)
+worker_pids=$(pgrep -f "$repo_root/scripts/cortex/vector_engine_server.py|$repo_root/scripts/cortex/watch/daemon.py" || true)
 for pid in $worker_pids; do
     echo "kill -9 $pid"
     kill -9 "$pid" 2>/dev/null || true
