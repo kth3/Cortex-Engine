@@ -193,6 +193,115 @@ class BootstrapTests(unittest.TestCase):
             self.assertFalse((knowledge_dir / "resources").exists())
 
 
+class BootstrapHfTokenTests(unittest.TestCase):
+    def test_hf_token_arg_writes_to_data_home_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--hf-token", "hf_secret_xyz"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["hf_token"]["status"], "saved")
+            env_path = Path(data["hf_token"]["path"])
+            self.assertTrue(env_path.is_file())
+            self.assertIn("HF_TOKEN=hf_secret_xyz", env_path.read_text(encoding="utf-8"))
+
+    def test_hf_token_upsert_preserves_other_env_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            from cortex.paths import data_home
+            existing = data_home() / ".env"
+            existing.parent.mkdir(parents=True, exist_ok=True)
+            existing.write_text("CORTEX_DEBUG=1\nHF_TOKEN=old\n", encoding="utf-8")
+
+            _run(
+                ["--hf-token", "new_token"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            content = existing.read_text(encoding="utf-8")
+            self.assertIn("CORTEX_DEBUG=1", content)
+            self.assertIn("HF_TOKEN=new_token", content)
+            self.assertNotIn("HF_TOKEN=old", content)
+
+    def test_dry_run_skips_hf_token_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--hf-token", "secret", "--dry-run"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["hf_token"]["status"], "dry-run-skip")
+
+
+class BootstrapWarmModelsTests(unittest.TestCase):
+    def test_warm_models_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            _exit, stdout = _run(
+                ["--warm-models", "--dry-run"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["warm_models"]["status"], "dry-run-skip")
+
+    def test_warm_models_invokes_snapshot_download(self):
+        from cortex.runtime import bootstrap_cli as bcli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+
+            with patch.object(bcli, "_warm_models", return_value={"status": "ok", "model": "Qwen/Qwen3-Embedding-0.6B"}) as warm:
+                _exit, stdout = _run(
+                    ["--warm-models"],
+                    codex_home=codex_home,
+                    claude_home=claude_home,
+                    workspace=workspace,
+                )
+
+            data = json.loads(stdout)
+            self.assertEqual(data["warm_models"]["status"], "ok")
+            self.assertIn("Qwen", data["warm_models"]["model"])
+            warm.assert_called_once()
+
+
 class BootstrapDispatchTests(unittest.TestCase):
     def test_bootstrap_routes_to_bootstrap_cli(self):
         with patch.object(bootstrap_cli, "main", return_value=0) as cli_main:

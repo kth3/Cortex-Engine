@@ -10,8 +10,54 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from cortex.integrations import claude_hook, codex_hook
-from cortex.paths import resolve_workspace, workspace_data_dir
+from cortex.paths import data_home, resolve_workspace, workspace_data_dir
 from cortex.runtime import knowledge_cli
+
+HF_TOKEN_ENV_KEY = "HF_TOKEN"
+
+
+def _upsert_env(path: Path, key: str, value: str) -> None:
+    """Insert or update `key=value` in a dotenv-style file, preserving other lines."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    prefix = f"{key}="
+    found = False
+    out: list[str] = []
+    for line in lines:
+        if line.startswith(prefix):
+            out.append(f"{key}={value}")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(f"{key}={value}")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def _save_hf_token(token: str) -> dict:
+    env_path = data_home() / ".env"
+    _upsert_env(env_path, HF_TOKEN_ENV_KEY, token)
+    return {"status": "saved", "path": str(env_path)}
+
+
+def _warm_models(token: str | None, dry_run: bool) -> dict:
+    if dry_run:
+        return {"status": "dry-run-skip"}
+    try:
+        from cortex.embeddings.provider import MODEL_ID
+        from huggingface_hub import snapshot_download
+    except Exception as exc:
+        return {"status": "import-error", "error": str(exc)}
+    try:
+        snapshot_download(
+            repo_id=MODEL_ID,
+            token=token or os.environ.get(HF_TOKEN_ENV_KEY) or None,
+            resume_download=True,
+            max_workers=4,
+        )
+    except Exception as exc:
+        return {"status": "error", "model": MODEL_ID, "error": str(exc)}
+    return {"status": "ok", "model": MODEL_ID}
 
 
 def _hook_install_namespace(
@@ -102,6 +148,15 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
         )
 
+    if args.hf_token:
+        if args.dry_run:
+            result["hf_token"] = {"status": "dry-run-skip"}
+        else:
+            result["hf_token"] = _save_hf_token(args.hf_token)
+
+    if args.warm_models:
+        result["warm_models"] = _warm_models(token=args.hf_token, dry_run=args.dry_run)
+
     print(json.dumps(result, ensure_ascii=False))
     return 0
 
@@ -122,6 +177,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force-knowledge", action="store_true", help="Overwrite existing knowledge expansion.")
     parser.add_argument("--codex-hook-command", default=None, help="Override cortex-codex-hook path.")
     parser.add_argument("--claude-hook-command", default=None, help="Override cortex-claude-hook path.")
+    parser.add_argument(
+        "--hf-token",
+        default=None,
+        help="HuggingFace access token. Saved to <CORTEX_DATA_HOME>/.env for future runs.",
+    )
+    parser.add_argument(
+        "--warm-models",
+        action="store_true",
+        help="Pre-download the embedding model so the first MCP call doesn't pay the cost.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Plan only — do not write files.")
     parser.set_defaults(handler=_run_bootstrap)
     return parser

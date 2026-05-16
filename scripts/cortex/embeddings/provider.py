@@ -23,6 +23,14 @@ def _resolve_env_path() -> Path:
     if home:
         return Path(home).expanduser().resolve() / ".env"
 
+    try:
+        from cortex.paths import data_home
+        global_env = data_home() / ".env"
+        if global_env.exists():
+            return global_env
+    except Exception:
+        pass
+
     capsule_root = Path(__file__).resolve().parents[3]
     candidate = capsule_root / ".env"
     if candidate.exists():
