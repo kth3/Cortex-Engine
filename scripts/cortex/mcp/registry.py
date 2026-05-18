@@ -55,11 +55,7 @@ def _tool(name, description, properties=None, required=None):
     }
 
 
-TOOL_PC_REINDEX = "pc_reindex"
 TOOL_PC_INDEX_STATUS = "pc_index_status"
-TOOL_PC_INDEX_ROOTS_LIST = "pc_index_roots_list"
-TOOL_PC_INDEX_ROOTS_ADD = "pc_index_roots_add"
-TOOL_PC_INDEX_ROOTS_REMOVE = "pc_index_roots_remove"
 TOOL_PC_CAPSULE = "pc_capsule"
 TOOL_PC_SKELETON = "pc_skeleton"
 TOOL_PC_IMPACT_GRAPH = "pc_impact_graph"
@@ -78,7 +74,6 @@ TOOL_PC_MEMORY_READ = "pc_memory_read"
 TOOL_PC_SAVE_OBSERVATION = "pc_save_observation"
 TOOL_PC_MEMORY_SEARCH_KNOWLEDGE = "pc_memory_search_knowledge"
 
-DEFAULT_INDEX_ROOT_DRY_RUN = True
 DEFAULT_CAPSULE_TOKEN_BUDGET = 4000
 DEFAULT_CAPSULE_AUTO_CHAIN = False
 DEFAULT_SKELETON_DETAIL = "standard"
@@ -95,53 +90,10 @@ DEFAULT_AUTO_CONTEXT_TOKEN_BUDGET = 2000
 DEFAULT_MEMORY_CONSOLIDATE_DRY_RUN = True
 
 
-def _pc_reindex_tool():
-    return _tool(
-        TOOL_PC_REINDEX,
-        "⚠️ DESTRUCTIVE — 인덱스 전체 재구성. 일상 워크플로에서는 watcher 기반 증분 인덱싱이 자동 동작하므로 호출 불필요. 파서 수정·DB 오염·스키마 마이그레이션 같은 명시적 사유가 있을 때만 사용. force=true는 file_cache 전체 무효화 + 모든 파일 재파싱·재임베딩(GPU 비용) 발생.",
-        {
-            "force": _boolean_property(
-                "⚠️ destructive. 호출 시 사유(파서 수정/DB 오염 등)를 명시할 것"
-            )
-        },
-    )
-
-
 def _pc_index_status_tool():
     return _tool(
         TOOL_PC_INDEX_STATUS,
         "인덱스 상태",
-    )
-
-
-def _pc_index_roots_list_tool():
-    return _tool(
-        TOOL_PC_INDEX_ROOTS_LIST,
-        "현재 인덱싱 루트 설정 조회",
-    )
-
-
-def _pc_index_roots_add_tool():
-    return _tool(
-        TOOL_PC_INDEX_ROOTS_ADD,
-        "settings.local.yaml에 인덱싱 루트 추가. 기본 dry_run=true로 스캔 수만 계산.",
-        {
-            "path": _string_property("워크스페이스 기준 상대 경로 또는 워크스페이스 내부 절대 경로"),
-            "dry_run": _boolean_property(default=DEFAULT_INDEX_ROOT_DRY_RUN),
-        },
-        ["path"],
-    )
-
-
-def _pc_index_roots_remove_tool():
-    return _tool(
-        TOOL_PC_INDEX_ROOTS_REMOVE,
-        "settings.local.yaml의 인덱싱 루트 제거. 기본 dry_run=true로 스캔 수만 계산.",
-        {
-            "path": _string_property("제거할 인덱싱 루트"),
-            "dry_run": _boolean_property(default=DEFAULT_INDEX_ROOT_DRY_RUN),
-        },
-        ["path"],
     )
 
 
@@ -372,11 +324,7 @@ def _pc_memory_search_knowledge_tool():
 
 
 TOOLS = [
-    _pc_reindex_tool(),
     _pc_index_status_tool(),
-    _pc_index_roots_list_tool(),
-    _pc_index_roots_add_tool(),
-    _pc_index_roots_remove_tool(),
     _pc_capsule_tool(),
     _pc_skeleton_tool(),
     _pc_impact_graph_tool(),

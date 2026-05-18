@@ -26,7 +26,6 @@ else:
 MCP = AGENTS_HOME / "scripts" / "cortex_mcp.py"
 MCP_FQN_PREFIX = ".cortex\\scripts" if AGENTS_HOME.name == ".cortex" else "scripts"
 RUNTIME_WORKSPACE = Path(os.environ.get("CORTEX_WORKSPACE", str(WS))).resolve()
-INDEX_ROOTS_TEST_PATH = "src" if (RUNTIME_WORKSPACE / "src").exists() else (AGENTS_HOME / "scripts" / "cortex" / "tests").relative_to(WS).as_posix()
 IMPACT_FQN = f"{MCP_FQN_PREFIX}\\smoke.py::smoke_symbol"
 
 
@@ -48,11 +47,7 @@ requests = [
      "params": {"name": "pc_impact_graph",
                 "arguments": {"fqn": IMPACT_FQN,
                               "max_nodes": 10, "max_depth": 2}}},
-    # T5: index_roots dry-run tool
-    {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
-     "params": {"name": "pc_index_roots_add",
-                "arguments": {"path": INDEX_ROOTS_TEST_PATH, "dry_run": True}}},
-    # T6: pc_auto_context — Codex SessionStart adapter가 쓰는 MCP 계약
+    # T5: pc_auto_context — Codex SessionStart adapter가 쓰는 MCP 계약
     {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
      "params": {"name": "pc_auto_context",
                 "arguments": {"token_budget": 1000}}},
@@ -213,8 +208,10 @@ def _check_results(results, err, env):
     print(f"[T1] tools/list count={len(tool_names)}")
     check("pc_capsule present", 'pc_capsule' in tool_names)
     check("pc_auto_context present", 'pc_auto_context' in tool_names)
-    check("pc_index_roots_add present", 'pc_index_roots_add' in tool_names)
-    check("pc_index_roots_list present", 'pc_index_roots_list' in tool_names)
+    check("pc_index_roots_add removed", 'pc_index_roots_add' not in tool_names)
+    check("pc_index_roots_list removed", 'pc_index_roots_list' not in tool_names)
+    check("pc_index_roots_remove removed", 'pc_index_roots_remove' not in tool_names)
+    check("pc_reindex removed", 'pc_reindex' not in tool_names)
     cap = next((t for t in tl if t["name"] == "pc_capsule"), None)
     if cap:
         cap_props = cap.get("inputSchema", {}).get("properties", {})
@@ -233,10 +230,6 @@ def _check_results(results, err, env):
     if mc:
         mc_props = mc.get("inputSchema", {}).get("properties", {})
         check("pc_memory_consolidate.dry_run default", mc_props.get('dry_run', {}).get('default') is True)
-    ri = next((t for t in tl if t["name"] == "pc_reindex"), None)
-    if ri:
-        check("pc_reindex destructive warning", 'DESTRUCTIVE' in ri.get('description', ''))
-
     print()
     idx = results.get(3, {}).get("result")
     if isinstance(idx, dict):
@@ -267,12 +260,6 @@ def _check_results(results, err, env):
         check("impact_graph metadata keys", all(k in ig_res for k in ("truncated", "limit", "returned_count", "total_seen")))
     else:
         check("impact_graph metadata keys", False, "non-dict response")
-
-    print()
-    ir_res = _extract(results.get(6, {}).get("result"))
-    if isinstance(ir_res, dict):
-        check("index_roots_add dry_run executed false", ir_res.get('executed') is False)
-        check("index_roots_add scan_count present", isinstance(ir_res.get('scan_count'), int))
 
     print()
     ac_res = _extract(results.get(7, {}).get("result"))

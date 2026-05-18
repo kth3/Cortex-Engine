@@ -31,10 +31,14 @@ def resolve_cortex_home(workspace: str | os.PathLike | None = None) -> Path:
         return Path(env_home).resolve()
 
     base = Path(workspace or os.getcwd()).resolve()
+    workspace_local_home = base / DEFAULT_CORTEX_HOME_NAME
+    if workspace_local_home.exists():
+        return workspace_local_home.resolve()
 
     for name in CORTEX_HOME_NAMES:
         if name in base.parts:
-            idx = base.parts.index(name)
+            # 중첩된 임시 워크스페이스에서는 가장 가까운 .cortex가 해당 워크스페이스의 홈이다.
+            idx = len(base.parts) - 1 - list(reversed(base.parts)).index(name)
             return Path(*base.parts[: idx + 1])
 
     return (Path.home() / DEFAULT_CORTEX_HOME_NAME).resolve()

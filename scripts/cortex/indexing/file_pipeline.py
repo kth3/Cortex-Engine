@@ -10,6 +10,7 @@ from cortex.config.settings import load_settings
 from cortex.indexing.cleanup import cleanup_file_records
 from cortex.indexing.constants import SUPPORTED_EXTENSIONS
 from cortex.indexing.graph_sync import sync_file_graph
+from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import FILE_CACHE_HASH_BY_PATH_SQL
 from cortex.indexing.records import build_node_rows, insert_edges, insert_nodes, upsert_file_cache
 from cortex.indexing.vector_store import dedupe_vector_items, persist_node_vectors
@@ -22,7 +23,7 @@ def read_text_file(path):
         return f.read()
 
 
-def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True, use_gpu: bool = None):
+def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True, use_gpu: bool = None, source_path: str | None = None):
     """단일 파일에 대한 정밀 인덱싱 및 임베딩.
 
     Args:
@@ -31,7 +32,8 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
                            (index_workspace의 배치 모드에서 사용).
         use_gpu: None(자동), True(GPU강제), False(CPU강제)
     """
-    full_path = os.path.join(workspace, rel_path)
+    settings = load_settings(workspace)
+    full_path = source_path or str(source_path_for_index_path(workspace, rel_path, settings))
     if not os.path.exists(full_path):
         close_conn = False
         if conn is None:
@@ -52,7 +54,6 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
     except Exception as e:
         return {"error": str(e)}
 
-    settings = load_settings(workspace)
     workspace_id = hashlib.md5(workspace.encode()).hexdigest()[:8]
     ext = os.path.splitext(rel_path)[1]
     mod_name = get_module_name(rel_path, settings)

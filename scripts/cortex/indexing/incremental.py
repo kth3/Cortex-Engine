@@ -6,11 +6,13 @@ import os
 import time
 
 from cortex import storage as db
+from cortex.config.settings import load_settings
 from cortex.embeddings import batch_vectorize_memories, batch_vectorize_nodes
 from cortex.indexing.cleanup import cleanup_deleted_files
 from cortex.indexing.constants import SUPPORTED_EXTENSIONS
 from cortex.indexing.edge_resolver import resolve_unresolved_edges
 from cortex.indexing.file_pipeline import index_file
+from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import LAST_INDEXED_AT_SQL, UPSERT_LAST_INDEXED_AT_SQL
 from cortex.indexing.rules_sync import sync_rules_to_memories
 from cortex.logger import get_logger
@@ -40,10 +42,11 @@ def incremental_index_changed(workspace: str) -> dict:
 
     last_indexed = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").timestamp()
     all_files = scan_files(workspace, SUPPORTED_EXTENSIONS)
+    settings = load_settings(workspace)
 
     changed_files = []
     for rel_path in all_files:
-        fpath = os.path.join(workspace, rel_path)
+        fpath = str(source_path_for_index_path(workspace, rel_path, settings))
         try:
             if os.path.exists(fpath) and os.path.getmtime(fpath) > last_indexed:
                 changed_files.append(rel_path)
@@ -60,7 +63,8 @@ def incremental_index_changed(workspace: str) -> dict:
     indexed = 0
     vector_items = []
     for rel_path in changed_files:
-        res = index_file(workspace, rel_path, conn=conn, vectorize=False)
+        source_path = str(source_path_for_index_path(workspace, rel_path, settings))
+        res = index_file(workspace, rel_path, conn=conn, vectorize=False, source_path=source_path)
         if "error" not in res:
             indexed += 1
             vector_items.extend(res.get("_vector_items", []))

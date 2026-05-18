@@ -38,11 +38,13 @@ def should_include(path: str, workspace: str, settings: dict) -> bool:
 
 def get_module_name(rel_path: str, settings: dict) -> str:
     """경로 기반 모듈명 판단"""
+    norm_path = rel_path.replace("\\", "/")
     modules = settings.get("indexing_rules", {}).get("modules", {})
     if isinstance(modules, dict):
         for mod_name, mod_paths in modules.items():
             for m_path in mod_paths:
-                if f"{m_path}{os.sep}" in f"{rel_path}{os.sep}" or rel_path.endswith(m_path):
+                norm_module_path = str(m_path).replace("\\", "/").strip("/")
+                if f"{norm_module_path}/" in f"{norm_path}/" or norm_path.endswith(norm_module_path):
                     return mod_name
-    parts = rel_path.split(os.sep)
+    parts = norm_path.split("/")
     return parts[0] if len(parts) > 1 else "root"

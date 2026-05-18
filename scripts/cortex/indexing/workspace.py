@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import datetime
-import os
 from pathlib import Path
 
 from cortex import storage as db
+from cortex.config.settings import load_settings
 from cortex.embeddings import batch_vectorize_memories, batch_vectorize_nodes, detect_gpu
 from cortex.indexing.cleanup import cleanup_deleted_files
 from cortex.indexing.constants import SUPPORTED_EXTENSIONS
 from cortex.indexing.edge_resolver import resolve_unresolved_edges
 from cortex.indexing.file_pipeline import index_file, read_text_file
+from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import DELETE_FILE_CACHE_SQL, SELECT_FILE_CACHE_SQL, UPSERT_LAST_INDEXED_AT_SQL
 from cortex.indexing.rules_sync import sync_rules_to_memories
 from cortex.logger import get_logger
@@ -92,6 +93,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     _sync_skills(workspace)
 
     files = scan_files(workspace, SUPPORTED_EXTENSIONS)
+    settings = load_settings(workspace)
     conn = db.get_connection(workspace)
     db.init_schema(conn)
 
@@ -103,7 +105,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     cache_dict = _load_file_cache(conn, force)
 
     for rel_path in files:
-        full_path = os.path.join(workspace, rel_path)
+        full_path = str(source_path_for_index_path(workspace, rel_path, settings))
         try:
             source = read_text_file(full_path)
         except Exception:
@@ -117,7 +119,7 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
                 stats["skipped"] += 1
                 continue
 
-        res = index_file(workspace, rel_path, conn=conn, vectorize=False)
+        res = index_file(workspace, rel_path, conn=conn, vectorize=False, source_path=full_path)
         _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
 
     use_gpu = detect_gpu()

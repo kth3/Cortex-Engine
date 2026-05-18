@@ -287,7 +287,7 @@ def restart() -> None:
     start()
 
 
-_USAGE = "Usage: cortex-ctl [start|stop|restart|status|knowledge ...|migrate ...|bootstrap ...]"
+_USAGE = "Usage: cortex-ctl [start|stop|restart|status|index-roots ...|knowledge ...|migrate ...|bootstrap ...]"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -312,6 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     if command == "status":
         status()
         return 0
+    if command == "index-roots":
+        from cortex.runtime import index_roots_cli
+        return index_roots_cli.main(args[1:])
     if command == "knowledge":
         from cortex.runtime import knowledge_cli
         return knowledge_cli.main(args[1:])

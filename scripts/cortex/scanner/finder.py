@@ -1,42 +1,22 @@
 import os
 from pathlib import Path
 from cortex.config.settings import load_settings
+from cortex.indexing.index_roots import normalize_configured_index_roots
 from cortex.scanner.ignores import load_gitignore, should_ignore
 from cortex.scanner.filters import should_include
 from cortex.paths import resolve_cortex_home
 
 def get_index_roots(workspace: str, settings: dict) -> list[str]:
-    """settings의 index_roots를 워크스페이스 상대 경로 목록으로 정규화."""
-    rules = settings.get("indexing_rules", {})
-    roots = rules.get("index_roots")
-    if roots is None:
-        roots = ["."]
-    if isinstance(roots, str):
-        roots = [roots]
+    """settings의 index_roots를 DB 저장용 경로 목록으로 정규화."""
+    return [root.db_root for root in normalize_configured_index_roots(workspace, settings)]
 
-    workspace_path = Path(workspace).resolve()
-    normalized = []
-    for root in roots or []:
-        if not root:
-            continue
-        candidate = (workspace_path / root).resolve()
-        try:
-            rel = candidate.relative_to(workspace_path)
-        except ValueError:
-            continue
-        rel_text = "." if str(rel) == "." else str(rel).replace("\\", "/")
-        if rel_text not in normalized:
-            normalized.append(rel_text)
-    return normalized
-
-def _iter_index_root_files(workspace: str, root_rel: str, supported_extensions: dict, ignore_patterns: list):
-    workspace_path = Path(workspace).resolve()
-    root_path = workspace_path if root_rel == "." else (workspace_path / root_rel).resolve()
+def _iter_index_root_files(workspace: str, index_root, supported_extensions: dict, ignore_patterns: list):
+    root_path = index_root.source_path
     if not root_path.exists():
         return
     if root_path.is_file():
         if root_path.suffix in supported_extensions and not should_ignore(str(root_path), ignore_patterns, workspace):
-            yield str(root_path)
+            yield str(root_path), index_root.db_root
         return
     for root, dirs, filenames in os.walk(root_path):
         dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), ignore_patterns, workspace)]
@@ -44,7 +24,13 @@ def _iter_index_root_files(workspace: str, root_rel: str, supported_extensions: 
             full_path = os.path.join(root, fname)
             ext = os.path.splitext(fname)[1]
             if ext in supported_extensions and not should_ignore(full_path, ignore_patterns, workspace):
-                yield full_path
+                rel = os.path.relpath(full_path, str(root_path))
+                rel = rel.replace("\\", "/")
+                if index_root.db_root == ".":
+                    db_path = os.path.relpath(full_path, workspace).replace("\\", "/")
+                else:
+                    db_path = f"{index_root.db_root}/{rel}"
+                yield full_path, db_path
 
 def scan_files(workspace: str, supported_extensions: dict, settings_override: dict | None = None) -> list:
     """지능형 필터링을 적용하여 인덱싱할 파일 목록 확보"""
@@ -61,10 +47,10 @@ def scan_files(workspace: str, supported_extensions: dict, settings_override: di
     files = []
 
     # 1. 명시된 인덱싱 루트만 스캔
-    for root_rel in get_index_roots(workspace, settings):
-        for full_path in _iter_index_root_files(workspace, root_rel, supported_extensions, ignore_patterns):
+    for index_root in normalize_configured_index_roots(workspace, settings):
+        for full_path, db_path in _iter_index_root_files(workspace, index_root, supported_extensions, ignore_patterns):
             if should_include(full_path, workspace, settings):
-                files.append(os.path.relpath(full_path, workspace))
+                files.append(db_path)
                         
     # 2. Cortex 내부 규칙, 프로토콜, 설계 문서 강제 포함
     # [수정] knowledge 하위 폴더(resources/examples/skills)는 nodes 테이블 인덱싱에서 제외.
@@ -83,7 +69,7 @@ def scan_files(workspace: str, supported_extensions: dict, settings_override: di
         abs_doc_dir = os.path.join(workspace, doc_dir)
         if os.path.exists(abs_doc_dir):
             for path in Path(abs_doc_dir).rglob("*.md"):
-                files.append(os.path.relpath(str(path), workspace))
+                files.append(os.path.relpath(str(path), workspace).replace("\\", "/"))
 
     # Cortex 엔진 및 운영 스크립트 강제 포함 (메타개발 지원)
     cortex_scripts_dir = cortex_home / "scripts"
@@ -92,6 +78,6 @@ def scan_files(workspace: str, supported_extensions: dict, settings_override: di
             spath = str(path)
             if any(x in spath for x in ["__pycache__", ".venv", "site-packages"]):
                 continue
-            files.append(os.path.relpath(spath, workspace))
+            files.append(os.path.relpath(spath, workspace).replace("\\", "/"))
 
     return sorted(list(set(files)))

@@ -8,10 +8,7 @@ import json
 from cortex.hooks import manager as pc_hooks
 from cortex.mcp.response import create_text_response, create_error_response
 
-from cortex.mcp.tools.indexing import (
-    call_pc_reindex, call_pc_index_status, call_pc_index_roots_list,
-    call_pc_index_roots_add, call_pc_index_roots_remove
-)
+from cortex.mcp.tools.indexing import call_pc_index_status
 from cortex.mcp.tools.search import (
     call_pc_capsule, call_pc_skeleton, call_pc_impact_graph,
     call_pc_logic_flow, call_pc_run_pipeline
@@ -43,11 +40,7 @@ GUARDED_TOOL_NAMES = frozenset(
 
 # Tool 이름과 내부 handler의 매핑을 한 곳에 고정해 누락/중복을 줄인다.
 TOOL_HANDLERS = {
-    "pc_reindex": call_pc_reindex,
     "pc_index_status": call_pc_index_status,
-    "pc_index_roots_list": call_pc_index_roots_list,
-    "pc_index_roots_add": call_pc_index_roots_add,
-    "pc_index_roots_remove": call_pc_index_roots_remove,
     "pc_capsule": call_pc_capsule,
     "pc_skeleton": call_pc_skeleton,
     "pc_impact_graph": call_pc_impact_graph,
