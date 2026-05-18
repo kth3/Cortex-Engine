@@ -18,9 +18,12 @@ SEED_SUBDIRS = ("resources", "examples", "skills")
 
 def _cortex_home_for(workspace: Path) -> Path:
     resolved = workspace.resolve()
+    local_home = resolved / CORTEX_DIRNAME
+    if local_home.exists():
+        return local_home
     parts = resolved.parts
     if CORTEX_DIRNAME in parts:
-        idx = parts.index(CORTEX_DIRNAME)
+        idx = len(parts) - 1 - list(reversed(parts)).index(CORTEX_DIRNAME)
         return Path(*parts[: idx + 1])
     return resolved / CORTEX_DIRNAME
 

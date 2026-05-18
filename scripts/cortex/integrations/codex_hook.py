@@ -309,16 +309,13 @@ def run_event(
     return {}
 
 
-def _hook_command(hook_command_path: Path, event_name: str) -> str:
+def _hook_command(hook_command_path: Path, event_name: str, cortex_home: Path | None = None) -> str:
+    args = [str(hook_command_path), "run", event_name]
+    if cortex_home is not None:
+        args.extend(["--cortex-home", str(cortex_home)])
     if os.name == "nt":
-        return subprocess.list2cmdline([str(hook_command_path), "run", event_name])
-    return " ".join(
-        [
-            shlex.quote(str(hook_command_path)),
-            "run",
-            shlex.quote(event_name),
-        ]
-    )
+        return subprocess.list2cmdline(args)
+    return " ".join(shlex.quote(arg) for arg in args)
 
 
 def _load_hooks_json(path: Path) -> dict[str, Any]:
@@ -339,6 +336,43 @@ def _load_hooks_json(path: Path) -> dict[str, Any]:
 def _is_cortex_hook(handler: dict[str, Any], event_name: str) -> bool:
     command = str(handler.get("command") or "")
     return HOOK_MARKER in command and event_name in command
+
+
+def _is_legacy_cortex_hook(handler: dict[str, Any]) -> bool:
+    command = str(handler.get("command") or "").replace("\\", "/").casefold()
+    return "/.agents/" in command and "cortex" in command
+
+
+def _remove_legacy_cortex_hooks(data: dict[str, Any]) -> None:
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return
+
+    for event_name in list(hooks.keys()):
+        groups = hooks.get(event_name)
+        if not isinstance(groups, list):
+            continue
+        kept_groups = []
+        for group in groups:
+            if not isinstance(group, dict):
+                kept_groups.append(group)
+                continue
+            handlers = group.get("hooks")
+            if not isinstance(handlers, list):
+                kept_groups.append(group)
+                continue
+            kept_handlers = [
+                handler
+                for handler in handlers
+                if not (isinstance(handler, dict) and _is_legacy_cortex_hook(handler))
+            ]
+            if kept_handlers:
+                group["hooks"] = kept_handlers
+                kept_groups.append(group)
+        if kept_groups:
+            hooks[event_name] = kept_groups
+        else:
+            hooks.pop(event_name, None)
 
 
 _EVENT_STATUS_MESSAGES = {
@@ -411,6 +445,11 @@ def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     codex_home = _codex_home(args.codex_home)
     hooks_json = _hooks_json_path(codex_home)
     event_pairs = _install_events(args)
+    cortex_home = (
+        Path(args.cortex_home).expanduser().resolve()
+        if getattr(args, "cortex_home", None)
+        else None
+    )
 
     hook_cmd = (
         Path(args.hook_command).expanduser()
@@ -419,11 +458,12 @@ def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     data = _load_hooks_json(hooks_json)
+    _remove_legacy_cortex_hooks(data)
     for event_name, matcher in event_pairs:
         _install_event_hook(
             data,
             event_name,
-            _hook_command(hook_cmd, event_name),
+            _hook_command(hook_cmd, event_name, cortex_home=cortex_home),
             args.timeout,
             matcher=matcher,
         )
@@ -431,6 +471,7 @@ def install_hooks(args: argparse.Namespace) -> dict[str, Any]:
     result = {
         "codexHome": str(codex_home),
         "hookCommand": str(hook_cmd),
+        "cortexHome": str(cortex_home) if cortex_home is not None else None,
         "hooksJson": str(hooks_json),
         "events": [event_name for event_name, _ in event_pairs],
         "hooks": data,
@@ -460,6 +501,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser("install", help="Register cortex-codex-hook entries in Codex hooks.json.")
     install_parser.add_argument("--codex-home", default=None)
+    install_parser.add_argument("--cortex-home", default=None)
     install_parser.add_argument("--profile", choices=(DEFAULT_PROFILE,), default=DEFAULT_PROFILE)
     install_parser.add_argument("--include-user-prompt-submit", action="store_true")
     install_parser.add_argument("--include-stop", action="store_true")

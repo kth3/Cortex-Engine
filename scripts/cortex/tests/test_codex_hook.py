@@ -78,10 +78,11 @@ class CodexHookRunTests(unittest.TestCase):
 
     def test_missing_cortex_home_is_non_fatal(self):
         with tempfile.TemporaryDirectory() as tmp:
-            exit_code, stdout, stderr = self._run_main(
-                ["run", "SessionStart"],
-                {"cwd": tmp, "session_id": "s1"},
-            )
+            with patch.object(codex_hook, "_find_cortex_home_from_workspace", return_value=None):
+                exit_code, stdout, stderr = self._run_main(
+                    ["run", "SessionStart"],
+                    {"cwd": tmp, "session_id": "s1"},
+                )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(stdout), {})
@@ -250,6 +251,54 @@ class CodexHookInstallTests(unittest.TestCase):
             command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
             self.assertIn("cortex-codex-hook", command)
             self.assertIn("SessionStart", command)
+
+    def test_install_removes_legacy_agents_cortex_hook_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp)
+            existing = {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "C:/repo/.agents/.venv/Scripts/python.exe C:/Users/me/.codex/hooks/cortex_auto_context.py",
+                                },
+                                {"type": "command", "command": "echo keep"},
+                            ]
+                        }
+                    ]
+                }
+            }
+            (codex_home / "hooks.json").write_text(json.dumps(existing), encoding="utf-8")
+
+            self._run_install(codex_home)
+
+            data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            commands = [
+                handler["command"]
+                for group in data["hooks"]["SessionStart"]
+                for handler in group["hooks"]
+            ]
+            self.assertIn("echo keep", commands)
+            self.assertTrue(any("cortex-codex-hook" in command for command in commands))
+            self.assertFalse(any(".agents" in command for command in commands))
+
+    def test_install_can_pin_cortex_home_in_hook_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp) / "codex"
+            cortex_home = Path(tmp) / ".cortex"
+            cortex_home.mkdir()
+
+            exit_code, result, stderr = self._run_install(codex_home, "--cortex-home", str(cortex_home))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr, "")
+            self.assertEqual(result["cortexHome"], str(cortex_home.resolve()))
+            data = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            self.assertIn("--cortex-home", command)
+            self.assertIn(str(cortex_home.resolve()), command)
 
     def test_install_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

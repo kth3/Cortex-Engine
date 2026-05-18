@@ -41,7 +41,7 @@ def _run(argv, codex_home=None, claude_home=None, workspace=None):
 
 
 class BootstrapTests(unittest.TestCase):
-    def test_bootstrap_installs_both_hook_adapters(self):
+    def test_bootstrap_installs_codex_hook_only_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             codex_home = tmp_path / "codex"
@@ -62,14 +62,15 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(data["action"], "bootstrap")
             self.assertEqual(data["workspace"], str(workspace))
             self.assertIn("workspace_data_dir", data)
+            self.assertIn("cortexHome", data)
             self.assertEqual(data["codex"]["events"], ["SessionStart"])
-            self.assertEqual(data["claude"]["events"], ["SessionStart"])
+            self.assertNotIn("claude", data)
             self.assertIn("cortex-codex-hook", data["codex"]["hookCommand"])
-            self.assertIn("cortex-claude-hook", data["claude"]["hookCommand"])
+            self.assertEqual(data["codex"]["cortexHome"], data["cortexHome"])
             self.assertTrue((codex_home / "hooks.json").is_file())
-            self.assertTrue((claude_home / "settings.json").is_file())
+            self.assertFalse((claude_home / "settings.json").exists())
 
-    def test_include_all_propagates_to_both_adapters(self):
+    def test_include_all_applies_to_codex_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             codex_home = tmp_path / "codex"
@@ -79,6 +80,26 @@ class BootstrapTests(unittest.TestCase):
 
             _exit, stdout = _run(
                 ["--include-all"],
+                codex_home=codex_home,
+                claude_home=claude_home,
+                workspace=workspace,
+            )
+
+            data = json.loads(stdout)
+            expected_events = ["SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse"]
+            self.assertEqual(data["codex"]["events"], expected_events)
+            self.assertNotIn("claude", data)
+
+    def test_include_claude_explicitly_installs_claude_adapter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            codex_home = tmp_path / "codex"
+            claude_home = tmp_path / "claude"
+            workspace = tmp_path / "ws"
+            workspace.mkdir()
+
+            _exit, stdout = _run(
+                ["--include-claude", "--include-all"],
                 codex_home=codex_home,
                 claude_home=claude_home,
                 workspace=workspace,
@@ -103,19 +124,7 @@ class BootstrapTests(unittest.TestCase):
                 claude_home=claude_home,
                 workspace=workspace,
             )
-            data = json.loads(stdout)
-            self.assertNotIn("codex", data)
-            self.assertIn("claude", data)
-
-            _exit, stdout = _run(
-                ["--skip-claude"],
-                codex_home=codex_home,
-                claude_home=claude_home,
-                workspace=workspace,
-            )
-            data = json.loads(stdout)
-            self.assertIn("codex", data)
-            self.assertNotIn("claude", data)
+            self.assertNotIn("codex", json.loads(stdout))
 
     def test_dry_run_does_not_write_settings_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,7 +144,6 @@ class BootstrapTests(unittest.TestCase):
             data = json.loads(stdout)
             self.assertTrue(data["dryRun"])
             self.assertTrue(data["codex"]["dryRun"])
-            self.assertTrue(data["claude"]["dryRun"])
             self.assertFalse((codex_home / "hooks.json").exists())
             self.assertFalse((claude_home / "settings.json").exists())
 

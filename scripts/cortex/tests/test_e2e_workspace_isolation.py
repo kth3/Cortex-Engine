@@ -132,9 +132,8 @@ class KnowledgeBootstrapE2ETests(unittest.TestCase):
             self.assertEqual(result["knowledge"]["status"], "ok")
             self.assertTrue((knowledge_dir / "resources" / "a.md").is_file())
             self.assertTrue((knowledge_dir / "examples" / "e" / "code.py").is_file())
-            # both hook adapters touched their files
             self.assertTrue((codex_home / "hooks.json").is_file())
-            self.assertTrue((claude_home / "settings.json").is_file())
+            self.assertFalse((claude_home / "settings.json").exists())
 
 
 if __name__ == "__main__":

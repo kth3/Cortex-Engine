@@ -1,4 +1,4 @@
-"""cortex-ctl bootstrap — install Codex + Claude Code hooks and initialize global data dir."""
+"""cortex-ctl bootstrap — install Codex hooks and initialize global data dir."""
 from __future__ import annotations
 
 import argparse
@@ -90,9 +90,11 @@ def _hook_install_namespace(
     timeout: int,
     dry_run: bool,
     hook_command: str | None,
+    cortex_home: Path | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         **{hook_home_key: None},
+        cortex_home=str(cortex_home) if cortex_home is not None else None,
         profile="safe",
         include_user_prompt_submit=include_all,
         include_stop=include_all,
@@ -133,9 +135,11 @@ def _expand_knowledge(workspace: Path, force: bool, dry_run: bool) -> dict:
 
 def _run_bootstrap(args: argparse.Namespace) -> int:
     workspace = resolve_workspace()
+    cortex_home = Path(__file__).resolve().parents[3]
     result: dict = {
         "action": "bootstrap",
         "workspace": str(workspace),
+        "cortexHome": str(cortex_home),
         "dryRun": bool(args.dry_run),
     }
 
@@ -151,10 +155,11 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
             timeout=codex_hook.DEFAULT_HOOK_TIMEOUT_SECONDS,
             dry_run=args.dry_run,
             hook_command=args.codex_hook_command,
+            cortex_home=cortex_home,
         )
         result["codex"] = codex_hook.install_hooks(codex_args)
 
-    if not args.skip_claude:
+    if args.include_claude:
         claude_args = _hook_install_namespace(
             hook_home_key="claude_home",
             include_all=args.include_all,
@@ -200,19 +205,19 @@ def _run_bootstrap(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cortex-ctl bootstrap",
-        description="Install Cortex hooks for Codex and Claude Code and initialize global data dir.",
+        description="Install Cortex hooks for Codex and initialize global data dir.",
     )
     parser.add_argument("--skip-codex", action="store_true", help="Do not install Codex hooks.")
-    parser.add_argument("--skip-claude", action="store_true", help="Do not install Claude Code hooks.")
+    parser.add_argument("--include-claude", action="store_true", help="Also install Claude Code hooks.")
     parser.add_argument(
         "--include-all",
         action="store_true",
-        help="Install every supported hook event for both adapters (default: SessionStart only).",
+        help="Install every supported hook event for selected adapters (default: SessionStart only).",
     )
     parser.add_argument("--enable-knowledge", action="store_true", help="Also expand knowledge.zip.")
     parser.add_argument("--force-knowledge", action="store_true", help="Overwrite existing knowledge expansion.")
     parser.add_argument("--codex-hook-command", default=None, help="Override cortex-codex-hook path.")
-    parser.add_argument("--claude-hook-command", default=None, help="Override cortex-claude-hook path.")
+    parser.add_argument("--claude-hook-command", default=None, help="Override cortex-claude-hook path when --include-claude is set.")
     parser.add_argument(
         "--hf-token",
         default=None,
