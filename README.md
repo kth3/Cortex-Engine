@@ -15,26 +15,92 @@
 기존 단일체 엔진은 MCP dispatcher, engine server, embedding worker, watcher, process control 계층으로 분리되었습니다. `cortex_ctl.py`는 thin entrypoint로 남고, 실제 start/status/stop 로직은 `scripts/cortex/runtime/` 하위 모듈에 위치합니다.
 
 ```mermaid
-graph TD
-    Agent([Agents / CLI]) --> MCP[Thin MCP Server]
-    MCP --> Dispatcher[Tool Dispatcher]
-    Dispatcher --> Search[Search/Edit/Memory Handlers]
-    Dispatcher --> Engine[Vector Engine Server]
-    Engine --> Router[Engine Router]
-    Router --> Worker[Embedding Worker]
-    Router --> Idle[Idle Monitor]
-    CTL[cortex_ctl.py] --> Control[Runtime Control]
-    Control --> Process[Process Layer]
-    Control --> Lock[Lock Layer]
-    Control --> Logs[Logging Layer]
-    Control --> Engine
-    Control --> Watcher[Watcher Launcher]
-    Control --> LocalDaemon[Optional Local Daemon]
-    Search --> DB[(SQLite / sqlite-vec / FTS5)]
-    Search --> GDB[(Kuzu Graph DB)]
-    Worker --> Model((SentenceTransformers))
-```
+---
+config:
+  flowchart:
+    curve: stepAfter
+    nodeSpacing: 50
+    rankSpacing: 80
+---
+flowchart TB
 
+  subgraph RequestFlow["Request / Retrieval Flow"]
+    direction LR
+
+    Agent["Coding Agent / IDE"]
+
+    subgraph MCP["MCP Layer"]
+      direction TB
+      Entry["MCP Entry Point<br/>요청 수신 · 응답 반환"]
+      Router["Request Router<br/>입력 검증 · 기능 라우팅"]
+      Handler["Capability Handlers<br/>검색 · 메모리 · 인덱싱 · 편집 · 세션"]
+    end
+
+    subgraph Retrieval["Retrieval Layer"]
+      direction TB
+      Plan["Query Planning<br/>범위 · 필터 · 의도 정리"]
+      Search["Hybrid Retrieval<br/>키워드 + 벡터 + 구조 탐색"]
+      Format["Rank & Format<br/>후보 병합 · 순위화 · 위치 포함"]
+    end
+
+    Agent -->|"tool request"| Entry
+    Entry -->|"validated request"| Router
+    Router -->|"capability request"| Handler
+    Handler -->|"search request"| Plan
+    Plan -->|"planned query"| Search
+    Search -->|"candidate context"| Format
+    Format -->|"ranked context"| Handler
+    Handler -->|"tool result"| Agent
+  end
+
+  subgraph IndexFlow["Indexing / Write Flow"]
+    direction LR
+
+    Local["Local CLI / File Watcher"]
+
+    subgraph Pipeline["Indexing Pipeline"]
+      direction TB
+      FileSelect["File Selection<br/>대상 파일 탐색 · 변경 파일 선별"]
+      Extract["Parse & Extract<br/>심볼 · 참조 · 호출 관계 추출"]
+      Chunk["Chunk & Metadata<br/>검색 단위 · 라인 범위 · 컨텍스트 생성"]
+      GraphSync["Graph Sync<br/>코드 구조 그래프 반영"]
+    end
+
+    subgraph Runtime["Runtime Layer"]
+      direction TB
+      RuntimeService["Runtime Service<br/>장기 실행 프로세스 · 작업 중계"]
+      EmbeddingWorker["Embedding Worker<br/>텍스트 임베딩 생성"]
+    end
+
+    Local -->|"manual index / file change"| FileSelect
+    Handler -->|"index command / workspace scope"| FileSelect
+
+    FileSelect -->|"selected files"| Extract
+    Extract -->|"symbols / references / call relations"| Chunk
+    Extract -->|"graph facts"| GraphSync
+
+    Chunk -->|"texts to embed"| RuntimeService
+    RuntimeService -->|"embedding job"| EmbeddingWorker
+    EmbeddingWorker -->|"vectors"| RuntimeService
+    RuntimeService -->|"vector result"| Chunk
+  end
+
+  subgraph Storage["Persistent Storage"]
+    direction LR
+    SQLVector[("Physical Store 1<br/>SQLite + Text Index + Vector<br/>파일 · 청크 · 메모리 · 심볼 · 엣지 · 벡터")]
+    GraphDB[("Physical Store 2<br/>Kuzu Graph Store<br/>코드 그래프 노드 · 관계")]
+  end
+
+  Search -->|"keyword / vector / metadata lookup"| SQLVector
+  SQLVector -->|"candidate rows / matches"| Search
+
+  Search -->|"related structure lookup"| GraphDB
+  GraphDB -->|"related nodes / relations"| Search
+
+  Chunk -->|"chunks / metadata / vectors"| SQLVector
+  Extract -->|"symbol rows / edge rows"| SQLVector
+  GraphSync -->|"graph nodes / graph relations"| GraphDB
+```
 ---
 
 ## 주요 특징
