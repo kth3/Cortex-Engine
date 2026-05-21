@@ -29,16 +29,16 @@ flowchart TB
 
     subgraph MCP["MCP Layer"]
       direction TB
-      Entry["MCP Entry Point<br/>요청 수신 · 응답 반환"]
-      Router["Request Router<br/>입력 검증 · 기능 라우팅"]
-      Handler["Capability Handlers<br/>검색 · 메모리 · 인덱싱 · 편집 · 세션"]
+      Entry["MCP Entry Point<br/>Receives requests · Returns responses"]
+      Router["Request Router<br/>Input validation · Capability routing"]
+      Handler["Capability Handlers<br/>Search · Memory · Indexing · Edit · Session"]
     end
 
     subgraph Retrieval["Retrieval Layer"]
       direction TB
-      Plan["Query Planning<br/>범위 · 필터 · 의도 정리"]
-      Search["Hybrid Retrieval<br/>키워드 + 벡터 + 구조 탐색"]
-      Format["Rank & Format<br/>후보 병합 · 순위화 · 위치 포함"]
+      Plan["Query Planning<br/>Scope · Filters · Intent normalization"]
+      Search["Hybrid Retrieval<br/>Keyword + Vector + Structure search"]
+      Format["Rank & Format<br/>Merge candidates · Rank context · Include locations"]
     end
 
     Agent -->|"tool request"| Entry
@@ -58,16 +58,16 @@ flowchart TB
 
     subgraph Pipeline["Indexing Pipeline"]
       direction TB
-      FileSelect["File Selection<br/>대상 파일 탐색 · 변경 파일 선별"]
-      Extract["Parse & Extract<br/>심볼 · 참조 · 호출 관계 추출"]
-      Chunk["Chunk & Metadata<br/>검색 단위 · 라인 범위 · 컨텍스트 생성"]
-      GraphSync["Graph Sync<br/>코드 구조 그래프 반영"]
+      FileSelect["File Selection<br/>Workspace scan · Scope filtering · Changed files"]
+      Extract["Parse & Extract<br/>Symbols · References · Call relations"]
+      Chunk["Chunk & Metadata<br/>Search units · Line ranges · Source context"]
+      GraphSync["Graph Sync<br/>Update code structure graph"]
     end
 
     subgraph Runtime["Runtime Layer"]
       direction TB
-      RuntimeService["Runtime Service<br/>장기 실행 프로세스 · 작업 중계"]
-      EmbeddingWorker["Embedding Worker<br/>텍스트 임베딩 생성"]
+      RuntimeService["Runtime Service<br/>Long-running process · Job broker"]
+      EmbeddingWorker["Embedding Worker<br/>Generate text embeddings"]
     end
 
     Local -->|"manual index / file change"| FileSelect
@@ -85,8 +85,8 @@ flowchart TB
 
   subgraph Storage["Persistent Storage"]
     direction LR
-    SQLVector[("Physical Store 1<br/>SQLite + Text Index + Vector<br/>파일 · 청크 · 메모리 · 심볼 · 엣지 · 벡터")]
-    GraphDB[("Physical Store 2<br/>Kuzu Graph Store<br/>코드 그래프 노드 · 관계")]
+    SQLVector[("Physical Store 1<br/>SQLite + Text Index + Vector<br/>Files · Chunks · Memory · Symbols · Edges · Vectors")]
+    GraphDB[("Physical Store 2<br/>Kuzu Graph Store<br/>Code graph nodes · Relations")]
   end
 
   Search -->|"keyword / vector / metadata lookup"| SQLVector
@@ -98,6 +98,16 @@ flowchart TB
   Chunk -->|"chunks / metadata / vectors"| SQLVector
   Extract -->|"symbol rows / edge rows"| SQLVector
   GraphSync -->|"graph nodes / graph relations"| GraphDB
+
+  %% Input / Request / Write Flow
+  linkStyle 0,1,2,3,4,5,8,9,10,11,12,13,14,17,19,21,22,23 stroke:#2563eb,stroke-width:2px;
+
+  %% Result / Response Flow
+  linkStyle 6,7,15,16,18,20 stroke:#16a34a,stroke-width:2px;
+
+  style RequestFlow fill:#f8fafc,stroke:#cbd5e1
+  style IndexFlow fill:#f8fafc,stroke:#cbd5e1
+  style Storage fill:#f8fafc,stroke:#cbd5e1
 ```
 ---
 

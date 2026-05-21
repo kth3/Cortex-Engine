@@ -100,8 +100,17 @@ flowchart TB
   Chunk -->|"chunks / metadata / vectors"| SQLVector
   Extract -->|"symbol rows / edge rows"| SQLVector
   GraphSync -->|"graph nodes / graph relations"| GraphDB
+
+  %% Input / Request / Write Flow
+  linkStyle 0,1,2,3,4,5,8,9,10,11,12,13,14,17,19,21,22,23 stroke:#2563eb,stroke-width:2px;
+
+  %% Result / Response Flow
+  linkStyle 6,7,15,16,18,20 stroke:#16a34a,stroke-width:2px;
+
+  style RequestFlow fill:#f8fafc,stroke:#cbd5e1
+  style IndexFlow fill:#f8fafc,stroke:#cbd5e1
+  style Storage fill:#f8fafc,stroke:#cbd5e1
 ```
----
 
 ## 주요 특징
 
