@@ -9,4 +9,6 @@ walkdir = { workspace = true }
 ignore = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+serde_yaml = { workspace = true }
+globset = { workspace = true }
 tracing = { workspace = true }
