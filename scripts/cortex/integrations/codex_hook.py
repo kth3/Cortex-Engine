@@ -13,8 +13,8 @@ from typing import Any
 
 from cortex.mcp.context import McpContext
 from cortex.mcp.tools.memory import call_save_observation
-from cortex.mcp.tools.search import call_pc_capsule, call_pc_skeleton
-from cortex.mcp.tools.session import call_pc_auto_context, call_pc_session_sync
+from cortex.mcp.tools.search import call_search_context, call_get_file_outline
+from cortex.mcp.tools.session import call_get_session_context, call_sync_session_memory
 
 HOOKS_JSON_FILENAME = "hooks.json"
 HOOK_ENTRY_NAME = "cortex-codex-hook"
@@ -187,7 +187,7 @@ def _hook_specific_output(event_name: str, additional_context: str) -> dict[str,
 
 
 def _run_session_start(ctx: McpContext, token_budget: int) -> dict[str, Any]:
-    result = call_pc_auto_context(ctx, {"token_budget": token_budget})
+    result = call_get_session_context(ctx, {"token_budget": token_budget})
     context = str(result.get("context") or "").strip()
     if not context:
         return {}
@@ -206,12 +206,11 @@ def _run_user_prompt_submit(
     if not prompt:
         return {}
 
-    result = call_pc_capsule(
+    result = call_search_context(
         ctx,
         {
             "query": prompt,
             "token_budget": token_budget,
-            "auto_chain": False,
         },
     )
     capsule = str(result.get("capsule") or "").strip()
@@ -230,7 +229,7 @@ def _run_stop(ctx: McpContext, payload: dict[str, Any]) -> dict[str, Any]:
     if len(task_desc) > MAX_STOP_TASK_DESC_CHARS:
         task_desc = task_desc[:MAX_STOP_TASK_DESC_CHARS]
     try:
-        call_pc_session_sync(ctx, {"task_desc": task_desc})
+        call_sync_session_memory(ctx, {"task_desc": task_desc})
     except Exception as exc:
         print(f"[Cortex session_sync skipped: {exc}]", file=sys.stderr)
     return {}
@@ -253,7 +252,7 @@ def _run_pre_tool_use(ctx: McpContext, payload: dict[str, Any]) -> dict[str, Any
     if not file_path:
         return {}
     try:
-        skeleton = call_pc_skeleton(ctx, {"file_path": file_path, "detail": "standard"})
+        skeleton = call_get_file_outline(ctx, {"file_path": file_path, "detail": "standard"})
     except Exception as exc:
         print(f"[Cortex skeleton skipped: {exc}]", file=sys.stderr)
         return {}

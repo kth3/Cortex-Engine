@@ -17,7 +17,7 @@ def _error_response(exc):
     return {ERROR_KEY: str(exc)}
 
 
-def call_pc_git_log(ctx, args):
+def call_get_file_git_history(ctx, args):
     try:
         return _get_file_history(
             ctx.workspace,

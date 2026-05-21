@@ -40,7 +40,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_auto_context", return_value={"context": "prior work"}) as auto_context:
+        with patch.object(codex_hook, "call_get_session_context", return_value={"context": "prior work"}) as auto_context:
             exit_code, stdout, stderr = self._run_main(
                 ["run", "SessionStart"],
                 {"cwd": str(workspace), "session_id": "s1"},
@@ -60,7 +60,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_capsule", return_value={"capsule": "semantic context"}) as capsule:
+        with patch.object(codex_hook, "call_search_context", return_value={"capsule": "semantic context"}) as capsule:
             exit_code, stdout, stderr = self._run_main(
                 ["run", "UserPromptSubmit", "--token-budget", "321"],
                 {"cwd": str(workspace), "session_id": "s1", "prompt": "rank this code"},
@@ -73,7 +73,7 @@ class CodexHookRunTests(unittest.TestCase):
         self.assertIn("Cortex prompt context:\nsemantic context", data["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(
             capsule.call_args.args[1],
-            {"query": "rank this code", "token_budget": 321, "auto_chain": False},
+            {"query": "rank this code", "token_budget": 321},
         )
 
     def test_missing_cortex_home_is_non_fatal(self):
@@ -92,7 +92,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_session_sync", return_value={"success": True}) as session_sync:
+        with patch.object(codex_hook, "call_sync_session_memory", return_value={"success": True}) as session_sync:
             exit_code, stdout, stderr = self._run_main(
                 ["run", "Stop"],
                 {"cwd": str(workspace), "session_id": "s1", "last_assistant_message": "did the thing"},
@@ -108,7 +108,7 @@ class CodexHookRunTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
 
         long_msg = "x" * (codex_hook.MAX_STOP_TASK_DESC_CHARS + 500)
-        with patch.object(codex_hook, "call_pc_session_sync", return_value={"success": True}) as session_sync:
+        with patch.object(codex_hook, "call_sync_session_memory", return_value={"success": True}) as session_sync:
             self._run_main(
                 ["run", "Stop"],
                 {"cwd": str(workspace), "session_id": "s1", "last_assistant_message": long_msg},
@@ -123,7 +123,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_session_sync") as session_sync:
+        with patch.object(codex_hook, "call_sync_session_memory") as session_sync:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "Stop"],
                 {"cwd": str(workspace), "session_id": "s1"},
@@ -137,7 +137,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_skeleton", return_value="class Foo:\n  def bar(): ...") as skeleton:
+        with patch.object(codex_hook, "call_get_file_outline", return_value="class Foo:\n  def bar(): ...") as skeleton:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "PreToolUse"],
                 {
@@ -158,7 +158,7 @@ class CodexHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(codex_hook, "call_pc_skeleton") as skeleton:
+        with patch.object(codex_hook, "call_get_file_outline") as skeleton:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "PreToolUse"],
                 {"cwd": str(workspace), "tool_name": "shell", "tool_input": {"command": "ls"}},
@@ -194,7 +194,7 @@ class CodexHookRunTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with patch("sys.stdin", io.StringIO("{not-json")):
-            with patch.object(codex_hook, "call_pc_auto_context", return_value={"context": ""}):
+            with patch.object(codex_hook, "call_get_session_context", return_value={"context": ""}):
                 with redirect_stdout(stdout), redirect_stderr(stderr):
                     exit_code = codex_hook.main(["run", "SessionStart"])
 

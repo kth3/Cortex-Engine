@@ -39,7 +39,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         tmp, workspace, cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(claude_hook, "call_pc_auto_context", return_value={"context": "prior work"}) as auto_context:
+        with patch.object(claude_hook, "call_get_session_context", return_value={"context": "prior work"}) as auto_context:
             exit_code, stdout, stderr = self._run_main(
                 ["run", "SessionStart"],
                 {"cwd": str(workspace), "session_id": "s1"},
@@ -59,7 +59,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(claude_hook, "call_pc_capsule", return_value={"capsule": "semantic context"}) as capsule:
+        with patch.object(claude_hook, "call_search_context", return_value={"capsule": "semantic context"}) as capsule:
             exit_code, stdout, stderr = self._run_main(
                 ["run", "UserPromptSubmit", "--token-budget", "321"],
                 {"cwd": str(workspace), "prompt": "rank this code"},
@@ -72,7 +72,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         self.assertIn("Cortex prompt context:\nsemantic context", data["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(
             capsule.call_args.args[1],
-            {"query": "rank this code", "token_budget": 321, "auto_chain": False},
+            {"query": "rank this code", "token_budget": 321},
         )
 
     def test_stop_extracts_last_assistant_from_transcript(self):
@@ -105,7 +105,7 @@ class ClaudeHookRunTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        with patch.object(claude_hook, "call_pc_session_sync", return_value={"success": True}) as session_sync:
+        with patch.object(claude_hook, "call_sync_session_memory", return_value={"success": True}) as session_sync:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "Stop"],
                 {"cwd": str(workspace), "transcript_path": str(transcript)},
@@ -119,7 +119,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(claude_hook, "call_pc_session_sync") as session_sync:
+        with patch.object(claude_hook, "call_sync_session_memory") as session_sync:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "Stop"],
                 {"cwd": str(workspace)},
@@ -133,7 +133,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(claude_hook, "call_pc_skeleton", return_value="class Foo:\n  pass") as skeleton:
+        with patch.object(claude_hook, "call_get_file_outline", return_value="class Foo:\n  pass") as skeleton:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "PreToolUse"],
                 {"cwd": str(workspace), "tool_name": "Edit", "tool_input": {"file_path": "src/foo.py"}},
@@ -149,7 +149,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         tmp, workspace, _cortex_home = _temp_workspace()
         self.addCleanup(tmp.cleanup)
 
-        with patch.object(claude_hook, "call_pc_skeleton") as skeleton:
+        with patch.object(claude_hook, "call_get_file_outline") as skeleton:
             exit_code, stdout, _stderr = self._run_main(
                 ["run", "PreToolUse"],
                 {"cwd": str(workspace), "tool_name": "Bash", "tool_input": {"command": "ls"}},
@@ -196,7 +196,7 @@ class ClaudeHookRunTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with patch("sys.stdin", io.StringIO("{not-json")):
-            with patch.object(claude_hook, "call_pc_auto_context", return_value={"context": ""}):
+            with patch.object(claude_hook, "call_get_session_context", return_value={"context": ""}):
                 with redirect_stdout(stdout), redirect_stderr(stderr):
                     exit_code = claude_hook.main(["run", "SessionStart"])
 

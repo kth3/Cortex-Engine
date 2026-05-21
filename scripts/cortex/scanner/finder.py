@@ -54,10 +54,10 @@ def scan_files(workspace: str, supported_extensions: dict, settings_override: di
                         
     # 2. Cortex 내부 규칙, 프로토콜, 설계 문서 강제 포함
     # [수정] knowledge 하위 폴더(resources/examples/skills)는 nodes 테이블 인덱싱에서 제외.
-    # 이유: 1,500+ 외부 문서가 nodes 테이블에 Skill 노드로 쌓이면 pc_capsule 검색 결과를
+    # 이유: 1,500+ 외부 문서가 nodes 테이블에 Skill 노드로 쌓이면 search_context 검색 결과를
     #       오염시켜 프로젝트 실제 코드가 뒤로 밀림 (RRF Hub 편향 현상).
     # 대안: _sync_rules_to_memories()가 memories 테이블에 텍스트로 동기화하므로
-    #       pc_memory_search_knowledge(category: skill/resource/example)로 계속 검색 가능.
+    #       search_memory(category: skill/resource/example)로 계속 검색 가능.
     cortex_home = resolve_cortex_home(workspace)
     home_rel = os.path.relpath(str(cortex_home), workspace)
     agent_docs = [

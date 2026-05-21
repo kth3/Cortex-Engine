@@ -27,15 +27,18 @@ def _boolean_property(description=None, default=None):
     return prop
 
 
-def _array_string_property():
-    return {
-        "type": "array",
-        "items": {"type": "string"},
-    }
+def _array_string_property(description=None):
+    prop = {"type": "array", "items": {"type": "string"}}
+    if description is not None:
+        prop["description"] = description
+    return prop
 
 
-def _object_property():
-    return {"type": "object"}
+def _object_property(description=None):
+    prop = {"type": "object"}
+    if description is not None:
+        prop["description"] = description
+    return prop
 
 
 def _input_schema(properties=None, required=None):
@@ -55,237 +58,314 @@ def _tool(name, description, properties=None, required=None):
     }
 
 
-TOOL_PC_INDEX_STATUS = "pc_index_status"
-TOOL_PC_CAPSULE = "pc_capsule"
-TOOL_PC_SKELETON = "pc_skeleton"
-TOOL_PC_IMPACT_GRAPH = "pc_impact_graph"
-TOOL_PC_LOGIC_FLOW = "pc_logic_flow"
-TOOL_PC_GIT_LOG = "pc_git_log"
-TOOL_PC_RUN_PIPELINE = "pc_run_pipeline"
-TOOL_PC_AUTO_CONTEXT = "pc_auto_context"
-TOOL_PC_READ_WITH_HASH = "pc_read_with_hash"
-TOOL_PC_STRICT_REPLACE = "pc_strict_replace"
-TOOL_PC_CREATE_CONTRACT = "pc_create_contract"
-TOOL_PC_TODO_MANAGER = "pc_todo_manager"
-TOOL_PC_SESSION_SYNC = "pc_session_sync"
-TOOL_PC_MEMORY_WRITE = "pc_memory_write"
-TOOL_PC_MEMORY_CONSOLIDATE = "pc_memory_consolidate"
-TOOL_PC_MEMORY_READ = "pc_memory_read"
-TOOL_PC_SAVE_OBSERVATION = "pc_save_observation"
-TOOL_PC_MEMORY_SEARCH_KNOWLEDGE = "pc_memory_search_knowledge"
+# ── Tool name constants ────────────────────────────────────────────
+TOOL_GET_INDEX_STATUS = "get_index_status"
+TOOL_SEARCH_CONTEXT = "search_context"
+TOOL_SEARCH_DEEP_CONTEXT = "search_deep_context"
+TOOL_GET_FILE_OUTLINE = "get_file_outline"
+TOOL_READ_FILE_WITH_HASH = "read_file_with_hash"
+TOOL_RESOLVE_SYMBOL = "resolve_symbol"
+TOOL_GET_IMPACT_GRAPH = "get_impact_graph"
+TOOL_FIND_EXECUTION_PATH = "find_execution_path"
+TOOL_GET_FILE_GIT_HISTORY = "get_file_git_history"
+TOOL_REPLACE_EXACT_TEXT = "replace_exact_text"
+TOOL_GET_SESSION_CONTEXT = "get_session_context"
+TOOL_SYNC_SESSION_MEMORY = "sync_session_memory"
+TOOL_WRITE_MEMORY = "write_memory"
+TOOL_CONSOLIDATE_MEMORY = "consolidate_memory"
+TOOL_READ_MEMORY = "read_memory"
+TOOL_SAVE_OBSERVATION = "save_observation"
+TOOL_SEARCH_MEMORY = "search_memory"
+TOOL_CREATE_TASK_CONTRACT = "create_task_contract"
+TOOL_MANAGE_TODO = "manage_todo"
 
-DEFAULT_CAPSULE_TOKEN_BUDGET = 4000
-DEFAULT_CAPSULE_AUTO_CHAIN = False
-DEFAULT_SKELETON_DETAIL = "standard"
-SKELETON_DETAIL_LEVELS = ("minimal", "standard", "detailed")
+# ── Defaults ───────────────────────────────────────────────────────
+DEFAULT_SEARCH_CONTEXT_TOKEN_BUDGET = 4000
+DEFAULT_FILE_OUTLINE_DETAIL = "standard"
+FILE_OUTLINE_DETAIL_LEVELS = ("minimal", "standard", "detailed")
 DEFAULT_IMPACT_DIRECTION = "both"
 IMPACT_DIRECTIONS = ("callers", "callees", "both")
 DEFAULT_IMPACT_MAX_DEPTH = 2
 DEFAULT_IMPACT_MAX_NODES = 50
 DEFAULT_LOGIC_MAX_DEPTH = 6
 DEFAULT_LOGIC_MAX_NODES = 200
-DEFAULT_GIT_LOG_LIMIT = 5
-DEFAULT_PIPELINE_LIMIT = 5
-DEFAULT_AUTO_CONTEXT_TOKEN_BUDGET = 2000
+DEFAULT_GIT_HISTORY_LIMIT = 5
+DEFAULT_DEEP_CONTEXT_LIMIT = 5
+DEFAULT_SESSION_CONTEXT_TOKEN_BUDGET = 2000
+DEFAULT_RESOLVE_SYMBOL_LIMIT = 5
 DEFAULT_MEMORY_CONSOLIDATE_DRY_RUN = True
+TODO_ACTIONS = ("add", "check", "clear")
 
 
-def _pc_index_status_tool():
+# ── Read-only / Context ────────────────────────────────────────────
+
+def _get_index_status_tool():
     return _tool(
-        TOOL_PC_INDEX_STATUS,
-        "인덱스 상태",
+        TOOL_GET_INDEX_STATUS,
+        "Return Cortex index and database status: node/edge/file/memory counts and schema version. "
+        "Use to verify the index is populated before running graph or search tools. Read-only.",
     )
 
 
-def _pc_capsule_tool():
+def _search_context_tool():
     return _tool(
-        TOOL_PC_CAPSULE,
-        "1순위 검색. token_budget는 chars/4 추정 기반(정확한 토크나이저 아님). auto_chain=true 시 짧은 capsule 감지 후 impact_graph+memory 자동 체이닝 + observation 기록을 수행한다. 응답에 chars_used/tokens_estimated 포함.",
+        TOOL_SEARCH_CONTEXT,
+        "Search compact project context across code, documentation, and stored knowledge. "
+        "Use this first when answering codebase questions, looking up implementations, or tracing design history. "
+        "Returns a compact capsule with estimated token usage. "
+        "Read-only. No side effects. "
+        "Do not use for exact file editing; call read_file_with_hash before replace_exact_text.",
         {
-            "query": _string_property(),
+            "query": _string_property("Natural-language or keyword query describing what you are looking for."),
             "token_budget": _integer_property(
-                "토큰 예산 (approximate via chars/4)",
-                DEFAULT_CAPSULE_TOKEN_BUDGET,
-            ),
-            "auto_chain": _boolean_property(
-                "짧은 capsule 시 자동 체이닝 활성화",
-                DEFAULT_CAPSULE_AUTO_CHAIN,
+                "Maximum response size in approximate tokens (chars/4 estimate). Default 4000.",
+                DEFAULT_SEARCH_CONTEXT_TOKEN_BUDGET,
             ),
         },
         ["query"],
     )
 
 
-def _pc_skeleton_tool():
+def _search_deep_context_tool():
     return _tool(
-        TOOL_PC_SKELETON,
-        "파일 스켈레톤 출력.",
+        TOOL_SEARCH_DEEP_CONTEXT,
+        "Run a comprehensive search combining code index, call graph, and memory for complex questions. "
+        "Use when search_context returns insufficient context, or when the question requires cross-cutting "
+        "code + architecture + decision history. "
+        "When the code capsule result is sparse, automatically chains in related memory entries for broader context. "
+        "Response includes capsule_chars for gauging result density; chained_memories is present when chaining triggered. "
+        "Slower than search_context. Read-only. No side effects. "
+        "Do not use for simple keyword lookups; prefer search_context for those.",
         {
-            "file_path": _string_property("파일 경로"),
+            "query": _string_property("Natural-language query for comprehensive cross-domain search."),
+            "limit": _integer_property(
+                "Maximum number of unified result items to return. Default 5.",
+                DEFAULT_DEEP_CONTEXT_LIMIT,
+            ),
+        },
+        ["query"],
+    )
+
+
+def _get_file_outline_tool():
+    return _tool(
+        TOOL_GET_FILE_OUTLINE,
+        "Return the structural outline of a file: classes, functions, methods, and key symbols — "
+        "without reading the full content. "
+        "Use before reading large files to decide which sections need full inspection. Read-only.",
+        {
+            "file_path": _string_property("Workspace-relative path to the file."),
             "detail": _string_property(
-                "상세 수준",
-                enum=SKELETON_DETAIL_LEVELS,
-                default=DEFAULT_SKELETON_DETAIL,
+                "Outline verbosity: 'minimal' (names only), 'standard' (signatures), 'detailed' (includes docstrings). Default 'standard'.",
+                enum=FILE_OUTLINE_DETAIL_LEVELS,
+                default=DEFAULT_FILE_OUTLINE_DETAIL,
             ),
         },
         ["file_path"],
     )
 
 
-def _pc_impact_graph_tool():
+def _read_file_with_hash_tool():
     return _tool(
-        TOOL_PC_IMPACT_GRAPH,
-        "영향 범위 추적. 응답에 truncated/limit/returned_count/total_seen 포함.",
+        TOOL_READ_FILE_WITH_HASH,
+        "Read the current content of a file and return its content hash. "
+        "Always call this before replace_exact_text to obtain the exact current text. Read-only. "
+        "The returned hash is used internally to detect concurrent modifications.",
         {
-            "fqn": _string_property("함수/클래스의 FQN"),
+            "file_path": _string_property("Workspace-relative path to the file to read."),
+        },
+        ["file_path"],
+    )
+
+
+# ── Symbol / Graph ─────────────────────────────────────────────────
+
+def _resolve_symbol_tool():
+    return _tool(
+        TOOL_RESOLVE_SYMBOL,
+        "Resolve a class, function, method, or partial symbol name into fully-qualified name (FQN) candidates. "
+        "Uses three-stage lookup: exact FQN match → FTS keyword search → vector similarity search (when embeddings are available). "
+        "Use before get_impact_graph or find_execution_path when the exact FQN is unknown. Read-only. "
+        "Returns a list of candidates with fqn, kind, language, file_path, line, and match_reason (exact_fqn | fts_match | vector_match). "
+        "If no matches are found, returns an empty list with a next_suggestion.",
+        {
+            "name": _string_property(
+                "Symbol name to resolve. May be a short name, partial path, or exact FQN."
+            ),
+            "file_path": _string_property(
+                "Optional: narrow results to symbols defined in this file (workspace-relative)."
+            ),
+            "language": _string_property(
+                "Optional: narrow results to a specific language (e.g. 'python', 'typescript')."
+            ),
+            "limit": _integer_property(
+                f"Maximum number of FQN candidates to return. Default {DEFAULT_RESOLVE_SYMBOL_LIMIT}.",
+                DEFAULT_RESOLVE_SYMBOL_LIMIT,
+            ),
+        },
+        ["name"],
+    )
+
+
+def _get_impact_graph_tool():
+    return _tool(
+        TOOL_GET_IMPACT_GRAPH,
+        "Return callers, callees, or both for a given fully-qualified name (FQN) up to a specified depth. "
+        "Use to understand the blast radius of a change or to trace who uses a symbol. "
+        "If you do not know the exact FQN, call resolve_symbol first. Read-only. "
+        "Response includes truncated, limit, returned_count, total_seen metadata.",
+        {
+            "fqn": _string_property(
+                "Exact fully-qualified name of the symbol. Use resolve_symbol first if unknown."
+            ),
             "direction": _string_property(
-                "추적 방향",
+                "Which edges to traverse: 'callers' (who calls this), 'callees' (what this calls), or 'both'. Default 'both'.",
                 enum=IMPACT_DIRECTIONS,
                 default=DEFAULT_IMPACT_DIRECTION,
             ),
-            "max_depth": _integer_property("최대 깊이", DEFAULT_IMPACT_MAX_DEPTH),
-            "max_nodes": _integer_property("최대 반환 노드 수", DEFAULT_IMPACT_MAX_NODES),
+            "max_depth": _integer_property(
+                "Maximum traversal depth from the root symbol. Default 2.",
+                DEFAULT_IMPACT_MAX_DEPTH,
+            ),
+            "max_nodes": _integer_property(
+                "Maximum number of nodes to return. Default 50.",
+                DEFAULT_IMPACT_MAX_NODES,
+            ),
         },
         ["fqn"],
     )
 
 
-def _pc_logic_flow_tool():
+def _find_execution_path_tool():
     return _tool(
-        TOOL_PC_LOGIC_FLOW,
-        "두 기능 간 실행 경로 탐색. 응답에 truncated/limit/returned_count/total_seen 포함.",
+        TOOL_FIND_EXECUTION_PATH,
+        "Find the call path between two symbols identified by their fully-qualified names (FQN). "
+        "Use to understand how execution flows from one function to another. "
+        "If you do not know the exact FQNs, call resolve_symbol first for each symbol. Read-only. "
+        "Response includes path (list of FQNs), truncated, limit, returned_count, total_seen metadata.",
         {
-            "from_fqn": _string_property("시작 지점 FQN"),
-            "to_fqn": _string_property("종료 지점 FQN"),
-            "max_depth": _integer_property("경로 최대 깊이", DEFAULT_LOGIC_MAX_DEPTH),
-            "max_nodes": _integer_property("탐색 최대 노드 수", DEFAULT_LOGIC_MAX_NODES),
+            "from_fqn": _string_property(
+                "FQN of the starting symbol. Use resolve_symbol first if unknown."
+            ),
+            "to_fqn": _string_property(
+                "FQN of the ending symbol. Use resolve_symbol first if unknown."
+            ),
+            "max_depth": _integer_property(
+                "Maximum path length in hops. Default 6.",
+                DEFAULT_LOGIC_MAX_DEPTH,
+            ),
+            "max_nodes": _integer_property(
+                "Maximum nodes to explore during BFS. Default 200.",
+                DEFAULT_LOGIC_MAX_NODES,
+            ),
         },
         ["from_fqn", "to_fqn"],
     )
 
 
-def _pc_git_log_tool():
+def _get_file_git_history_tool():
     return _tool(
-        TOOL_PC_GIT_LOG,
-        "특정 파일의 상세 Git 수정 이력 조회.",
+        TOOL_GET_FILE_GIT_HISTORY,
+        "Return the git commit history for a specific file. "
+        "Use to understand when and why a file was changed. Read-only.",
         {
-            "file_path": _string_property("파일 경로"),
-            "limit": _integer_property("최대 로그 수", DEFAULT_GIT_LOG_LIMIT),
+            "file_path": _string_property("Workspace-relative path to the file."),
+            "limit": _integer_property(
+                "Maximum number of commits to return. Default 5.",
+                DEFAULT_GIT_HISTORY_LIMIT,
+            ),
         },
         ["file_path"],
     )
 
 
-def _pc_run_pipeline_tool():
+# ── Edit / Write ───────────────────────────────────────────────────
+
+def _replace_exact_text_tool():
     return _tool(
-        TOOL_PC_RUN_PIPELINE,
-        "캡슐+임팩트+메모리 통합 검색 (고급 종합 탐색 진입점). 코드+그래프+메모리 종합 맥락이 필요한 경우 사용. 응답에 truncated/limit/returned_count/total_seen 포함.",
+        TOOL_REPLACE_EXACT_TEXT,
+        "Replace an exact text fragment in a file. "
+        "Always call read_file_with_hash first to obtain the exact current file content. "
+        "This is a write operation with side effects. "
+        "Fails safely if old_content does not match the current file content exactly. "
+        "Triggers after-edit hooks and records an edit event in the Cortex database.",
         {
-            "query": _string_property("통합 검색 쿼리"),
-            "limit": _integer_property("unified_context 항목 수 제한", DEFAULT_PIPELINE_LIMIT),
-        },
-        ["query"],
-    )
-
-
-def _pc_auto_context_tool():
-    return _tool(
-        TOOL_PC_AUTO_CONTEXT,
-        "세션 시작 시 최신 결정사항과 인기 지식을 요약하여 제공 (맥락 복원).",
-        {
-            "token_budget": _integer_property("토큰 예산", DEFAULT_AUTO_CONTEXT_TOKEN_BUDGET),
-        },
-    )
-
-
-def _pc_read_with_hash_tool():
-    return _tool(
-        TOOL_PC_READ_WITH_HASH,
-        "해시 포함 읽기",
-        {"file_path": _string_property()},
-        ["file_path"],
-    )
-
-
-def _pc_strict_replace_tool():
-    return _tool(
-        TOOL_PC_STRICT_REPLACE,
-        "정밀 편집",
-        {
-            "file_path": _string_property(),
-            "old_content": _string_property(),
-            "new_content": _string_property(),
+            "file_path": _string_property("Workspace-relative path to the file to edit."),
+            "old_content": _string_property(
+                "Exact text to replace. Must match the current file content character-for-character."
+            ),
+            "new_content": _string_property("Replacement text."),
         },
         ["file_path", "old_content", "new_content"],
     )
 
 
-def _pc_create_contract_tool():
+# ── Session / Memory ───────────────────────────────────────────────
+
+def _get_session_context_tool():
     return _tool(
-        TOOL_PC_CREATE_CONTRACT,
-        "계약 생성",
+        TOOL_GET_SESSION_CONTEXT,
+        "Return a summary of recent decisions, patterns, and frequently-accessed knowledge to restore session context. "
+        "Call at the start of a session when prior work context is needed. Read-only.",
         {
-            "lane_id": _string_property(),
-            "task_name": _string_property(),
-            "instructions": _string_property(),
-            "files_to_modify": _array_string_property(),
+            "token_budget": _integer_property(
+                "Maximum response size in approximate tokens (chars/4 estimate). Default 2000.",
+                DEFAULT_SESSION_CONTEXT_TOKEN_BUDGET,
+            ),
         },
-        ["lane_id", "task_name", "instructions"],
     )
 
 
-def _pc_todo_manager_tool():
+def _sync_session_memory_tool():
     return _tool(
-        TOOL_PC_TODO_MANAGER,
-        "Todo 관리",
+        TOOL_SYNC_SESSION_MEMORY,
+        "Synchronize session state to persistent memory by scanning git status and recently modified files. "
+        "Call at the end of a meaningful work session (code edits, design decisions, completed exploration). "
+        "Side-effect: writes a session-sync memory record and updates memory.yaml. "
+        "Not calling this will cause incomplete context restoration in the next session.",
         {
-            "action": _string_property("add | check | clear"),
-            "task": _string_property("add 시 등록할 태스크 내용"),
-            "task_id": _string_property("check 시 완료 표시할 태스크 ID"),
-        },
-        ["action"],
-    )
-
-
-def _pc_session_sync_tool():
-    return _tool(
-        TOOL_PC_SESSION_SYNC,
-        "작업 종료 시 Git 상태와 변경 파일을 스캔하여 세션 메모리를 자동 동기화합니다.",
-        {
-            "task_desc": _string_property("작업 요약"),
+            "task_desc": _string_property("Brief description of work completed in this session."),
         },
         ["task_desc"],
     )
 
 
-def _pc_memory_write_tool():
+def _write_memory_tool():
     return _tool(
-        TOOL_PC_MEMORY_WRITE,
-        "지식 저장 및 마크다운 승격(decisions/patterns.md)",
+        TOOL_WRITE_MEMORY,
+        "Write a keyed knowledge record to persistent memory. "
+        "Side-effect: persists to the memory database and optionally promotes to markdown history files "
+        "(decisions.md for 'decision'/'architecture' categories; patterns.md for 'pattern'/'convention'/'rule'/'protocol').",
         {
-            "key": _string_property(),
-            "category": _string_property(),
-            "content": _string_property(),
-            "tags": _array_string_property(),
-            "relationships": _object_property(),
+            "key": _string_property("Unique identifier for this memory record."),
+            "category": _string_property(
+                "Semantic category (e.g. 'decision', 'architecture', 'pattern', 'convention', 'rule', 'insight')."
+            ),
+            "content": _string_property("The knowledge content to store."),
+            "tags": _array_string_property("Optional list of searchable tags."),
+            "relationships": _object_property("Optional relationship map (e.g. {'related_to': ['key1']})."),
         },
         ["key", "category", "content"],
     )
 
 
-def _pc_memory_consolidate_tool():
+def _consolidate_memory_tool():
     return _tool(
-        TOOL_PC_MEMORY_CONSOLIDATE,
-        "파편화된 과거 지식을 하나의 새로운 규칙으로 병합. dry_run=true 기본 — 후보만 반환(would_delete/would_write/executed=false). 실행하려면 dry_run=false 명시. 자동 트리거 금지.",
+        TOOL_CONSOLIDATE_MEMORY,
+        "Merge multiple fragmented memory records into a single consolidated record. "
+        "Side-effect when dry_run=false: deletes old_keys and writes the new consolidated record. "
+        "dry_run=true (default) returns a preview of what would be deleted and written without making changes. "
+        "Do not trigger automatically; only use when explicitly requested.",
         {
-            "new_key": _string_property(),
-            "category": _string_property(),
-            "content": _string_property(),
-            "old_keys": _array_string_property(),
-            "tags": _array_string_property(),
-            "relationships": _object_property(),
+            "new_key": _string_property("Key for the consolidated memory record."),
+            "category": _string_property("Category for the consolidated record."),
+            "content": _string_property("Merged content for the consolidated record."),
+            "old_keys": _array_string_property("List of existing memory keys to delete after consolidation."),
+            "tags": _array_string_property("Optional tags for the consolidated record."),
+            "relationships": _object_property("Optional relationship map for the consolidated record."),
             "dry_run": _boolean_property(
-                "기본 true. false 명시 시에만 실제 삭제·병합 수행",
+                "If true (default), return a preview without making any changes. "
+                "Set to false to perform actual deletion and write.",
                 DEFAULT_MEMORY_CONSOLIDATE_DRY_RUN,
             ),
         },
@@ -293,55 +373,105 @@ def _pc_memory_consolidate_tool():
     )
 
 
-def _pc_memory_read_tool():
+def _read_memory_tool():
     return _tool(
-        TOOL_PC_MEMORY_READ,
-        "지식 조회",
-        {"key": _string_property()},
+        TOOL_READ_MEMORY,
+        "Read a single memory record by its exact key. Read-only. "
+        "Use search_memory to find records when the exact key is unknown.",
+        {
+            "key": _string_property("Exact key of the memory record to retrieve."),
+        },
         ["key"],
     )
 
 
-def _pc_save_observation_tool():
+def _save_observation_tool():
     return _tool(
-        TOOL_PC_SAVE_OBSERVATION,
-        "인사이트 저장",
-        {"content": _string_property()},
+        TOOL_SAVE_OBSERVATION,
+        "Record a short observation or insight about code, decisions, or discoveries made during this session. "
+        "Side-effect: writes to the observation log and triggers after-save hooks. "
+        "Use after meaningful code edits, bug discoveries, or design decisions.",
+        {
+            "content": _string_property("The observation content to record."),
+        },
         ["content"],
     )
 
 
-def _pc_memory_search_knowledge_tool():
+def _search_memory_tool():
     return _tool(
-        TOOL_PC_MEMORY_SEARCH_KNOWLEDGE,
-        "영구 지식, 규칙 및 스킬 하이브리드 검색",
+        TOOL_SEARCH_MEMORY,
+        "Hybrid search over persistent knowledge, rules, and skills. "
+        "Use to look up stored decisions, patterns, architecture notes, or project conventions. Read-only. "
+        "Filter by category to narrow results (e.g. category='skill' or category='rule').",
         {
-            "query": _string_property(),
-            "category": _string_property(),
+            "query": _string_property("Natural-language or keyword query."),
+            "category": _string_property(
+                "Optional: filter by category (e.g. 'skill', 'rule', 'decision', 'architecture', 'insight')."
+            ),
         },
         ["query"],
     )
 
 
+# ── Orchestration ──────────────────────────────────────────────────
+
+def _create_task_contract_tool():
+    return _tool(
+        TOOL_CREATE_TASK_CONTRACT,
+        "Create a task contract specifying the work scope, instructions, and files to be modified. "
+        "Use before starting any task that involves 3 or more file changes or architectural decisions. "
+        "Side-effect: writes contract to the board state and records an observation.",
+        {
+            "lane_id": _string_property("Lane identifier for multi-agent coordination."),
+            "task_name": _string_property("Short name for this task."),
+            "instructions": _string_property("Full task description and implementation instructions."),
+            "files_to_modify": _array_string_property(
+                "Optional list of workspace-relative file paths that will be modified."
+            ),
+        },
+        ["lane_id", "task_name", "instructions"],
+    )
+
+
+def _manage_todo_tool():
+    return _tool(
+        TOOL_MANAGE_TODO,
+        "Add, check off, or clear items in the session todo list. "
+        "Side-effect: modifies the todo list state. "
+        "Use add to register a new task, check to mark it complete (requires task_id), clear to reset the list.",
+        {
+            "action": _string_property(
+                "Action to perform: 'add' a new task, 'check' a task as done, or 'clear' the entire list.",
+                enum=TODO_ACTIONS,
+            ),
+            "task": _string_property("Task description. Required when action='add'."),
+            "task_id": _string_property("Task ID to mark complete. Required when action='check'."),
+        },
+        ["action"],
+    )
+
+
 TOOLS = [
-    _pc_index_status_tool(),
-    _pc_capsule_tool(),
-    _pc_skeleton_tool(),
-    _pc_impact_graph_tool(),
-    _pc_logic_flow_tool(),
-    _pc_git_log_tool(),
-    _pc_run_pipeline_tool(),
-    _pc_auto_context_tool(),
-    _pc_read_with_hash_tool(),
-    _pc_strict_replace_tool(),
-    _pc_create_contract_tool(),
-    _pc_todo_manager_tool(),
-    _pc_session_sync_tool(),
-    _pc_memory_write_tool(),
-    _pc_memory_consolidate_tool(),
-    _pc_memory_read_tool(),
-    _pc_save_observation_tool(),
-    _pc_memory_search_knowledge_tool(),
+    _get_index_status_tool(),
+    _search_context_tool(),
+    _search_deep_context_tool(),
+    _get_file_outline_tool(),
+    _read_file_with_hash_tool(),
+    _resolve_symbol_tool(),
+    _get_impact_graph_tool(),
+    _find_execution_path_tool(),
+    _get_file_git_history_tool(),
+    _replace_exact_text_tool(),
+    _get_session_context_tool(),
+    _sync_session_memory_tool(),
+    _write_memory_tool(),
+    _consolidate_memory_tool(),
+    _read_memory_tool(),
+    _save_observation_tool(),
+    _search_memory_tool(),
+    _create_task_contract_tool(),
+    _manage_todo_tool(),
 ]
 
 

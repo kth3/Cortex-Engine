@@ -74,9 +74,9 @@ def test_zombie_eviction_clears_unity_file_claims(tmp_path, monkeypatch):
 
 
 def test_create_contract_schema_exposes_files_to_modify():
-    from cortex.mcp.registry import TOOL_PC_CREATE_CONTRACT, list_tools
+    from cortex.mcp.registry import TOOL_CREATE_TASK_CONTRACT, list_tools
 
-    tool = next(item for item in list_tools() if item["name"] == TOOL_PC_CREATE_CONTRACT)
+    tool = next(item for item in list_tools() if item["name"] == TOOL_CREATE_TASK_CONTRACT)
 
     assert "files_to_modify" in tool["inputSchema"]["properties"]
 

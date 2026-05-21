@@ -195,7 +195,7 @@ def _update_memory_yaml_if_exists(ctx, branch) -> None:
             pass
 
 
-def call_pc_session_sync(ctx, args):
+def call_sync_session_memory(ctx, args):
     task_desc = args["task_desc"]
 
     branch, jira_issues = _current_branch_and_issues(ctx.workspace)
@@ -295,7 +295,7 @@ def _append_contract_context(ctx, sections, total_chars):
     return total_chars
 
 
-def call_pc_auto_context(ctx, args):
+def call_get_session_context(ctx, args):
     token_budget = args.get("token_budget", DEFAULT_AUTO_CONTEXT_TOKEN_BUDGET)
     conn = pc_db.get_connection(ctx.workspace)
     try:

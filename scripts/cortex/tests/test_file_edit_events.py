@@ -350,7 +350,7 @@ class T10RecordEditEvent(unittest.TestCase):
                 after_content=after,
                 session_id="sess-T10",
                 event_source="cortex_mcp",
-                tool_name="pc_strict_replace",
+                tool_name="replace_exact_text",
                 edit_summary="smoke strict replace",
                 now_iso="2026-05-09T02:00:00Z",
             )
@@ -364,7 +364,7 @@ class T10RecordEditEvent(unittest.TestCase):
             self.assertEqual(row["before_hash"], _hash(before))
             self.assertEqual(row["after_hash"], _hash(after))
             self.assertEqual(row["event_sources"], "cortex_mcp")
-            self.assertEqual(row["tool_name"], "pc_strict_replace")
+            self.assertEqual(row["tool_name"], "replace_exact_text")
             self.assertEqual(row["edit_summary"], "smoke strict replace")
         finally:
             conn.close()

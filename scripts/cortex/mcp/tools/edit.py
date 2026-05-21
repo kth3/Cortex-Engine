@@ -13,7 +13,7 @@ from cortex.editing import read_with_hash, strict_replace, record_edit_event
 TEXT_FILE_ENCODING = "utf-8"
 
 EDIT_EVENT_SOURCE = "cortex_mcp"
-STRICT_REPLACE_TOOL_NAME = "pc_strict_replace"
+STRICT_REPLACE_TOOL_NAME = "replace_exact_text"
 EDIT_OBSERVATION_TYPE = "edit"
 
 AFTER_EDIT_HOOK = "after_edit"
@@ -82,11 +82,11 @@ def _save_strict_edit_observation(ctx, file_path) -> None:
     dispatch(ctx.workspace, AFTER_SAVE_OBSERVATION_HOOK)
 
 
-def call_pc_read_with_hash(ctx, args):
+def call_read_file_with_hash(ctx, args):
     return read_with_hash(ctx.workspace, args["file_path"])
 
 
-def call_strict_replace(ctx, args):
+def call_replace_exact_text(ctx, args):
     file_path = args["file_path"]
     try:
         full_path = _resolve_workspace_file(ctx.workspace, file_path)

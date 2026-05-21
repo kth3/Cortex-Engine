@@ -131,7 +131,7 @@ def call_save_observation(ctx, args):
     return res
 
 
-def call_pc_memory_write(ctx, args):
+def call_write_memory(ctx, args):
     key = args["key"]
     category = args["category"]
     content = args["content"]
@@ -146,7 +146,7 @@ def call_pc_memory_write(ctx, args):
     return {"success": ok, "key": key, "auto_promoted_to": target_file}
 
 
-def call_pc_memory_consolidate(ctx, args):
+def call_consolidate_memory(ctx, args):
     """파편 메모리 병합. dry_run 기본 True — 사용자 승인 없는 자동 삭제 방지."""
     new_key = args["new_key"]
     category = args["category"]
@@ -185,11 +185,11 @@ def call_pc_memory_consolidate(ctx, args):
     }
 
 
-def call_pc_memory_read(ctx, args):
+def call_read_memory(ctx, args):
     return get_storage(ctx).read(MEMORY_NAMESPACE, args["key"])
 
 
-def call_pc_memory_search_knowledge(ctx, args):
+def call_search_memory(ctx, args):
     raw_res = get_storage(ctx).search_knowledge(
         args["query"],
         category=args.get("category"),

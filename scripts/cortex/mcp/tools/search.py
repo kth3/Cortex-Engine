@@ -30,8 +30,13 @@ PIPELINE_PROBE_EXTRA = 1
 PIPELINE_IMPACT_DEPTH = 2
 PIPELINE_IMPACT_LIMIT = 10
 
+# search_deep_context에서 캡슐이 이 chars 미만이면 메모리 체이닝을 실행한다
+DEEP_CONTEXT_SPARSE_CAPSULE_CHARS = 1500
+# 체이닝 시 추가로 가져올 최대 메모리 항목 수
+DEEP_CONTEXT_CHAIN_MEMORY_LIMIT = 3
 
-def call_pc_skeleton(ctx, args):
+
+def call_get_file_outline(ctx, args):
     return pc_skeleton_mod.generate_skeleton(
         ctx.workspace,
         args["file_path"],
@@ -60,7 +65,7 @@ def _impact_result(fqn, impact_nodes, truncated, limit, total_seen):
     }
 
 
-def call_pc_impact_graph(ctx, args):
+def call_get_impact_graph(ctx, args):
     fqn = args["fqn"]
     direction = args.get("direction", DEFAULT_IMPACT_DIRECTION)
     max_depth = args.get("max_depth", DEFAULT_IMPACT_MAX_DEPTH)
@@ -110,7 +115,7 @@ def _node_fqns(conn, node_ids):
     return [n["fqn"] for n in path_nodes]
 
 
-def call_pc_logic_flow(ctx, args):
+def call_find_execution_path(ctx, args):
     from_fqn = args["from_fqn"]
     to_fqn = args["to_fqn"]
     max_depth = args.get("max_depth", DEFAULT_LOGIC_MAX_DEPTH)
@@ -167,7 +172,7 @@ def _chain_impact_for_query(ctx, query):
         first_match = pc_db.search_nodes_fts(conn, query, limit=1)
         if not first_match:
             return None
-        impact = call_pc_impact_graph(
+        impact = call_get_impact_graph(
             ctx,
             {
                 "fqn": first_match[0]["fqn"],
@@ -203,8 +208,8 @@ def _save_auto_explored_observation(ctx, query) -> None:
         pass  # observation 기록 실패가 capsule 응답을 차단해서는 안 됨
 
 
-def call_pc_capsule(ctx, args):
-    """pc_capsule 통합 진입점. auto_chain=true 시 통합 탐색 부수효과를 함께 수행한다.
+def call_capsule(ctx, args):
+    """내부 캡슐 생성 진입점. auto_chain=true 시 통합 탐색 부수효과를 함께 수행한다.
 
     부수효과 (auto_chain=true 한정):
       1. capsule 길이 < 1500 chars 시 impact_graph + memory 자동 체이닝
@@ -256,7 +261,7 @@ def _pipeline_impact_summary(ctx, unified_results):
     fqn = _top_code_fqn(unified_results)
     if not fqn:
         return []
-    impact_res = call_pc_impact_graph(
+    impact_res = call_get_impact_graph(
         ctx,
         {
             "fqn": fqn,
@@ -267,31 +272,52 @@ def _pipeline_impact_summary(ctx, unified_results):
     return impact_res.get("impact_nodes", [])[:PIPELINE_IMPACT_LIMIT]
 
 
-def call_pc_run_pipeline(ctx, args):
+def call_search_context(ctx, args):
+    """search_context: read-only capsule search. auto_chain side-effect is permanently disabled."""
+    return call_capsule(ctx, {**args, "auto_chain": False})
+
+
+def call_search_deep_context(ctx, args):
     query = args["query"]
     limit = args.get("limit", DEFAULT_PIPELINE_LIMIT)
     try:
-        # 1. 통합 교차 검색 수행 (limit + 1개로 truncated 여부만 추정하고, 실제 반환은 limit개로 제한한다.)
+        # 1. 코드·지식·관찰 3-도메인 통합 교차 검색
+        # probe_limit으로 1개 더 조회해 truncated 여부를 추정하고, 반환은 limit개로 제한한다
         probe_limit = limit + PIPELINE_PROBE_EXTRA
         unified_full = unified_pipeline_search(ctx.workspace, query, limit=probe_limit, ve_module=ve)
         truncated = len(unified_full) > limit
         unified = unified_full[:limit]
         total_seen = len(unified_full)
 
-        # 2. 코드 도메인 1위 항목 FQN 추출 및 Impact Graph 요약 추출
+        # 2. 코드 도메인 상위 FQN의 Impact Graph 요약 — 변경 영향 범위 파악용
         impact = _pipeline_impact_summary(ctx, unified)
 
-        # 3. 보완용 상세 코드 캡슐 생성 (Option B)
+        # 3. 상세 코드 캡슐 생성 — unified_context 보완용 서술형 컨텍스트
         capsule = pc_capsule_mod.generate_context_capsule(ctx.workspace, query)
+        capsule_chars = len(capsule)
 
-        return {
+        result = {
             "unified_context": unified,
             "capsule": capsule,
+            "capsule_chars": capsule_chars,
             "impact_summary": impact,
             "truncated": truncated,
             "limit": limit,
             "returned_count": len(unified),
             "total_seen": total_seen,
         }
+
+        # 4. 캡슐 결과가 희박한 경우 메모리 체이닝 — 구버전 auto_chain 동작 흡수
+        # capsule_chars가 임계값 미만이면 프로젝트 지식 DB에서 관련 메모리를 추가로 가져온다
+        if capsule_chars < DEEP_CONTEXT_SPARSE_CAPSULE_CHARS:
+            result["reasoning"] = (
+                f"Capsule was sparse ({capsule_chars} chars); "
+                "chained additional memories for broader context."
+            )
+            chained = _chain_memories_for_query(ctx, query)
+            if chained is not None:
+                result["chained_memories"] = chained
+
+        return result
     except Exception as e:
         return {"error": str(e)}

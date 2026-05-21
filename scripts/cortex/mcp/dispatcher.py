@@ -8,56 +8,62 @@ import json
 from cortex.hooks import manager as pc_hooks
 from cortex.mcp.response import create_text_response, create_error_response
 
-from cortex.mcp.tools.indexing import call_pc_index_status
+from cortex.mcp.tools.indexing import call_get_index_status
 from cortex.mcp.tools.search import (
-    call_pc_capsule, call_pc_skeleton, call_pc_impact_graph,
-    call_pc_logic_flow, call_pc_run_pipeline
+    call_search_context, call_get_file_outline, call_get_impact_graph,
+    call_find_execution_path, call_search_deep_context
 )
+from cortex.mcp.tools.symbols import call_resolve_symbol
 from cortex.mcp.tools.edit import (
-    call_pc_read_with_hash, call_strict_replace
+    call_read_file_with_hash, call_replace_exact_text
 )
-from cortex.mcp.tools.git import call_pc_git_log
+from cortex.mcp.tools.git import call_get_file_git_history
 from cortex.mcp.tools.memory import (
-    call_save_observation, call_pc_memory_write, call_pc_memory_consolidate,
-    call_pc_memory_read, call_pc_memory_search_knowledge
+    call_save_observation, call_write_memory, call_consolidate_memory,
+    call_read_memory, call_search_memory
 )
 from cortex.mcp.tools.session import (
-    call_pc_auto_context, call_pc_session_sync
+    call_get_session_context, call_sync_session_memory
 )
 from cortex.mcp.tools.orchestration import (
     call_todo_manager, call_create_contract
 )
 
-# Guard hook은 기존에 보호하던 쓰기성/오케스트레이션 tool에만 적용한다.
+# Guard hook은 write/side-effect/orchestration tool에만 적용한다.
+# read-only search tool은 guard 대상에서 제외한다.
 GUARDED_TOOL_NAMES = frozenset(
     {
-        "pc_strict_replace",
-        "pc_create_contract",
-        "pc_todo_manager",
-        "pc_capsule",
+        "replace_exact_text",
+        "create_task_contract",
+        "manage_todo",
+        "sync_session_memory",
+        "save_observation",
+        "write_memory",
+        "consolidate_memory",
     }
 )
 
-# Tool 이름과 내부 handler의 매핑을 한 곳에 고정해 누락/중복을 줄인다.
+# Tool 이름과 내부 handler의 매핑.
 TOOL_HANDLERS = {
-    "pc_index_status": call_pc_index_status,
-    "pc_capsule": call_pc_capsule,
-    "pc_skeleton": call_pc_skeleton,
-    "pc_impact_graph": call_pc_impact_graph,
-    "pc_logic_flow": call_pc_logic_flow,
-    "pc_git_log": call_pc_git_log,
-    "pc_run_pipeline": call_pc_run_pipeline,
-    "pc_auto_context": call_pc_auto_context,
-    "pc_read_with_hash": call_pc_read_with_hash,
-    "pc_strict_replace": call_strict_replace,
-    "pc_create_contract": call_create_contract,
-    "pc_todo_manager": call_todo_manager,
-    "pc_session_sync": call_pc_session_sync,
-    "pc_memory_write": call_pc_memory_write,
-    "pc_memory_consolidate": call_pc_memory_consolidate,
-    "pc_memory_read": call_pc_memory_read,
-    "pc_save_observation": call_save_observation,
-    "pc_memory_search_knowledge": call_pc_memory_search_knowledge,
+    "get_index_status": call_get_index_status,
+    "search_context": call_search_context,
+    "search_deep_context": call_search_deep_context,
+    "get_file_outline": call_get_file_outline,
+    "read_file_with_hash": call_read_file_with_hash,
+    "resolve_symbol": call_resolve_symbol,
+    "get_impact_graph": call_get_impact_graph,
+    "find_execution_path": call_find_execution_path,
+    "get_file_git_history": call_get_file_git_history,
+    "replace_exact_text": call_replace_exact_text,
+    "get_session_context": call_get_session_context,
+    "sync_session_memory": call_sync_session_memory,
+    "write_memory": call_write_memory,
+    "consolidate_memory": call_consolidate_memory,
+    "read_memory": call_read_memory,
+    "save_observation": call_save_observation,
+    "search_memory": call_search_memory,
+    "create_task_contract": call_create_contract,
+    "manage_todo": call_todo_manager,
 }
 
 
