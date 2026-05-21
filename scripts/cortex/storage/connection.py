@@ -14,6 +14,7 @@ SQLITE_CONNECT_TIMEOUT_SECONDS = 10
 PRAGMA_JOURNAL_MODE_WAL = "PRAGMA journal_mode=WAL"
 PRAGMA_BUSY_TIMEOUT = "PRAGMA busy_timeout=5000"
 PRAGMA_FOREIGN_KEYS_ON = "PRAGMA foreign_keys=ON"
+PRAGMA_CACHE_SIZE = "PRAGMA cache_size = -2000"  # 2MB 상한 (기본 8MB 과다 할당 방지)
 
 SQLITE_VEC_UNAVAILABLE_WARNING = "sqlite-vec unavailable, falling back to FTS5-only: %s"
 
@@ -46,6 +47,7 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
     conn.execute(PRAGMA_JOURNAL_MODE_WAL)
     conn.execute(PRAGMA_BUSY_TIMEOUT)
     conn.execute(PRAGMA_FOREIGN_KEYS_ON)
+    conn.execute(PRAGMA_CACHE_SIZE)
 
 
 def _load_sqlite_vec_extension(conn: sqlite3.Connection) -> bool:
@@ -70,6 +72,7 @@ def get_connection(workspace: str) -> sqlite3.Connection:
     _configure_row_factory(conn)
     _apply_pragmas(conn)
 
-    _VEC_AVAILABLE = _load_sqlite_vec_extension(conn)
+    if _VEC_AVAILABLE is not False:  # None(미확인) 또는 True일 때만 시도
+        _VEC_AVAILABLE = _load_sqlite_vec_extension(conn)
 
     return conn

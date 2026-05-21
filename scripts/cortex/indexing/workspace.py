@@ -78,6 +78,7 @@ def _release_local_cuda_model_after_indexing() -> None:
 
 
 def _sync_graph_from_sqlite(workspace, conn):
+    gdb = None
     try:
         from cortex.storage.graph import GraphDB
         gdb = GraphDB(workspace)
@@ -86,6 +87,9 @@ def _sync_graph_from_sqlite(workspace, conn):
         log.info("Kuzu graph built: %d nodes, %d edges, %d errors", g_stats['nodes'], g_stats['edges'], g_stats['errors'])
     except Exception as e:
         log.warning("Kuzu graph build failed: %s", e)
+    finally:
+        if gdb is not None:
+            del gdb
 
 
 def index_workspace(workspace: str, force: bool = False) -> dict:
@@ -95,54 +99,55 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
     files = scan_files(workspace, SUPPORTED_EXTENSIONS)
     settings = load_settings(workspace)
     conn = db.get_connection(workspace)
-    db.init_schema(conn)
+    try:
+        db.init_schema(conn)
 
-    cleanup_deleted_files(workspace, conn, files)
+        cleanup_deleted_files(workspace, conn, files)
 
-    stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
-    all_vector_items_by_prefix = {}
+        stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
+        all_vector_items_by_prefix = {}
 
-    cache_dict = _load_file_cache(conn, force)
+        cache_dict = _load_file_cache(conn, force)
 
-    for rel_path in files:
-        full_path = str(source_path_for_index_path(workspace, rel_path, settings))
-        try:
-            source = read_text_file(full_path)
-        except Exception:
-            stats["errors"] += 1
-            continue
-
-        file_hash = compute_hash(source)
-        if not force:
-            cached_hash = cache_dict.get(rel_path)
-            if cached_hash == file_hash:
-                stats["skipped"] += 1
+        for rel_path in files:
+            full_path = str(source_path_for_index_path(workspace, rel_path, settings))
+            try:
+                source = read_text_file(full_path)
+            except Exception:
+                stats["errors"] += 1
                 continue
 
-        res = index_file(workspace, rel_path, conn=conn, vectorize=False, source_path=full_path)
-        _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
+            file_hash = compute_hash(source)
+            if not force:
+                cached_hash = cache_dict.get(rel_path)
+                if cached_hash == file_hash:
+                    stats["skipped"] += 1
+                    continue
 
-    use_gpu = detect_gpu()
-    if all_vector_items_by_prefix:
-        batch_vectorize_nodes(conn, all_vector_items_by_prefix, use_gpu, workspace=workspace)
+            res = index_file(workspace, rel_path, conn=conn, vectorize=False, source_path=full_path)
+            _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
 
-    sync_rules_to_memories(workspace, conn)
+        use_gpu = detect_gpu()
+        if all_vector_items_by_prefix:
+            batch_vectorize_nodes(conn, all_vector_items_by_prefix, use_gpu, workspace=workspace)
 
-    try:
-        batch_vectorize_memories(conn, use_gpu, workspace=workspace)
-    except Exception as e:
-        log.error("Failed to index memories table: %s", e)
+        sync_rules_to_memories(workspace, conn)
 
-    _release_local_cuda_model_after_indexing()
+        try:
+            batch_vectorize_memories(conn, use_gpu, workspace=workspace)
+        except Exception as e:
+            log.error("Failed to index memories table: %s", e)
 
-    conn.execute(
-        UPSERT_LAST_INDEXED_AT_SQL,
-        (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
-    )
-    conn.commit()
+        _release_local_cuda_model_after_indexing()
 
-    resolve_unresolved_edges(conn)
-    _sync_graph_from_sqlite(workspace, conn)
+        conn.execute(
+            UPSERT_LAST_INDEXED_AT_SQL,
+            (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
+        )
+        conn.commit()
 
-    conn.close()
+        resolve_unresolved_edges(conn)
+        _sync_graph_from_sqlite(workspace, conn)
+    finally:
+        conn.close()
     return stats

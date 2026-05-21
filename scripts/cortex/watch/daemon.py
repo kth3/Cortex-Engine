@@ -97,6 +97,10 @@ class DebouncedIndexer(FileSystemEventHandler):
 
     def process_queue(self):
         now = time.time()
+        expired = [k for k, v in self._delete_cooldown.items() if (now - v) > self.DUPLICATE_DELETE_TTL]
+        for k in expired:
+            del self._delete_cooldown[k]
+
         if not self.changed_files or (now - self.last_event_time) < 5.0:
             return
 
