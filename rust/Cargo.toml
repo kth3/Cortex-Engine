@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/watcher",
+    "crates/scanner",
+    "crates/parsers",
+    "crates/storage",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+notify = "6"
+walkdir = "2"
+ignore = "0.4"
+tree-sitter = "0.25"
+tree-sitter-python = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-typescript = "0.23"
+pulldown-cmark = "0.12"
+pdf-extract = "0.7"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v5"] }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rayon = "1"
+signal-hook = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

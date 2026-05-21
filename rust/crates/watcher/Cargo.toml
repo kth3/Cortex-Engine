@@ -1,0 +1,22 @@
+[package]
+name = "cortex-watcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cortex-watcher"
+path = "src/main.rs"
+
+[dependencies]
+notify = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+signal-hook = { workspace = true }
+rayon = { workspace = true }
+serde_json = { workspace = true }
+cortex-scanner = { path = "../scanner" }
+cortex-parsers = { path = "../parsers" }
+cortex-storage = { path = "../storage" }

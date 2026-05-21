@@ -1,0 +1,21 @@
+[package]
+name = "cortex-parsers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tree-sitter = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-java = { workspace = true }
+tree-sitter-c-sharp = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+pulldown-cmark = { workspace = true }
+pdf-extract = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
