@@ -1,11 +1,13 @@
 """Runtime path constants for Cortex service control."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from cortex.paths import history_dir, resolve_cortex_home, resolve_workspace
 
 CORTEX_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = CORTEX_DIR.parent.parent
 WORKSPACE = resolve_workspace(CORTEX_DIR)
 CORTEX_HOME = resolve_cortex_home(WORKSPACE)
 LOG_DIR = history_dir(WORKSPACE)
@@ -16,5 +18,19 @@ WORKER_PORT = 42385
 TARGET_PORTS = [ENGINE_PORT, WORKER_PORT]
 
 SERVER_SCRIPT = CORTEX_DIR / "vector_engine_server.py"
-WATCHER_SCRIPT = CORTEX_DIR / "watch" / "daemon.py"
+RUST_WATCHER_BINARY_NAME = "cortex-watcher.exe" if os.name == "nt" else "cortex-watcher"
+
+
+def resolve_rust_watcher_binary() -> Path:
+    rust_target_dir = REPO_ROOT / "rust" / "target"
+    release_binary = rust_target_dir / "release" / RUST_WATCHER_BINARY_NAME
+    debug_binary = rust_target_dir / "debug" / RUST_WATCHER_BINARY_NAME
+    for candidate in (release_binary, debug_binary):
+        if candidate.exists():
+            return candidate
+    return release_binary
+
+
+WATCHER_BINARY = resolve_rust_watcher_binary()
+WATCHER_SCRIPT = WATCHER_BINARY
 LOCK_FILE = LOG_DIR / "cortex_ctl.lock"

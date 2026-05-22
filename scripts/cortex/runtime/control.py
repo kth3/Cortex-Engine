@@ -15,7 +15,14 @@ from .environment import build_child_env
 from .ipc import send_minimal_ping, send_minimal_ping_status
 from .local_daemon import resolve_local_daemon_script
 from .lock import control_lock
-from .paths import CORTEX_HOME, ENGINE_HOST, ENGINE_PORT, LOG_DIR, SERVER_SCRIPT, WATCHER_SCRIPT
+from .paths import (
+    CORTEX_HOME,
+    ENGINE_HOST,
+    ENGINE_PORT,
+    LOG_DIR,
+    SERVER_SCRIPT,
+    resolve_rust_watcher_binary,
+)
 from .process import cleanup_ports, force_cleanup_ports, get_pids, launch_background_process, terminate_pid
 
 
@@ -58,6 +65,10 @@ ENGINE_READY_WARNING_INTERVAL_RETRIES = 5
 CLEANUP_LOG_FILENAMES = ("watcher_output.log", "engine_server.log")
 
 
+def _watcher_binary() -> Path:
+    return resolve_rust_watcher_binary()
+
+
 def _resolve_start_timeout() -> int:
     """Total seconds to wait for the engine before reporting a failure.
 
@@ -77,7 +88,7 @@ def _resolve_start_timeout() -> int:
 
 
 def _service_scripts() -> list[tuple[Path, str]]:
-    scripts = [(SERVER_SCRIPT, "Engine Server"), (WATCHER_SCRIPT, "Watcher")]
+    scripts = [(SERVER_SCRIPT, "Engine Server"), (_watcher_binary(), "Watcher")]
     local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
     if local_daemon_script:
         scripts.append((local_daemon_script, "Local Daemon"))
@@ -215,7 +226,8 @@ def start() -> None:
             logger.info("Another control process is running. Skipping start.")
             return
 
-        current_watchers = get_pids(str(WATCHER_SCRIPT))
+        watcher_binary = _watcher_binary()
+        current_watchers = get_pids(str(watcher_binary))
         current_servers = get_pids(str(SERVER_SCRIPT))
         local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
 
@@ -256,7 +268,7 @@ def start() -> None:
 
 def status() -> None:
     server_pids = get_pids(str(SERVER_SCRIPT))
-    watcher_pids = get_pids(str(WATCHER_SCRIPT))
+    watcher_pids = get_pids(str(_watcher_binary()))
     local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
     ping_status = send_minimal_ping_status()
 

@@ -8,6 +8,11 @@ from pathlib import Path
 import pytest
 
 from cortex import paths
+from cortex.runtime import paths as runtime_paths
+
+
+def _watcher_binary_name() -> str:
+    return "cortex-watcher.exe" if os.name == "nt" else "cortex-watcher"
 
 
 def test_data_home_defaults_to_user_dotcortex(monkeypatch, tmp_path):
@@ -84,3 +89,35 @@ def test_settings_paths_stay_workspace_local(tmp_path):
     main, local = paths.settings_paths(cortex_home)
     assert main == cortex_home / "settings.yaml"
     assert local == cortex_home / "settings.local.yaml"
+
+
+def test_resolve_rust_watcher_binary_prefers_release(tmp_path, monkeypatch):
+    repo_root = tmp_path
+    release_dir = repo_root / "rust" / "target" / "release"
+    debug_dir = repo_root / "rust" / "target" / "debug"
+    release_dir.mkdir(parents=True)
+    debug_dir.mkdir(parents=True)
+
+    binary_name = _watcher_binary_name()
+    release_binary = release_dir / binary_name
+    debug_binary = debug_dir / binary_name
+    release_binary.touch()
+    debug_binary.touch()
+
+    monkeypatch.setattr(runtime_paths, "REPO_ROOT", repo_root)
+
+    assert runtime_paths.resolve_rust_watcher_binary() == release_binary.resolve()
+
+
+def test_resolve_rust_watcher_binary_falls_back_to_debug(tmp_path, monkeypatch):
+    repo_root = tmp_path
+    debug_dir = repo_root / "rust" / "target" / "debug"
+    debug_dir.mkdir(parents=True)
+
+    binary_name = _watcher_binary_name()
+    debug_binary = debug_dir / binary_name
+    debug_binary.touch()
+
+    monkeypatch.setattr(runtime_paths, "REPO_ROOT", repo_root)
+
+    assert runtime_paths.resolve_rust_watcher_binary() == debug_binary.resolve()

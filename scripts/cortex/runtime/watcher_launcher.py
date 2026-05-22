@@ -1,14 +1,16 @@
 """Watcher subprocess launcher for the Cortex engine server."""
 from __future__ import annotations
 
-import sys
+import os
 import threading
+import sys
 
 from cortex.logger import get_logger
+from cortex.paths import workspace_key
 
 from .environment import build_child_env
 from .logging import relay_subprocess_output
-from .paths import WATCHER_SCRIPT
+from .paths import REPO_ROOT, WORKSPACE, resolve_rust_watcher_binary
 from .process import launch_logged_process
 
 logger = get_logger("server")
@@ -17,9 +19,22 @@ logger = get_logger("server")
 def launch_watcher() -> None:
     logger.info("Starting Watcher Daemon from Router...")
     try:
+        env = build_child_env()
+        env["CORTEX_WORKSPACE_KEY"] = workspace_key(WORKSPACE)
+        env["CORTEX_PYTHON_EXECUTABLE"] = sys.executable
+        env["CORTEX_PYTHON_FALLBACK"] = sys.executable
+        scripts_dir = str(REPO_ROOT / "scripts")
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            f"{scripts_dir}{os.pathsep}{existing_pythonpath}"
+            if existing_pythonpath
+            else scripts_dir
+        )
+        watcher_binary = resolve_rust_watcher_binary()
+
         watcher_proc = launch_logged_process(
-            [sys.executable, "-u", str(WATCHER_SCRIPT)],
-            build_child_env(),
+            [str(watcher_binary), "watch", "--workspace", str(WORKSPACE)],
+            env,
             start_new_session=True,
         )
         threading.Thread(

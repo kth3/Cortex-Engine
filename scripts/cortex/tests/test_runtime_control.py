@@ -10,7 +10,7 @@ SCRIPTS_DIR = THIS_DIR.parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cortex.runtime import control
+from cortex.runtime import control, watcher_launcher
 
 
 def _lock_cm(acquired: bool):
@@ -282,16 +282,19 @@ class StartTests(unittest.TestCase):
 class StatusTests(unittest.TestCase):
     @patch("cortex.runtime.control.print")
     @patch("cortex.runtime.control.resolve_local_daemon_script", return_value=None)
+    @patch("cortex.runtime.control.resolve_rust_watcher_binary")
     @patch("cortex.runtime.control.get_pids")
     @patch("cortex.runtime.control.send_minimal_ping_status")
     def test_status_label_mapping(
         self,
         mock_ping_status,
         mock_get_pids,
+        mock_resolve_watcher_binary,
         _mock_resolve_local_daemon,
         mock_print,
     ):
         mock_get_pids.return_value = [1]
+        mock_resolve_watcher_binary.return_value = Path("/repo/rust/target/release/cortex-watcher.exe")
 
         for ping_status, expected_label in [
             ("ok", "[READY]"),
@@ -309,6 +312,92 @@ class StatusTests(unittest.TestCase):
             self.assertIn("Engine Server", printed)
             self.assertIn("Watcher Daemon", printed)
             self.assertIn("IPC Endpoint", printed)
+
+    @patch("cortex.runtime.control.print")
+    @patch("cortex.runtime.control.resolve_local_daemon_script", return_value=None)
+    @patch("cortex.runtime.control.resolve_rust_watcher_binary")
+    @patch("cortex.runtime.control.get_pids")
+    @patch("cortex.runtime.control.send_minimal_ping_status", return_value="ok")
+    def test_status_uses_resolved_rust_watcher_binary(
+        self,
+        _mock_ping_status,
+        mock_get_pids,
+        mock_resolve_watcher_binary,
+        _mock_resolve_local_daemon,
+        _mock_print,
+    ):
+        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
+        mock_resolve_watcher_binary.return_value = binary
+        mock_get_pids.return_value = [1]
+
+        control.status()
+
+        mock_get_pids.assert_any_call(str(binary))
+
+
+class ServiceScriptTests(unittest.TestCase):
+    @patch("cortex.runtime.control.resolve_local_daemon_script", return_value=None)
+    @patch("cortex.runtime.control.resolve_rust_watcher_binary")
+    def test_service_scripts_uses_resolved_rust_watcher_binary(
+        self,
+        mock_resolve_watcher_binary,
+        _mock_resolve_local_daemon,
+    ):
+        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
+        mock_resolve_watcher_binary.return_value = binary
+
+        scripts = control._service_scripts()
+
+        self.assertEqual(scripts, [(control.SERVER_SCRIPT, "Engine Server"), (binary, "Watcher")])
+
+
+class WatcherLauncherTests(unittest.TestCase):
+    @patch("cortex.runtime.watcher_launcher.threading.Thread")
+    @patch("cortex.runtime.watcher_launcher.relay_subprocess_output")
+    @patch("cortex.runtime.watcher_launcher.launch_logged_process")
+    @patch("cortex.runtime.watcher_launcher.build_child_env", return_value={"A": "B"})
+    @patch("cortex.runtime.watcher_launcher.workspace_key", return_value="workspace-key")
+    @patch("cortex.runtime.watcher_launcher.resolve_rust_watcher_binary")
+    def test_launch_watcher_uses_rust_binary_watch_command(
+        self,
+        mock_resolve_watcher_binary,
+        mock_workspace_key,
+        mock_build_child_env,
+        mock_launch_logged_process,
+        mock_relay_subprocess_output,
+        mock_thread,
+    ):
+        watcher_proc = Mock()
+        mock_launch_logged_process.return_value = watcher_proc
+        thread_instance = Mock()
+        mock_thread.return_value = thread_instance
+
+        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
+        workspace = Path("/repo")
+        mock_resolve_watcher_binary.return_value = binary
+        with patch.object(watcher_launcher, "WORKSPACE", workspace):
+            watcher_launcher.launch_watcher()
+
+        mock_build_child_env.assert_called_once_with()
+        mock_workspace_key.assert_called_once_with(workspace)
+        mock_launch_logged_process.assert_called_once_with(
+            [str(binary), "watch", "--workspace", str(workspace)],
+            {
+                "A": "B",
+                "CORTEX_WORKSPACE_KEY": "workspace-key",
+                "CORTEX_PYTHON_EXECUTABLE": sys.executable,
+                "CORTEX_PYTHON_FALLBACK": sys.executable,
+                "PYTHONPATH": f"{watcher_launcher.REPO_ROOT / 'scripts'}",
+            },
+            start_new_session=True,
+        )
+        mock_relay_subprocess_output.assert_not_called()
+        mock_thread.assert_called_once_with(
+            target=mock_relay_subprocess_output,
+            args=(watcher_proc, "watcher", watcher_launcher.logger),
+            daemon=True,
+        )
+        thread_instance.start.assert_called_once_with()
 
 
 class RestartTests(unittest.TestCase):
