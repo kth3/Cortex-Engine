@@ -6,9 +6,11 @@
 pub mod c_cpp;
 pub mod chunking;
 pub mod common;
+pub mod csharp;
 pub mod java;
 pub mod markdown;
 pub mod pdf;
+pub mod typescript;
 
 pub use c_cpp::parse_c_file;
 pub use chunking::{semantic_chunk, semantic_chunk_config, semantic_chunk_with, ChunkConfig};
@@ -16,6 +18,8 @@ pub use common::{
     truncate, unresolved_fqn, unresolved_name, uuid5_for, EdgeRecord, NodeRecord, ParseResult,
     NAMESPACE_URL, UNRESOLVED_FQN_PREFIX, UNRESOLVED_NAME_PREFIX,
 };
+pub use csharp::parse_csharp_file;
 pub use java::parse_java_file;
 pub use markdown::{parse_css_file, parse_html_file, parse_markdown_file};
 pub use pdf::parse_pdf_file;
+pub use typescript::parse_ts_file;
