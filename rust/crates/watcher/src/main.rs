@@ -85,6 +85,7 @@ fn cmd_parse_file(file: &std::path::Path, rel: Option<&str>) -> Result<()> {
                 "md" => cortex_parsers::parse_markdown_file(&rel_path, &source),
                 "html" => cortex_parsers::parse_html_file(&rel_path, &source),
                 "css" => cortex_parsers::parse_css_file(&rel_path, &source),
+                "java" => cortex_parsers::parse_java_file(&rel_path, &source),
                 other => anyhow::bail!("unsupported extension for parse-file: .{}", other),
             }
         }

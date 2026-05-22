@@ -17,14 +17,16 @@ pub fn uuid5_for(name: &str) -> String {
     Uuid::new_v5(&NAMESPACE_URL, name.as_bytes()).to_string()
 }
 
-/// Python `_truncate(text, max_len)` 와 동치. 첫 줄 + 최대 길이 컷.
+/// Python `_truncate(text, max_len)` 와 동치. 첫 줄 + 최대 길이 컷 (char 단위 — 멀티바이트 안전).
 pub fn truncate(text: &str, max_len: usize) -> String {
     if text.is_empty() {
         return String::new();
     }
     let first_line = text.lines().next().unwrap_or("").trim();
-    if first_line.len() > max_len {
-        first_line[..max_len].to_string()
+    // Python `len(str)`는 char 단위. byte 슬라이싱은 한글/한자 경계 panic 위험.
+    let char_count = first_line.chars().count();
+    if char_count > max_len {
+        first_line.chars().take(max_len).collect()
     } else {
         first_line.to_string()
     }
