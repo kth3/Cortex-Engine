@@ -10,6 +10,7 @@ pub mod csharp;
 pub mod java;
 pub mod markdown;
 pub mod pdf;
+pub mod python;
 pub mod typescript;
 
 pub use c_cpp::parse_c_file;
@@ -22,4 +23,5 @@ pub use csharp::parse_csharp_file;
 pub use java::parse_java_file;
 pub use markdown::{parse_css_file, parse_html_file, parse_markdown_file};
 pub use pdf::parse_pdf_file;
+pub use python::parse_python_file;
 pub use typescript::parse_ts_file;

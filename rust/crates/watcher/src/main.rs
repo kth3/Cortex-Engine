@@ -294,6 +294,7 @@ fn parse_indexable_file(rel_path: &str, file: &Path) -> Result<cortex_parsers::P
                 "md" => cortex_parsers::parse_markdown_file(rel_path, &source),
                 "html" => cortex_parsers::parse_html_file(rel_path, &source),
                 "css" => cortex_parsers::parse_css_file(rel_path, &source),
+                "py" => cortex_parsers::parse_python_file(rel_path, &source),
                 "java" => cortex_parsers::parse_java_file(rel_path, &source),
                 "c" | "cpp" | "h" | "hpp" | "cc" | "cxx" => {
                     cortex_parsers::parse_c_file(rel_path, &source)
