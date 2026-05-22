@@ -84,7 +84,7 @@ def index_file(workspace: str, rel_path: str, conn=None, vectorize: bool = True,
         close_conn = True
 
     try:
-        result = parser_func(rel_path, source)
+        result = parser_func(rel_path, source, full_path)
         clean_source = strip_frontmatter(source) if rel_path.startswith(".cortex/") else source
 
         old_ids = cleanup_file_records(conn, rel_path)

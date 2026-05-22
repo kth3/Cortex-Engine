@@ -9,16 +9,25 @@ from cortex.runtime.paths import ensure_rust_watcher_binary
 log = get_logger("parser_registry")
 
 
-def _parse_python_with_rust(fp, src):
+def _parse_with_rust(fp, src, abs_path=None):
     tmp_path = None
     try:
         binary = ensure_rust_watcher_binary()
-        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tmp:
-            tmp.write(src)
-            tmp_path = Path(tmp.name)
+        ext = Path(fp).suffix.lower()
+
+        if ext == ".pdf":
+            file_path = Path(abs_path) if abs_path else Path(fp)
+            command_path = file_path
+        else:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=ext or ".txt", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(src)
+                tmp_path = Path(tmp.name)
+            command_path = tmp_path
 
         proc = subprocess.run(
-            [str(binary), "parse-file", "--rel", fp, str(tmp_path)],
+            [str(binary), "parse-file", "--rel", fp, str(command_path)],
             capture_output=True,
             text=True,
             check=True,
@@ -26,7 +35,7 @@ def _parse_python_with_rust(fp, src):
         )
         return json.loads(proc.stdout)
     except Exception as e:
-        log.warning("Failed to parse Python file via Rust parser: %s", e)
+        log.warning("Failed to parse file via Rust parser: %s", e)
         return {"nodes": [], "edges": []}
     finally:
         if tmp_path is not None:
@@ -42,65 +51,24 @@ class ParserRegistry:
         self._load_parsers()
 
     def _load_parsers(self):
-        # 1. C/C++
-        try:
-            from cortex.parsers.c_parser import parse_c_file
-            self.parsers[".c"] = ("c", lambda fp, src: parse_c_file(fp, src))
-            self.parsers[".cpp"] = ("cpp", lambda fp, src: parse_c_file(fp, src))
-            self.parsers[".h"] = ("c", lambda fp, src: parse_c_file(fp, src))
-            self.parsers[".hpp"] = ("cpp", lambda fp, src: parse_c_file(fp, src))
-        except Exception as e:
-            log.warning("Failed to load C/C++ parser: %s", e)
+        rust_parsers = {
+            ".c": "c",
+            ".cpp": "cpp",
+            ".h": "c",
+            ".hpp": "cpp",
+            ".java": "java",
+            ".md": "markdown",
+            ".html": "html",
+            ".css": "css",
+            ".pdf": "pdf",
+            ".py": "python",
+            ".cs": "csharp",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+        }
 
-        # 2. Java
-        try:
-            from cortex.parsers.java_parser import parse_java_file
-            self.parsers[".java"] = ("java", lambda fp, src: parse_java_file(fp, src))
-        except Exception as e:
-            log.warning("Failed to load Java parser: %s", e)
-
-        # 3. Markdown / HTML / CSS
-        try:
-            from cortex.parsers.markdown_parser import parse_markdown_file
-            self.parsers[".md"] = ("markdown", lambda fp, src: parse_markdown_file(fp, src))
-            self.parsers[".html"] = ("html", lambda fp, src: parse_markdown_file(fp, src))
-            self.parsers[".css"] = ("css", lambda fp, src: parse_markdown_file(fp, src))
-        except Exception as e:
-            log.warning("Failed to load Markdown parser: %s", e)
-
-        # 4. PDF
-        try:
-            from cortex.parsers.pdf_parser import parse_pdf_file
-            self.parsers[".pdf"] = ("pdf", lambda fp, _: parse_pdf_file(fp))
-        except Exception as e:
-            log.warning("Failed to load PDF parser: %s", e)
-
-        # 5. Python
-        try:
-            self.parsers[".py"] = ("python", lambda fp, src: _parse_python_with_rust(fp, src))
-        except Exception as e:
-            log.warning("Failed to load Python parser: %s", e)
-
-        # 6. Tree-sitter C#
-        try:
-            from cortex.parsers.treesitter_utils import CS_LANGUAGE
-            if CS_LANGUAGE is not None:
-                from cortex.parsers.treesitter_cs_parser import parse_csharp_file
-                self.parsers[".cs"] = ("csharp", lambda fp, src: parse_csharp_file(fp, src))
-        except Exception as e:
-            log.warning("Failed to load C# Tree-sitter parser: %s", e)
-
-        # 7. Tree-sitter TypeScript
-        try:
-            from cortex.parsers.treesitter_utils import TS_LANGUAGE, TSX_LANGUAGE
-            if TS_LANGUAGE is not None:
-                from cortex.parsers.treesitter_ts_parser import parse_ts_file
-                self.parsers[".ts"] = ("typescript", lambda fp, src: parse_ts_file(fp, src, "typescript"))
-            if TSX_LANGUAGE is not None:
-                from cortex.parsers.treesitter_ts_parser import parse_ts_file
-                self.parsers[".tsx"] = ("typescript", lambda fp, src: parse_ts_file(fp, src, "tsx"))
-        except Exception as e:
-            log.warning("Failed to load TypeScript Tree-sitter parser: %s", e)
+        for ext, language in rust_parsers.items():
+            self.parsers[ext] = (language, lambda fp, src, abs_path=None: _parse_with_rust(fp, src, abs_path))
 
     def get_parser(self, ext: str):
         """확장자에 해당하는 (language, parser_func) 반환. 없으면 (None, None)"""

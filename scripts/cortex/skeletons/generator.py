@@ -63,6 +63,6 @@ def generate_skeleton(workspace, file_path, detail="standard"):
     with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
         code = f.read()
 
-    result = parser_func(file_path, code)
+    result = parser_func(file_path, code, abs_path)
     nodes = result.get("nodes", [])
     return generate_file_skeleton(nodes, detail)
