@@ -26,6 +26,16 @@ enum Command {
         #[arg(long, default_value = "json")]
         format: String,
     },
+    /// 단일 파일을 파싱하여 `{"nodes": [...], "edges": [...]}` JSON 출력.
+    /// Python `cortex.parsers.<ext>` 와 diff 비교용.
+    ParseFile {
+        /// 상대 또는 절대 파일 경로
+        #[arg(short, long)]
+        file: PathBuf,
+        /// nodes/edges JSON 출력 시 사용할 file_path (db_path). 미지정 시 입력 경로.
+        #[arg(long)]
+        rel: Option<String>,
+    },
     /// 감시 데몬 모드 (구현 예정 — Phase 4)
     Watch {
         #[arg(short, long)]
@@ -45,11 +55,40 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Scan { workspace, format } => cmd_scan(&workspace, &format),
+        Command::ParseFile { file, rel } => cmd_parse_file(&file, rel.as_deref()),
         Command::Watch { workspace } => {
             tracing::info!(?workspace, "watch mode not yet implemented (Phase 4)");
             Ok(())
         }
     }
+}
+
+fn cmd_parse_file(file: &std::path::Path, rel: Option<&str>) -> Result<()> {
+    // Python `open(..., encoding="utf-8")` 기본 텍스트 모드는 \r\n→\n 정규화.
+    // Rust read_to_string은 raw — 동일 출력 위해 명시적으로 정규화.
+    let raw = std::fs::read_to_string(file)?;
+    let source = raw.replace("\r\n", "\n");
+    let rel_path = rel
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| file.to_string_lossy().replace('\\', "/"));
+
+    let ext = file
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+
+    let result = match ext.as_str() {
+        "md" => cortex_parsers::parse_markdown_file(&rel_path, &source),
+        "html" => cortex_parsers::parse_html_file(&rel_path, &source),
+        "css" => cortex_parsers::parse_css_file(&rel_path, &source),
+        other => {
+            anyhow::bail!("unsupported extension for parse-file (Phase 2d only): .{}", other);
+        }
+    };
+
+    println!("{}", serde_json::to_string(&result)?);
+    Ok(())
 }
 
 fn cmd_scan(workspace: &std::path::Path, format: &str) -> Result<()> {

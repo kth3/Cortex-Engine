@@ -32,6 +32,10 @@ pub fn truncate(text: &str, max_len: usize) -> String {
 
 /// SQLite `nodes` 테이블 컬럼과 1:1 대응.
 /// Python `records.py:18-39` 의 노드 row 매핑 순서와 일치.
+///
+/// 일부 필드는 파서별로 출력 여부가 달라 Optional:
+/// - 코드 파서: docstring/is_*/raw_body 모두 출력
+/// - markdown/pdf 파서: docstring/is_* 생략 (Python 원본 출력과 동일)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeRecord {
     pub id: String,
@@ -46,10 +50,14 @@ pub struct NodeRecord {
     pub signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
-    pub docstring: String,
-    pub is_exported: u8,
-    pub is_async: u8,
-    pub is_test: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docstring: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_exported: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_async: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_test: Option<u8>,
     pub raw_body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skeleton_standard: Option<String>,
