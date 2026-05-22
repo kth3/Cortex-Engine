@@ -1,0 +1,16 @@
+[package]
+name = "cortex-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "cortex-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

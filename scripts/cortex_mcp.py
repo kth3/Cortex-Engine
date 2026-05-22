@@ -2,7 +2,8 @@
 """
 Cortex MCP Server Thin Entrypoint
 """
-from cortex.mcp.server import main
+from cortex.mcp.entrypoint import main
+
 
 if __name__ == "__main__":
     main()

@@ -148,6 +148,8 @@ def parent_watcher():
 
 
 def _start_cortex_engine_if_available() -> None:
+    if os.environ.get("CORTEX_MCP_DISABLE_ENGINE_START") == "1":
+        return
     try:
         import subprocess
 
