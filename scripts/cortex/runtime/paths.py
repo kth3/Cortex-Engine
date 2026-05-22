@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from cortex.paths import history_dir, resolve_cortex_home, resolve_workspace
@@ -34,3 +35,25 @@ def resolve_rust_watcher_binary() -> Path:
 WATCHER_BINARY = resolve_rust_watcher_binary()
 WATCHER_SCRIPT = WATCHER_BINARY
 LOCK_FILE = LOG_DIR / "cortex_ctl.lock"
+
+
+def ensure_rust_watcher_binary() -> Path:
+    binary = resolve_rust_watcher_binary()
+    if binary.exists():
+        return binary
+
+    cargo_manifest = REPO_ROOT / "rust" / "Cargo.toml"
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--manifest-path",
+            str(cargo_manifest),
+            "-p",
+            "cortex-watcher",
+        ],
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    return binary

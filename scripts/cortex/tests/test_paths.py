@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -121,3 +122,15 @@ def test_resolve_rust_watcher_binary_falls_back_to_debug(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime_paths, "REPO_ROOT", repo_root)
 
     assert runtime_paths.resolve_rust_watcher_binary() == debug_binary.resolve()
+
+
+def test_ensure_rust_watcher_binary_builds_when_missing(tmp_path, monkeypatch):
+    repo_root = tmp_path
+    monkeypatch.setattr(runtime_paths, "REPO_ROOT", repo_root)
+    mock_run = Mock()
+    monkeypatch.setattr(runtime_paths.subprocess, "run", mock_run)
+
+    binary = runtime_paths.ensure_rust_watcher_binary()
+
+    assert binary == (repo_root / "rust" / "target" / "release" / _watcher_binary_name()).resolve()
+    mock_run.assert_called_once()

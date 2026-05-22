@@ -357,10 +357,10 @@ class WatcherLauncherTests(unittest.TestCase):
     @patch("cortex.runtime.watcher_launcher.launch_logged_process")
     @patch("cortex.runtime.watcher_launcher.build_child_env", return_value={"A": "B"})
     @patch("cortex.runtime.watcher_launcher.workspace_key", return_value="workspace-key")
-    @patch("cortex.runtime.watcher_launcher.resolve_rust_watcher_binary")
+    @patch("cortex.runtime.watcher_launcher.ensure_rust_watcher_binary")
     def test_launch_watcher_uses_rust_binary_watch_command(
         self,
-        mock_resolve_watcher_binary,
+        mock_ensure_watcher_binary,
         mock_workspace_key,
         mock_build_child_env,
         mock_launch_logged_process,
@@ -374,7 +374,7 @@ class WatcherLauncherTests(unittest.TestCase):
 
         binary = Path("/repo/rust/target/release/cortex-watcher.exe")
         workspace = Path("/repo")
-        mock_resolve_watcher_binary.return_value = binary
+        mock_ensure_watcher_binary.return_value = binary
         with patch.object(watcher_launcher, "WORKSPACE", workspace):
             watcher_launcher.launch_watcher()
 
