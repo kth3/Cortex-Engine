@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 
 use serde_json::{json, Value};
 
-use crate::{catalog, fallback::PythonFallback, storage_tools};
+use crate::{catalog, storage_tools};
 
 const PROTOCOL_VERSION: &str = "2025-11-25";
 const SERVER_NAME: &str = "Cortex-Hooks";
@@ -71,12 +71,11 @@ fn dispatch_tools_call(id: Option<Value>, params: Value) -> Option<Value> {
     match dispatch_native_tool(name, &arguments) {
         Some(Ok(value)) => Some(text_response(id, value)),
         Some(Err(message)) => Some(error_text_response(id, &format!("Error: {message}"))),
-        None if name.starts_with("pc_") => Some(response_error(
+        None => Some(response_error(
             id,
             METHOD_NOT_FOUND,
             &format!("Unknown tool: {name}"),
         )),
-        None => fallback_tools_call(id, name, arguments),
     }
 }
 
@@ -130,26 +129,55 @@ fn dispatch_native_tool(name: &str, args: &Value) -> Option<Result<Value, String
                 .and_then(Value::as_u64)
                 .map(|value| value as u32),
         )),
-        _ => None,
-    }
-}
-
-fn fallback_tools_call(id: Value, name: &str, arguments: Value) -> Option<Value> {
-    let request = json!({
-        "jsonrpc": JSONRPC_VERSION,
-        "id": id,
-        "method": "tools/call",
-        "params": {
-            "name": name,
-            "arguments": arguments,
-        },
-    });
-    match PythonFallback::spawn().and_then(|mut fallback| fallback.request(&request)) {
-        Ok(response) => Some(response),
-        Err(err) => Some(error_text_response(
-            request["id"].clone(),
-            &format!("Error: {err}"),
+        "search_context" => Some(storage_tools::call_search_context(
+            &workspace,
+            required_str(args, "query"),
+            args.get("token_budget")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize),
         )),
+        "search_deep_context" => Some(storage_tools::call_search_deep_context(
+            &workspace,
+            required_str(args, "query"),
+            args.get("limit")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize),
+        )),
+        "get_file_git_history" => Some(storage_tools::call_get_file_git_history(
+            &workspace,
+            required_str(args, "file_path"),
+            args.get("limit")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize),
+        )),
+        "replace_exact_text" => Some(storage_tools::call_replace_exact_text(
+            &workspace,
+            required_str(args, "file_path"),
+            required_str(args, "old_content"),
+            required_str(args, "new_content"),
+        )),
+        "sync_session_memory" => Some(storage_tools::call_sync_session_memory(
+            &workspace,
+            required_str(args, "task_desc"),
+        )),
+        "write_memory" => Some(storage_tools::call_write_memory(&workspace, args)),
+        "consolidate_memory" => Some(storage_tools::call_consolidate_memory(&workspace, args)),
+        "read_memory" => Some(storage_tools::call_read_memory(
+            &workspace,
+            required_str(args, "key"),
+        )),
+        "save_observation" => Some(storage_tools::call_save_observation(
+            &workspace,
+            required_str(args, "content"),
+        )),
+        "search_memory" => Some(storage_tools::call_search_memory(
+            &workspace,
+            required_str(args, "query"),
+            args.get("category").and_then(Value::as_str),
+        )),
+        "create_task_contract" => Some(storage_tools::call_create_task_contract(&workspace, args)),
+        "manage_todo" => Some(storage_tools::call_manage_todo(&workspace, args)),
+        _ => None,
     }
 }
 

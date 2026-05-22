@@ -1,4 +1,4 @@
-"""Cortex MCP console entrypoint with Rust-first fallback."""
+"""Cortex MCP console entrypoint."""
 from __future__ import annotations
 
 import os
@@ -28,38 +28,46 @@ def _resolve_rust_mcp_binary() -> Path | None:
     return None
 
 
-def _run_python_server() -> None:
-    from cortex.mcp.server import main
-
-    main()
-
-
 def _run_rust_binary(binary: Path) -> int:
-    env = os.environ.copy()
-    env.setdefault("CORTEX_PYTHON_EXECUTABLE", sys.executable)
     completed = subprocess.run(
         [str(binary), *sys.argv[1:]],
         cwd=str(_resolve_repo_root()),
         stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,
-        env=env,
+        check=False,
+    )
+    return completed.returncode
+
+
+def _run_cargo_binary() -> int:
+    repo_root = _resolve_repo_root()
+    completed = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path",
+            str(repo_root / "rust" / "Cargo.toml"),
+            "-p",
+            "cortex-mcp",
+            "--bin",
+            "cortex-mcp",
+            "--",
+            *sys.argv[1:],
+        ],
+        cwd=str(repo_root),
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         check=False,
     )
     return completed.returncode
 
 
 def main() -> None:
-    if os.environ.get("CORTEX_MCP_FORCE_PYTHON") == "1":
-        _run_python_server()
-        return
-
     binary = _resolve_rust_mcp_binary()
     if binary is not None:
-        try:
-            if _run_rust_binary(binary) == 0:
-                return
-        except (FileNotFoundError, OSError, subprocess.SubprocessError):
-            pass
+        raise SystemExit(_run_rust_binary(binary))
 
-    _run_python_server()
+    raise SystemExit(_run_cargo_binary())

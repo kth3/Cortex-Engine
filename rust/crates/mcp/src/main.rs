@@ -1,5 +1,4 @@
 mod catalog;
-mod fallback;
 mod protocol;
 mod storage_tools;
 
