@@ -16,7 +16,7 @@ from cortex.indexing.index_roots import (
     remove_index_root,
     set_local_index_roots,
 )
-from cortex.scanner.finder import scan_files
+from cortex.indexing.scanner import scan_files
 
 
 def _workspace_path(raw: str | None) -> str:

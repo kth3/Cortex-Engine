@@ -14,7 +14,7 @@ from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import FILE_CACHE_HASH_BY_PATH_SQL
 from cortex.indexing.records import build_node_rows, insert_edges, insert_nodes, upsert_file_cache
 from cortex.indexing.vector_store import dedupe_vector_items, persist_node_vectors
-from cortex.scanner.filters import get_module_name
+from cortex.indexing.scanner import get_module_name
 from cortex.utils.text import compute_hash, strip_frontmatter
 
 

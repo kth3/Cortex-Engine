@@ -22,7 +22,7 @@ def main():
     modules = [
         "cortex.config.settings",
         "cortex.config.tuning",
-        "cortex.scanner.finder",
+        "cortex.indexing.scanner",
         "cortex.utils.text",
         "cortex.embeddings.provider",
         "cortex.storage",
@@ -30,7 +30,7 @@ def main():
         "cortex.memories.working",
         "cortex.memories.persistent",
         "cortex.vcs.analyzer",
-        "cortex.parsers",
+        "cortex.indexing.parsers",
         "cortex.indexing",
         "cortex.indexing.cli",
         "cortex.indexing.file_pipeline",
@@ -41,7 +41,7 @@ def main():
         "cortex.storage",
         "cortex.memories",
         "cortex.config",
-        "cortex.scanner",
+        "cortex.indexing.scanner",
         "cortex.utils",
     ]
 

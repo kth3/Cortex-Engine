@@ -15,7 +15,7 @@ from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import DELETE_FILE_CACHE_SQL, SELECT_FILE_CACHE_SQL, UPSERT_LAST_INDEXED_AT_SQL
 from cortex.indexing.rules_sync import sync_rules_to_memories
 from cortex.logger import get_logger
-from cortex.scanner.finder import scan_files
+from cortex.indexing.scanner import scan_files
 from cortex.utils.text import compute_hash
 
 log = get_logger("indexer")

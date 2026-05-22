@@ -44,10 +44,10 @@ def _parse_with_rust(fp, src, abs_path=None):
             except Exception:
                 pass
 
+
 class ParserRegistry:
     def __init__(self):
         self.parsers = {}
-        # 초기화 시점에 파서 로드
         self._load_parsers()
 
     def _load_parsers(self):
@@ -71,14 +71,12 @@ class ParserRegistry:
             self.parsers[ext] = (language, lambda fp, src, abs_path=None: _parse_with_rust(fp, src, abs_path))
 
     def get_parser(self, ext: str):
-        """확장자에 해당하는 (language, parser_func) 반환. 없으면 (None, None)"""
         return self.parsers.get(ext, (None, None))
 
     def get_supported_extensions(self):
-        """지원하는 모든 확장자 목록 반환"""
         return list(self.parsers.keys())
 
-# 싱글톤 인스턴스로 제공
+
 registry = ParserRegistry()
 parser_registry = registry
 SUPPORTED_EXTENSIONS = registry.parsers

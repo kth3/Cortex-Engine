@@ -16,7 +16,7 @@ from cortex.config.settings import load_settings
 from cortex.indexing.file_pipeline import index_file
 from cortex.indexing.index_roots import add_index_root, source_path_for_index_path
 from cortex.storage.graph import get_graph_db_path
-from cortex.scanner.finder import scan_files
+from cortex.indexing.scanner import scan_files
 from cortex.paths import data_dir, resolve_cortex_home, settings_paths
 
 

@@ -2,9 +2,9 @@ import json
 import importlib
 from types import SimpleNamespace
 
-from cortex.parsers.registry import ParserRegistry
+from cortex.indexing.parsers import ParserRegistry
 
-registry_module = importlib.import_module("cortex.parsers.registry")
+registry_module = importlib.import_module("cortex.indexing.parsers")
 
 
 def test_python_parser_registry_uses_rust_binary(monkeypatch, tmp_path):

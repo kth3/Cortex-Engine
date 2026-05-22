@@ -3,7 +3,7 @@
 """
 import os
 
-from cortex.parsers import get_parser
+from cortex.indexing.parsers import get_parser
 
 
 def get_parser_internal(file_path: str):

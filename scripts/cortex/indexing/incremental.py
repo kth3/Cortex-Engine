@@ -16,7 +16,7 @@ from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.indexing.queries import LAST_INDEXED_AT_SQL, UPSERT_LAST_INDEXED_AT_SQL
 from cortex.indexing.rules_sync import sync_rules_to_memories
 from cortex.logger import get_logger
-from cortex.scanner.finder import scan_files
+from cortex.indexing.scanner import scan_files
 
 log = get_logger("indexer")
 
