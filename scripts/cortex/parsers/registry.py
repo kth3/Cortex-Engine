@@ -1,6 +1,39 @@
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+
 from cortex.logger import get_logger
+from cortex.runtime.paths import ensure_rust_watcher_binary
 
 log = get_logger("parser_registry")
+
+
+def _parse_python_with_rust(fp, src):
+    tmp_path = None
+    try:
+        binary = ensure_rust_watcher_binary()
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tmp:
+            tmp.write(src)
+            tmp_path = Path(tmp.name)
+
+        proc = subprocess.run(
+            [str(binary), "parse-file", "--rel", fp, str(tmp_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=None,
+        )
+        return json.loads(proc.stdout)
+    except Exception as e:
+        log.warning("Failed to parse Python file via Rust parser: %s", e)
+        return {"nodes": [], "edges": []}
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 class ParserRegistry:
     def __init__(self):
@@ -44,8 +77,7 @@ class ParserRegistry:
 
         # 5. Python
         try:
-            from cortex.parsers.python_parser import parse_python_file
-            self.parsers[".py"] = ("python", lambda fp, src: parse_python_file(fp, src))
+            self.parsers[".py"] = ("python", lambda fp, src: _parse_python_with_rust(fp, src))
         except Exception as e:
             log.warning("Failed to load Python parser: %s", e)
 
