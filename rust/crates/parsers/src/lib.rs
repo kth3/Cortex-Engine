@@ -6,10 +6,12 @@
 pub mod chunking;
 pub mod common;
 pub mod markdown;
+pub mod pdf;
 
-pub use chunking::{semantic_chunk, semantic_chunk_with};
+pub use chunking::{semantic_chunk, semantic_chunk_config, semantic_chunk_with, ChunkConfig};
 pub use common::{
     truncate, unresolved_fqn, unresolved_name, uuid5_for, EdgeRecord, NodeRecord, ParseResult,
     NAMESPACE_URL, UNRESOLVED_FQN_PREFIX, UNRESOLVED_NAME_PREFIX,
 };
 pub use markdown::{parse_css_file, parse_html_file, parse_markdown_file};
+pub use pdf::parse_pdf_file;

@@ -64,10 +64,6 @@ fn main() -> Result<()> {
 }
 
 fn cmd_parse_file(file: &std::path::Path, rel: Option<&str>) -> Result<()> {
-    // Python `open(..., encoding="utf-8")` 기본 텍스트 모드는 \r\n→\n 정규화.
-    // Rust read_to_string은 raw — 동일 출력 위해 명시적으로 정규화.
-    let raw = std::fs::read_to_string(file)?;
-    let source = raw.replace("\r\n", "\n");
     let rel_path = rel
         .map(|s| s.to_string())
         .unwrap_or_else(|| file.to_string_lossy().replace('\\', "/"));
@@ -78,12 +74,19 @@ fn cmd_parse_file(file: &std::path::Path, rel: Option<&str>) -> Result<()> {
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
 
+    // PDF는 바이너리 — 텍스트로 읽지 않고 파서가 직접 처리
     let result = match ext.as_str() {
-        "md" => cortex_parsers::parse_markdown_file(&rel_path, &source),
-        "html" => cortex_parsers::parse_html_file(&rel_path, &source),
-        "css" => cortex_parsers::parse_css_file(&rel_path, &source),
-        other => {
-            anyhow::bail!("unsupported extension for parse-file (Phase 2d only): .{}", other);
+        "pdf" => cortex_parsers::parse_pdf_file(&rel_path, file),
+        _ => {
+            // Python `open(..., encoding="utf-8")` 기본 텍스트 모드는 \r\n→\n 정규화.
+            let raw = std::fs::read_to_string(file)?;
+            let source = raw.replace("\r\n", "\n");
+            match ext.as_str() {
+                "md" => cortex_parsers::parse_markdown_file(&rel_path, &source),
+                "html" => cortex_parsers::parse_html_file(&rel_path, &source),
+                "css" => cortex_parsers::parse_css_file(&rel_path, &source),
+                other => anyhow::bail!("unsupported extension for parse-file: .{}", other),
+            }
         }
     };
 
