@@ -5,17 +5,19 @@ use std::path::Path;
 
 /// Python `parsers/registry.py:84`의 SUPPORTED_EXTENSIONS 와 정확히 일치.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
-    ".c", ".cpp", ".h", ".hpp", // C/C++
-    ".java",                    // Java
-    ".md", ".html", ".css",     // Markdown/HTML/CSS
-    ".pdf",                     // PDF
-    ".py",                      // Python
-    ".cs",                      // C#
-    ".ts", ".tsx",              // TypeScript
+    ".c", ".cpp", ".h", ".hpp",  // C/C++
+    ".java", // Java
+    ".md", ".html", ".css", // Markdown/HTML/CSS
+    ".pdf", // PDF
+    ".py",  // Python
+    ".cs",  // C#
+    ".ts", ".tsx", // TypeScript
 ];
 
 pub fn is_supported_extension(ext: &str) -> bool {
-    SUPPORTED_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext))
+    SUPPORTED_EXTENSIONS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(ext))
 }
 
 /// fnmatch 동등 매칭 (단순 wildcard `*`, `?`).

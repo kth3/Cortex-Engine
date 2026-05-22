@@ -15,7 +15,9 @@ use crate::settings::load_settings;
 ///
 /// 출력은 정렬된 unique set (Python `sorted(list(set(files)))` 동등).
 pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<Vec<String>> {
-    let workspace = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    let workspace = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
     let settings = match settings_override {
         Some(s) => s,
         None => load_settings(&workspace)?,
@@ -41,7 +43,13 @@ pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<
 
     // 1. index_roots 스캔
     for index_root in normalize_configured_index_roots(&workspace, &settings) {
-        collect_from_index_root(&workspace, &index_root, &ignore_patterns, &settings, &mut files);
+        collect_from_index_root(
+            &workspace,
+            &index_root,
+            &ignore_patterns,
+            &settings,
+            &mut files,
+        );
     }
 
     // 2. Cortex home 강제 포함 (rules/, docs/ 내 .md)
@@ -66,7 +74,10 @@ pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<
     // 3. Cortex 엔진 스크립트 강제 포함 (.py)
     let scripts_dir = cortex_home.join("scripts");
     if scripts_dir.exists() {
-        for entry in WalkDir::new(&scripts_dir).into_iter().filter_map(|e| e.ok()) {
+        for entry in WalkDir::new(&scripts_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -100,7 +111,10 @@ fn collect_from_index_root(
     }
 
     if root_path.is_file() {
-        let ext = root_path.extension().and_then(|s| s.to_str()).map(|s| format!(".{}", s));
+        let ext = root_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{}", s));
         if let Some(e) = ext {
             if is_supported_extension(&e) {
                 if let Some(rel) = workspace_relative(workspace, root_path) {
@@ -169,7 +183,8 @@ fn workspace_relative(workspace: &Path, path: &Path) -> Option<String> {
 }
 
 fn relative_to(base: &Path, target: &Path) -> String {
-    target.strip_prefix(base)
+    target
+        .strip_prefix(base)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| target.to_string_lossy().to_string())
 }

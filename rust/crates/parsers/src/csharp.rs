@@ -12,16 +12,80 @@ use crate::common::{unresolved_name, uuid5_for, EdgeRecord, NodeRecord, ParseRes
 const CSHARP_LANGUAGE_NAME: &str = "csharp";
 
 const BUILTIN_TYPES: &[&str] = &[
-    "void", "int", "float", "double", "string", "bool", "byte", "char", "long", "object", "var",
-    "dynamic", "decimal", "short", "uint", "ulong", "ushort", "sbyte", "String", "Int32",
-    "Int64", "Boolean", "Object", "Char", "Byte", "Double", "Single", "Decimal", "Nullable",
-    "List", "Dictionary", "HashSet", "Queue", "Stack", "Array", "IEnumerator", "IEnumerable",
-    "IList", "IDictionary", "ICollection", "Task", "ValueTask", "Action", "Func", "Predicate",
-    "Tuple", "CancellationToken", "Exception", "Vector2", "Vector3", "Vector4", "Quaternion",
-    "Color", "Rect", "Transform", "GameObject", "Component", "MonoBehaviour",
-    "ScriptableObject", "Coroutine", "Debug", "Mathf", "Time", "Input", "Physics",
-    "WaitForSeconds", "WaitForEndOfFrame", "WaitForFixedUpdate", "System", "Collections",
-    "Generic", "T", "TKey", "TValue",
+    "void",
+    "int",
+    "float",
+    "double",
+    "string",
+    "bool",
+    "byte",
+    "char",
+    "long",
+    "object",
+    "var",
+    "dynamic",
+    "decimal",
+    "short",
+    "uint",
+    "ulong",
+    "ushort",
+    "sbyte",
+    "String",
+    "Int32",
+    "Int64",
+    "Boolean",
+    "Object",
+    "Char",
+    "Byte",
+    "Double",
+    "Single",
+    "Decimal",
+    "Nullable",
+    "List",
+    "Dictionary",
+    "HashSet",
+    "Queue",
+    "Stack",
+    "Array",
+    "IEnumerator",
+    "IEnumerable",
+    "IList",
+    "IDictionary",
+    "ICollection",
+    "Task",
+    "ValueTask",
+    "Action",
+    "Func",
+    "Predicate",
+    "Tuple",
+    "CancellationToken",
+    "Exception",
+    "Vector2",
+    "Vector3",
+    "Vector4",
+    "Quaternion",
+    "Color",
+    "Rect",
+    "Transform",
+    "GameObject",
+    "Component",
+    "MonoBehaviour",
+    "ScriptableObject",
+    "Coroutine",
+    "Debug",
+    "Mathf",
+    "Time",
+    "Input",
+    "Physics",
+    "WaitForSeconds",
+    "WaitForEndOfFrame",
+    "WaitForFixedUpdate",
+    "System",
+    "Collections",
+    "Generic",
+    "T",
+    "TKey",
+    "TValue",
 ];
 
 #[allow(dead_code)]
@@ -170,7 +234,9 @@ fn walk(
             }
             return;
         }
-        "class_declaration" | "interface_declaration" | "struct_declaration"
+        "class_declaration"
+        | "interface_declaration"
+        | "struct_declaration"
         | "enum_declaration" => {
             if let Some((node_record, type_name)) =
                 build_type_node(node, src, file_path, type_stack, edges)
@@ -223,7 +289,8 @@ fn walk(
             }
         }
         "property_declaration" => {
-            if let Some(property_node) = build_property_node(node, src, file_path, type_stack, edges)
+            if let Some(property_node) =
+                build_property_node(node, src, file_path, type_stack, edges)
             {
                 if seen_fqns.insert(property_node.fqn.clone()) {
                     nodes.push(property_node);
@@ -447,7 +514,13 @@ fn build_property_node(
     })
 }
 
-fn emit_base_edges(node: Node, src: &[u8], source_id: &str, kind: &str, edges: &mut Vec<EdgeRecord>) {
+fn emit_base_edges(
+    node: Node,
+    src: &[u8],
+    source_id: &str,
+    kind: &str,
+    edges: &mut Vec<EdgeRecord>,
+) {
     let Some(base_list) = node.child_by_field_name("base_list") else {
         return;
     };
@@ -653,7 +726,11 @@ public class MyGame : MonoBehaviour {
 "#;
         let result = parse_csharp_file("Assets/MyGame.cs", src);
         let start = result.nodes.iter().find(|n| n.name == "Start").unwrap();
-        let coroutine = result.nodes.iter().find(|n| n.name == "MyCoroutine").unwrap();
+        let coroutine = result
+            .nodes
+            .iter()
+            .find(|n| n.name == "MyCoroutine")
+            .unwrap();
 
         assert_eq!(start.node_type, "method");
         assert_eq!(coroutine.is_async, Some(1));
@@ -674,7 +751,10 @@ public class A : B {
 "#;
         let result = parse_csharp_file("A.cs", src);
         let node_ids: HashSet<_> = result.nodes.iter().map(|n| n.id.as_str()).collect();
-        assert!(result.edges.iter().all(|edge| node_ids.contains(edge.source_id.as_str())));
+        assert!(result
+            .edges
+            .iter()
+            .all(|edge| node_ids.contains(edge.source_id.as_str())));
         assert!(result.edges.iter().any(|edge| edge.edge_type == "CALLS"));
     }
 }

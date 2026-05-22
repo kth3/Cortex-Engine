@@ -16,7 +16,9 @@ pub struct IndexRoot {
 
 /// settings.yaml 기준 인덱싱 루트 목록. 기본은 워크스페이스 루트(`.`).
 pub fn normalize_configured_index_roots(workspace: &Path, settings: &Value) -> Vec<IndexRoot> {
-    let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    let ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
     let roots = effective_index_roots(settings);
 
     let mut out: Vec<IndexRoot> = Vec::new();
@@ -66,7 +68,10 @@ pub fn normalize_configured_index_roots(workspace: &Path, settings: &Value) -> V
             continue;
         }
         seen.push(db_root.clone());
-        out.push(IndexRoot { db_root, source_path: target });
+        out.push(IndexRoot {
+            db_root,
+            source_path: target,
+        });
     }
 
     out

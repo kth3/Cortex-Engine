@@ -31,7 +31,15 @@ pub fn parse_java_file(file_path: &str, source: &str) -> ParseResult {
     // 클래스 노드의 byte_range 시작 → (id, end_byte, start_line, end_line)
     let mut class_ranges: Vec<ClassCtx> = Vec::new();
 
-    walk(root, bytes, file_path, &package, &mut nodes, &mut edges, &mut class_ranges);
+    walk(
+        root,
+        bytes,
+        file_path,
+        &package,
+        &mut nodes,
+        &mut edges,
+        &mut class_ranges,
+    );
 
     ParseResult { nodes, edges }
 }
@@ -149,7 +157,12 @@ fn find_javadoc(node: Node, src: &[u8]) -> String {
                 }
                 let cleaned: String = lines
                     .iter()
-                    .map(|l| l.trim_start().trim_start_matches('*').trim_start().to_string())
+                    .map(|l| {
+                        l.trim_start()
+                            .trim_start_matches('*')
+                            .trim_start()
+                            .to_string()
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
                 let before_at: &str = cleaned.split("\n@").next().unwrap_or("");
@@ -182,10 +195,16 @@ fn build_class(
     }
     sig_parts.push(format!("{} {}", ctype, name));
     if let Some(ext) = extends.as_ref() {
-        sig_parts.push(format!("extends {}", ext.trim_start_matches("extends").trim()));
+        sig_parts.push(format!(
+            "extends {}",
+            ext.trim_start_matches("extends").trim()
+        ));
     }
     if let Some(impls) = implements.as_ref() {
-        sig_parts.push(format!("implements {}", impls.trim_start_matches("implements").trim()));
+        sig_parts.push(format!(
+            "implements {}",
+            impls.trim_start_matches("implements").trim()
+        ));
     }
     let signature = sig_parts.join(" ");
 
@@ -197,7 +216,11 @@ fn build_class(
     let id = uuid5_for(&fqn);
 
     let raw_body = text_of(node, src).to_string();
-    let skeleton_min = format!("{} {{ ...  // {} lines }}", signature, end_line - start_line + 1);
+    let skeleton_min = format!(
+        "{} {{ ...  // {} lines }}",
+        signature,
+        end_line - start_line + 1
+    );
     // 표준 스켈레톤: 시그니처 + 내부 메서드 시그니처 + ... (간략화 버전)
     let skeleton_std = format!("{} {{\n    ...\n}}", signature);
 
@@ -256,7 +279,9 @@ fn build_method(
 
     let modifiers_str = modifiers.join(" ");
     let signature = if return_type.is_empty() {
-        format!("{} {}{}", modifiers_str, name, params).trim().to_string()
+        format!("{} {}{}", modifiers_str, name, params)
+            .trim()
+            .to_string()
     } else {
         format!("{} {} {}{}", modifiers_str, return_type, name, params)
             .trim()
@@ -374,10 +399,18 @@ public class Hello {
 "#;
         let result = parse_java_file("a/Hello.java", src);
         assert_eq!(result.nodes.len(), 2); // class + method
-        let class = result.nodes.iter().find(|n| n.node_type == "class").unwrap();
+        let class = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "class")
+            .unwrap();
         assert_eq!(class.name, "Hello");
         assert_eq!(class.fqn, "a/Hello.java::com.example.Hello");
-        let method = result.nodes.iter().find(|n| n.node_type == "method").unwrap();
+        let method = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "method")
+            .unwrap();
         assert_eq!(method.name, "greet");
         assert_eq!(method.fqn, "a/Hello.java::Hello::greet");
         assert_eq!(method.return_type.as_deref(), Some("String"));
@@ -389,7 +422,11 @@ public class Hello {
     fn parse_interface() {
         let src = "interface Foo { void bar(); }";
         let result = parse_java_file("Foo.java", src);
-        let iface = result.nodes.iter().find(|n| n.node_type == "interface").unwrap();
+        let iface = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "interface")
+            .unwrap();
         assert_eq!(iface.name, "Foo");
     }
 
@@ -397,9 +434,17 @@ public class Hello {
     fn parse_test_class() {
         let src = "public class FooTest { @Test public void testFoo() {} }";
         let result = parse_java_file("a.java", src);
-        let cls = result.nodes.iter().find(|n| n.node_type == "class").unwrap();
+        let cls = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "class")
+            .unwrap();
         assert_eq!(cls.is_test, Some(1));
-        let m = result.nodes.iter().find(|n| n.node_type == "method").unwrap();
+        let m = result
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "method")
+            .unwrap();
         assert_eq!(m.is_test, Some(1));
     }
 }

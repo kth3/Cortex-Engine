@@ -5,11 +5,31 @@ use std::path::Path;
 
 /// Python `ignores.py:4-10`의 DEFAULT_IGNORES 와 정확히 일치.
 pub const DEFAULT_IGNORES: &[&str] = &[
-    "node_modules", "__pycache__", ".git", ".venv", "venv",
-    "dist", "build", ".gradle", ".idea", ".vscode",
-    ".cortex", "target", ".next", "*.min.js", "*.min.css",
-    "*.pyc", "*.class", "*.o", "*.obj", "*.exe", "*.out",
-    "Library", "Temp", "Logs", "obj", // Unity 캐시
+    "node_modules",
+    "__pycache__",
+    ".git",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".gradle",
+    ".idea",
+    ".vscode",
+    ".cortex",
+    "target",
+    ".next",
+    "*.min.js",
+    "*.min.css",
+    "*.pyc",
+    "*.class",
+    "*.o",
+    "*.obj",
+    "*.exe",
+    "*.out",
+    "Library",
+    "Temp",
+    "Logs",
+    "obj", // Unity 캐시
 ];
 
 /// `.gitignore` 로드 후 DEFAULT_IGNORES와 병합.

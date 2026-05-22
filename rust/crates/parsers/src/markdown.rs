@@ -41,7 +41,10 @@ fn parse_chunked(file_path: &str, source: &str, language: &str) -> ParseResult {
         let search_target = pick_search_target(chunk);
         let search_from = current_offset.saturating_sub(500);
 
-        let (start_line, found_idx) = match source.get(search_from..).and_then(|s| s.find(search_target.as_str())) {
+        let (start_line, found_idx) = match source
+            .get(search_from..)
+            .and_then(|s| s.find(search_target.as_str()))
+        {
             Some(rel) => {
                 let abs = search_from + rel;
                 let preceding = &source[..abs];
@@ -104,7 +107,10 @@ fn parse_chunked(file_path: &str, source: &str, language: &str) -> ParseResult {
         });
     }
 
-    ParseResult { nodes, edges: Vec::new() }
+    ParseResult {
+        nodes,
+        edges: Vec::new(),
+    }
 }
 
 /// 경로에서 스킬/문서 이름 유추. Python `markdown_parser.py:116-121` 와 동치:

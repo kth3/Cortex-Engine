@@ -62,7 +62,10 @@ pub fn parse_pdf_file(file_path: &str, abs_path: &Path) -> ParseResult {
         });
     }
 
-    ParseResult { nodes, edges: Vec::new() }
+    ParseResult {
+        nodes,
+        edges: Vec::new(),
+    }
 }
 
 /// 페이지별 텍스트 추출 + "\n\n" 연결.

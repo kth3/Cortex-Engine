@@ -251,7 +251,10 @@ fn build_function_node(
     let end_line = node.end_position().row as u32 + 1;
     let body = text_of(node, src).to_string();
     let sig = prefix_before_body(&body, &name, "function");
-    let is_exported = body.get(..body.len().min(20)).unwrap_or("").contains("export");
+    let is_exported = body
+        .get(..body.len().min(20))
+        .unwrap_or("")
+        .contains("export");
     let is_async = sig.contains("async");
 
     Some(NodeRecord {
@@ -267,12 +270,13 @@ fn build_function_node(
         docstring: Some(String::new()),
         is_exported: Some(if is_exported { 1 } else { 0 }),
         is_async: Some(if is_async { 1 } else { 0 }),
-        is_test: Some(if name.to_lowercase().contains("test") { 1 } else { 0 }),
+        is_test: Some(if name.to_lowercase().contains("test") {
+            1
+        } else {
+            0
+        }),
         raw_body: truncate_chars(&body, 2000),
-        skeleton_standard: Some(format!(
-            "{} {{\n    ...\n}}",
-            truncate_chars(&sig, 200)
-        )),
+        skeleton_standard: Some(format!("{} {{\n    ...\n}}", truncate_chars(&sig, 200))),
         skeleton_minimal: Some(format!("{}(...)", name)),
         language: lang_variant.to_string(),
     })
@@ -302,8 +306,14 @@ fn build_arrow_function_node(
             .parent()
             .map(|parent| parent.kind() == "export_statement")
             .unwrap_or(false)
-            || body.get(..body.len().min(20)).unwrap_or("").contains("export");
-        let header = body.split_once("=>").map(|(before, _)| before).unwrap_or(&body);
+            || body
+                .get(..body.len().min(20))
+                .unwrap_or("")
+                .contains("export");
+        let header = body
+            .split_once("=>")
+            .map(|(before, _)| before)
+            .unwrap_or(&body);
         let is_async = header.contains("async");
 
         return Some(NodeRecord {
@@ -358,10 +368,7 @@ fn build_method_node(
         is_async: Some(0),
         is_test: Some(0),
         raw_body: truncate_chars(&body, 2000),
-        skeleton_standard: Some(format!(
-            "{} {{\n    ...\n}}",
-            truncate_chars(&sig, 200)
-        )),
+        skeleton_standard: Some(format!("{} {{\n    ...\n}}", truncate_chars(&sig, 200))),
         skeleton_minimal: Some(format!("{}(...)", name)),
         language: lang_variant.to_string(),
     })
@@ -504,7 +511,10 @@ export const run = async () => 42;
 
         assert_eq!(function_node.name, "run");
         assert_eq!(function_node.fqn, "src/app.tsx::run");
-        assert_eq!(function_node.signature.as_deref(), Some("const run = (...) => {}"));
+        assert_eq!(
+            function_node.signature.as_deref(),
+            Some("const run = (...) => {}")
+        );
         assert_eq!(function_node.is_exported, Some(1));
         assert_eq!(function_node.is_async, Some(1));
         assert_eq!(function_node.language, "tsx");

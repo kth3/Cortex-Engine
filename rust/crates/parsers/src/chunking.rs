@@ -59,7 +59,11 @@ pub fn semantic_chunk_with(text: &str, max_len: usize, overlap: usize) -> Vec<St
 /// 핵심 청킹 알고리즘. 모든 인덱스는 char(코드 포인트) 기준.
 pub fn semantic_chunk_config(text: &str, cfg: &ChunkConfig) -> Vec<String> {
     if text.is_empty() || text.trim().is_empty() {
-        return if text.is_empty() { vec![String::new()] } else { vec![text.to_string()] };
+        return if text.is_empty() {
+            vec![String::new()]
+        } else {
+            vec![text.to_string()]
+        };
     }
 
     let total_chars: Vec<char> = text.chars().collect();

@@ -94,7 +94,13 @@ pub struct FileWriteBatch<'a> {
 /// Persist one parsed file in a single transaction.
 pub fn write_file_batch(conn: &mut Connection, batch: &FileWriteBatch<'_>) -> Result<()> {
     let tx = conn.transaction()?;
-    insert_nodes(&tx, batch.nodes, batch.module, batch.workspace_id, batch.category)?;
+    insert_nodes(
+        &tx,
+        batch.nodes,
+        batch.module,
+        batch.workspace_id,
+        batch.category,
+    )?;
     insert_edges(&tx, batch.edges)?;
     upsert_file_cache(
         &tx,
@@ -190,9 +196,9 @@ pub fn upsert_file_cache(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_DB_ID: AtomicU64 = AtomicU64::new(0);
 

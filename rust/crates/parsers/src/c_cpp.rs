@@ -117,7 +117,12 @@ fn find_block_comment_above(node: Node, src: &[u8]) -> String {
                 let inner = raw.trim_start_matches("/**").trim_end_matches("*/");
                 let mut lines: Vec<String> = inner
                     .lines()
-                    .map(|l| l.trim_start().trim_start_matches('*').trim_start().to_string())
+                    .map(|l| {
+                        l.trim_start()
+                            .trim_start_matches('*')
+                            .trim_start()
+                            .to_string()
+                    })
                     .collect();
                 if let Some(f) = lines.first() {
                     if f.is_empty() {
@@ -281,7 +286,11 @@ fn build_function(node: Node, src: &[u8], file_path: &str, lang: &str) -> Option
         start_line,
         end_line,
         signature: Some(signature),
-        return_type: if return_type.is_empty() { None } else { Some(return_type) },
+        return_type: if return_type.is_empty() {
+            None
+        } else {
+            Some(return_type)
+        },
         docstring: Some(truncate(&docstring, 200)),
         is_exported: Some(if is_exported { 1 } else { 0 }),
         is_async: Some(0),
