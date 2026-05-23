@@ -18,9 +18,9 @@ def test_incremental_index_changed_wraps_rust_workspace_index(monkeypatch):
         },
     )
 
-    result = incremental_module.incremental_index_changed("C:/workspace")
+    result = incremental_module.incremental_index_changed("workspace")
 
-    assert calls == [("C:/workspace", False)]
+    assert calls == [("workspace", False)]
     assert result == {"status": "indexed", "changed": 3, "indexed": 2}
 
 
@@ -38,6 +38,6 @@ def test_incremental_index_changed_returns_clean_when_rust_reports_no_changes(mo
         },
     )
 
-    result = incremental_module.incremental_index_changed("C:/workspace")
+    result = incremental_module.incremental_index_changed("workspace")
 
     assert result == {"status": "clean", "checked_files": 4}

@@ -262,7 +262,7 @@ class CodexHookInstallTests(unittest.TestCase):
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": "C:/repo/.agents/.venv/Scripts/python.exe C:/Users/me/.codex/hooks/cortex_auto_context.py",
+                                    "command": "python.exe .codex/hooks/cortex_auto_context.py",
                                 },
                                 {"type": "command", "command": "echo keep"},
                             ]

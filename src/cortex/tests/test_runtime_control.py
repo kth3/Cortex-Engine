@@ -294,7 +294,7 @@ class StatusTests(unittest.TestCase):
         mock_print,
     ):
         mock_get_pids.return_value = [1]
-        mock_resolve_watcher_binary.return_value = Path("/repo/rust/target/release/cortex-watcher.exe")
+        mock_resolve_watcher_binary.return_value = Path("rust/target/release/cortex-watcher.exe")
 
         for ping_status, expected_label in [
             ("ok", "[READY]"),
@@ -326,7 +326,7 @@ class StatusTests(unittest.TestCase):
         _mock_resolve_local_daemon,
         _mock_print,
     ):
-        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
+        binary = Path("rust/target/release/cortex-watcher.exe")
         mock_resolve_watcher_binary.return_value = binary
         mock_get_pids.return_value = [1]
 
@@ -343,7 +343,7 @@ class ServiceScriptTests(unittest.TestCase):
         mock_resolve_watcher_binary,
         _mock_resolve_local_daemon,
     ):
-        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
+        binary = Path("rust/target/release/cortex-watcher.exe")
         mock_resolve_watcher_binary.return_value = binary
 
         scripts = control._service_scripts()
@@ -372,8 +372,8 @@ class WatcherLauncherTests(unittest.TestCase):
         thread_instance = Mock()
         mock_thread.return_value = thread_instance
 
-        binary = Path("/repo/rust/target/release/cortex-watcher.exe")
-        workspace = Path("/repo")
+        binary = Path("rust/target/release/cortex-watcher.exe")
+        workspace = Path("workspace")
         mock_ensure_watcher_binary.return_value = binary
         with patch.object(watcher_launcher, "WORKSPACE", workspace):
             watcher_launcher.launch_watcher()
