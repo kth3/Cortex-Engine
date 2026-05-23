@@ -5,8 +5,6 @@
 """
 from __future__ import annotations
 
-import socket
-import sys
 import threading
 import time
 from pathlib import Path
@@ -15,11 +13,9 @@ from typing import Any
 
 from cortex.logger import get_logger
 
-from .environment import build_child_env
 from .ipc import send_request
-from .logging import relay_subprocess_output
 from .paths import WORKER_PORT
-from .process import launch_logged_process
+from .worker_manager_support import kill_process, spawn_worker_process, start_output_relay, wait_until_listening
 
 logger = get_logger("server")
 
@@ -53,16 +49,8 @@ class WorkerManager:
 
             if self.process is None:
                 logger.info("[Router] Starting PyTorch Worker Process...")
-                self.process = launch_logged_process(
-                    [sys.executable, str(self.worker_entrypoint), "--worker"],
-                    build_child_env(),
-                )
-
-                threading.Thread(
-                    target=relay_subprocess_output,
-                    args=(self.process, "Worker-out", logger),
-                    daemon=True,
-                ).start()
+                self.process = spawn_worker_process(self.worker_entrypoint)
+                start_output_relay(self.process, logger)
 
                 if not self._wait_until_listening():
                     logger.error("[Router] Worker failed to start within timeout.")
@@ -76,24 +64,7 @@ class WorkerManager:
     def _wait_until_listening(self, timeout: float = 30.0) -> bool:
         if self.process is None:
             return False
-
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            exit_code = self.process.poll()
-            if exit_code is not None:
-                logger.error(f"[Router] Worker process exited prematurely (code={exit_code}).")
-                return False
-
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1.0)
-                sock.connect((WORKER_HOST, WORKER_PORT))
-                sock.close()
-                return True
-            except (ConnectionRefusedError, socket.timeout, OSError):
-                time.sleep(0.5)
-
-        return False
+        return wait_until_listening(WORKER_HOST, WORKER_PORT, self.process, logger, timeout)
 
     def ping(self) -> dict[str, Any] | None:
         return send_request(
@@ -114,11 +85,7 @@ class WorkerManager:
     def kill(self) -> None:
         if self.process is None:
             return
-        try:
-            if self.process.poll() is None:
-                self.process.kill()
-        except Exception:
-            pass
+        kill_process(self.process)
         self.process = None
 
     def shutdown(self, *, reason: str = "shutdown") -> None:
