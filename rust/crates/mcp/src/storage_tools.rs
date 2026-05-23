@@ -410,7 +410,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let old = env::var("CORTEX_WORKSPACE_KEY").ok();
         env::set_var("CORTEX_WORKSPACE_KEY", "shared-workspace");
-        assert_eq!(workspace_key("C:\\workspace\\repo"), "shared-workspace");
+        assert_eq!(workspace_key("repo"), "shared-workspace");
         match old {
             Some(value) => env::set_var("CORTEX_WORKSPACE_KEY", value),
             None => env::remove_var("CORTEX_WORKSPACE_KEY"),
@@ -422,9 +422,9 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let old = env::var("CORTEX_DATA_HOME").ok();
         let old_key = env::var("CORTEX_WORKSPACE_KEY").ok();
-        env::set_var("CORTEX_DATA_HOME", r"C:\\workspace\\cortex-data-home");
+        env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
         env::set_var("CORTEX_WORKSPACE_KEY", "workspace-key");
-        let path = memories_db_path(r"C:\\workspace\\repo");
+        let path = memories_db_path("repo");
         assert!(path.ends_with(r"workspaces\workspace-key\memories.db"));
         match old {
             Some(value) => env::set_var("CORTEX_DATA_HOME", value),
