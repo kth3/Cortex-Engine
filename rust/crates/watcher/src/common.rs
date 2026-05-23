@@ -61,14 +61,6 @@ pub(crate) fn vector_prefix_for_path(rel_path: &str) -> String {
     }
 }
 
-pub(crate) fn workspace_relative(workspace: &Path, path: &Path) -> Option<String> {
-    let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    absolute
-        .strip_prefix(workspace)
-        .ok()
-        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-}
-
 pub(crate) fn workspace_key(workspace: &Path) -> String {
     if let Ok(key) = env::var("CORTEX_WORKSPACE_KEY") {
         return key;

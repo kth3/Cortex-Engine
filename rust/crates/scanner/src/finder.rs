@@ -8,7 +8,7 @@ use walkdir::WalkDir;
 
 use crate::filters::{is_supported_extension, should_include};
 use crate::ignores::{load_gitignore, should_ignore};
-use crate::index_roots::{normalize_configured_index_roots, IndexRoot};
+use crate::index_roots::{db_path_for_source_path, normalize_configured_index_roots, IndexRoot};
 use crate::settings::load_settings;
 
 /// 지능형 필터링을 적용해 인덱싱할 파일 상대 경로 목록 반환.
@@ -116,9 +116,10 @@ fn collect_from_index_root(
             .map(|s| format!(".{}", s));
         if let Some(e) = ext {
             if is_supported_extension(&e) {
-                if let Some(rel) = workspace_relative(workspace, root_path) {
-                    if !should_ignore(&rel, ignore_patterns) && should_include(&rel, settings) {
-                        out.insert(rel);
+                if let Some(db_path) = db_path_for_source_path(workspace, settings, root_path) {
+                    if !should_ignore(&db_path, ignore_patterns) && should_include(&db_path, settings)
+                    {
+                        out.insert(db_path);
                     }
                 }
             }
@@ -127,8 +128,8 @@ fn collect_from_index_root(
     }
 
     let walker = WalkDir::new(root_path).into_iter().filter_entry(|entry| {
-        if let Some(rel) = workspace_relative(workspace, entry.path()) {
-            !should_ignore(&rel, ignore_patterns)
+        if let Some(db_path) = db_path_for_source_path(workspace, settings, entry.path()) {
+            !should_ignore(&db_path, ignore_patterns)
         } else {
             true
         }
@@ -146,29 +147,15 @@ fn collect_from_index_root(
         if !is_supported_extension(&ext) {
             continue;
         }
-        let full_rel = match workspace_relative(workspace, path) {
+        let db_path = match db_path_for_source_path(workspace, settings, path) {
             Some(s) => s,
             None => continue,
         };
-        if should_ignore(&full_rel, ignore_patterns) {
+        if should_ignore(&db_path, ignore_patterns) {
             continue;
         }
 
-        // DB 저장 경로 결정: index_root.db_root 기준 상대 경로 + 접두사
-        let db_path = if index_root.db_root == "." {
-            full_rel.clone()
-        } else {
-            // 워크스페이스 기준 절대 경로 → index_root.source_path 기준 상대
-            match path.strip_prefix(root_path) {
-                Ok(rel) => {
-                    let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    format!("{}/{}", index_root.db_root, rel_str)
-                }
-                Err(_) => full_rel.clone(),
-            }
-        };
-
-        if should_include(&full_rel, settings) {
+        if should_include(&db_path, settings) {
             out.insert(db_path);
         }
     }

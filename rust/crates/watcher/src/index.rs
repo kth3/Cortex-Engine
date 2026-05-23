@@ -137,7 +137,6 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
 pub(crate) fn cmd_index_file(
     workspace: &Path,
     rel_path: &Path,
-    source_path: Option<&Path>,
     force: bool,
 ) -> Result<()> {
     let workspace = workspace.to_path_buf();
@@ -149,12 +148,14 @@ pub(crate) fn cmd_index_file(
     cortex_storage::init_schema(&conn)?;
 
     let cached_hash = load_file_cache_hash(&conn, &rel_path)?;
-    let source_path = source_path
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace.join(&rel_path));
+    let source_path = cortex_scanner::source_path_for_index_path(&workspace, &settings, &rel_path);
     let existed_before = file_record_exists(&conn, &rel_path)?;
 
-    let outcome = if !source_path.exists() {
+    let outcome = if source_path
+        .as_ref()
+        .map(|path| !path.exists())
+        .unwrap_or(true)
+    {
         cleanup_file_records(&mut conn, &rel_path)?;
         ProcessOutcome::Deleted
     } else {
@@ -166,7 +167,7 @@ pub(crate) fn cmd_index_file(
             force,
             cached_hash.as_deref(),
             false,
-            Some(&source_path),
+            source_path.as_deref(),
         )?
         .outcome
     };
@@ -285,9 +286,10 @@ fn inspect_path(
     include_vector_items: bool,
     source_path: Option<&Path>,
 ) -> Result<InspectOutcome> {
-    let file_path = source_path
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace.join(rel_path));
+    let file_path = source_path.map(PathBuf::from).unwrap_or_else(|| {
+        cortex_scanner::source_path_for_index_path(workspace, settings, rel_path)
+            .unwrap_or_else(|| workspace.join(rel_path))
+    });
     let ext = file_extension(rel_path);
 
     if !file_path.exists() {

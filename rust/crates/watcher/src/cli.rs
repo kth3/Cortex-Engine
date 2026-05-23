@@ -50,9 +50,6 @@ enum Command {
         /// 워크스페이스 기준 상대 경로 또는 synthetic 경로
         #[arg(short, long)]
         file: PathBuf,
-        /// 실제 소스 경로가 별도일 때 사용
-        #[arg(long)]
-        source: Option<PathBuf>,
         #[arg(long, default_value_t = false)]
         force: bool,
     },
@@ -77,9 +74,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Scan { workspace, format } => cmd_scan(&workspace, &format),
         Command::ParseFile { file, rel } => cmd_parse_file(&file, rel.as_deref()),
         Command::Index { workspace, force } => cmd_index(&workspace, force),
-        Command::IndexFile { workspace, file, source, force } => {
-            cmd_index_file(&workspace, &file, source.as_deref(), force)
-        }
+        Command::IndexFile { workspace, file, force } => cmd_index_file(&workspace, &file, force),
         Command::Watch { workspace } => cmd_watch(&workspace),
     }
 }

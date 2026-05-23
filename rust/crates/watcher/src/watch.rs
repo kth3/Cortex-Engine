@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use crate::common::{load_ignore_patterns, should_track_path, workspace_db_path, workspace_relative};
+use crate::common::{load_ignore_patterns, should_track_path, workspace_db_path};
 use crate::index::{process_path, ProcessOutcome, ProcessResult};
 
 const WATCH_DEBOUNCE: Duration = Duration::from_secs(5);
@@ -35,6 +35,11 @@ pub(crate) fn cmd_watch(workspace: &Path) -> Result<()> {
         Config::default(),
     )?;
     watcher.watch(&workspace, RecursiveMode::Recursive)?;
+    for root in cortex_scanner::normalize_configured_index_roots(&workspace, &settings) {
+        if root.external && root.source_path.exists() {
+            watcher.watch(&root.source_path, RecursiveMode::Recursive)?;
+        }
+    }
 
     tracing::info!(workspace = %workspace.display(), db = %db_path.display(), "watch mode started");
 
@@ -96,7 +101,7 @@ fn enqueue_event_paths(
     last_event_at: &mut Option<Instant>,
 ) {
     for path in &event.paths {
-        let Some(rel_path) = workspace_relative(workspace, path) else {
+        let Some(rel_path) = cortex_scanner::db_path_for_source_path(workspace, settings, path) else {
             continue;
         };
         if !should_track_path(&rel_path, settings, ignore_patterns) {

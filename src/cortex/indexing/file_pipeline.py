@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
-from cortex.config.settings import load_settings
-from cortex.indexing.index_roots import source_path_for_index_path
 from cortex.runtime.paths import ensure_rust_watcher_binary
 
 
-def _run_rust_index_file(workspace: str, rel_path: str, source_path: Path, force: bool) -> dict:
+def _run_rust_index_file(workspace: str, rel_path: str, force: bool) -> dict:
     binary = ensure_rust_watcher_binary()
     command = [
         str(binary),
@@ -19,8 +16,6 @@ def _run_rust_index_file(workspace: str, rel_path: str, source_path: Path, force
         workspace,
         "--file",
         rel_path,
-        "--source",
-        str(source_path),
     ]
     if force:
         command.append("--force")
@@ -47,9 +42,7 @@ def index_file(
             conn.commit()
         except Exception:
             pass
-    settings = load_settings(workspace)
-    full_path = Path(source_path or source_path_for_index_path(workspace, rel_path, settings))
-    result = _run_rust_index_file(workspace, rel_path, full_path, force=False)
+    result = _run_rust_index_file(workspace, rel_path, force=False)
     if conn is not None:
         try:
             conn.commit()
