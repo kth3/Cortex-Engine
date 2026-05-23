@@ -131,6 +131,7 @@ fn flush_pending_batch(
             &rel_path,
             false,
             cache_map.get(&rel_path).map(|s| s.as_str()),
+            false,
         ) {
             Ok(ProcessResult {
                 outcome: ProcessOutcome::RustIndexed,
