@@ -18,9 +18,9 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $TargetScripts = @(
-    (Join-Path $RepoRoot "scripts\cortex\vector_engine_server.py"),
-    (Join-Path $RepoRoot "scripts\cortex\watch\daemon.py"),
-    (Join-Path $RepoRoot "scripts\cortex\runtime\engine_worker.py")
+    (Join-Path $RepoRoot "src\cortex\vector_engine_server.py"),
+    (Join-Path $RepoRoot "src\cortex\watch\daemon.py"),
+    (Join-Path $RepoRoot "src\cortex\runtime\engine_worker.py")
 ) | ForEach-Object { (Resolve-Path $_).Path }
 
 if (Get-Command cortex-ctl -ErrorAction SilentlyContinue) {

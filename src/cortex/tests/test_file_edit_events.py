@@ -1,7 +1,7 @@
 """file_edit_events 스키마/헬퍼 검증 — Stage 0 T1~T9.
 
 운영 DB(memories.db)를 건드리지 않도록 모든 테스트는 tempfile + 격리된 워크스페이스 사용.
-실행: uv run --project .cortex python .cortex/scripts/cortex/tests/test_file_edit_events.py
+실행: uv run --project .cortex python .cortex/src/cortex/tests/test_file_edit_events.py
 """
 import os
 import sys
@@ -385,3 +385,4 @@ def run():
 
 if __name__ == "__main__":
     sys.exit(run())
+

@@ -32,7 +32,7 @@ bash scripts/diagnostics/zombie-check.sh
 설정 키를 바꾼 뒤에는 다음 검색으로 실제 참조 지점을 확인한다.
 
 ```bash
-rg -n "settings\\.get|indexing_rules|index_roots|include_paths|exclude_paths|config_whitelist|linked_workspaces|idle_timeout|modules|tuning|get_tuning_params|CORTEX_EMBEDDING_MAX_SEQ_LENGTH|MAX_SEQ_LENGTH" scripts/cortex
+rg -n "settings\\.get|indexing_rules|index_roots|include_paths|exclude_paths|config_whitelist|linked_workspaces|idle_timeout|modules|tuning|get_tuning_params|CORTEX_EMBEDDING_MAX_SEQ_LENGTH|MAX_SEQ_LENGTH" src/cortex
 ```
 
 현재 런타임 참조 상태:
@@ -105,3 +105,4 @@ WSL2의 `/mnt/c/...` 경로 아래에서 cortex를 실행하면 `portalocker`의
 ```bash
 CORTEX_DATA_HOME=/tmp/cortex-dev uv run cortex-ctl start
 ```
+

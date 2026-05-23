@@ -92,16 +92,16 @@ class IndexRootsTests(unittest.TestCase):
     def test_empty_index_roots_keeps_only_forced_cortex_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
-            (ws / ".cortex" / "scripts" / "cortex").mkdir(parents=True)
+            (ws / ".cortex" / "src" / "cortex").mkdir(parents=True)
             (ws / "src").mkdir()
             (ws / "src" / "skip.py").write_text("print('skip')\n", encoding="utf-8")
-            (ws / ".cortex" / "scripts" / "cortex" / "keep.py").write_text("# keep\n", encoding="utf-8")
+            (ws / ".cortex" / "src" / "cortex" / "keep.py").write_text("# keep\n", encoding="utf-8")
             settings = {"indexing_rules": {"index_roots": [], "include_paths": ["**"]}}
 
             with cortex_home_env(ws / ".cortex"):
                 files = scan_files(str(ws), SUPPORTED, settings_override=settings)
 
-            self.assertIn(".cortex/scripts/cortex/keep.py", files)
+            self.assertIn(".cortex/src/cortex/keep.py", files)
             self.assertNotIn("src/skip.py", files)
 
     def test_local_index_roots_override_common_roots(self):
@@ -209,3 +209,4 @@ def run():
 
 if __name__ == "__main__":
     sys.exit(run())
+

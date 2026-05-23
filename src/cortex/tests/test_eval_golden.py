@@ -23,7 +23,7 @@ class GoldenLoaderTests(unittest.TestCase):
 - id: case-1
   query: "hybrid search"
   expected_keys:
-    - "scripts/cortex/retrieval/hybrid.py"
+    - "src/cortex/retrieval/hybrid.py"
 """
         )
         try:
@@ -31,7 +31,7 @@ class GoldenLoaderTests(unittest.TestCase):
             self.assertEqual(len(cases), 1)
             self.assertEqual(cases[0].id, "case-1")
             self.assertEqual(cases[0].query, "hybrid search")
-            self.assertEqual(cases[0].expected_keys, ("scripts/cortex/retrieval/hybrid.py",))
+            self.assertEqual(cases[0].expected_keys, ("src/cortex/retrieval/hybrid.py",))
             self.assertIsNone(cases[0].domain)
             self.assertEqual(cases[0].notes, "")
             self.assertEqual(cases[0].tags, ())
@@ -44,8 +44,8 @@ class GoldenLoaderTests(unittest.TestCase):
 - id: case-2
   query: "edge resolver"
   expected_keys:
-    - "scripts/cortex/indexing/edge_resolver.py"
-    - "scripts/cortex/indexing/queries.py"
+    - "src/cortex/indexing/edge_resolver.py"
+    - "src/cortex/indexing/queries.py"
   domain: code
   notes: "Priority 1~4 우선순위 해소"
   tags:
@@ -152,3 +152,4 @@ expected_keys: [a]
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -150,7 +150,7 @@ class BaselineRegressionGate(unittest.TestCase):
     """저장소 baseline.json이 현재 평가 결과보다 떨어지지 않아야 한다.
 
     이 테스트가 실패하면 retrieval에 회귀가 발생한 것. baseline을 갱신하려면
-    `python -m cortex.eval --snapshot scripts/cortex/eval/baseline.json` 실행.
+    `python -m cortex.eval --snapshot src/cortex/eval/baseline.json` 실행.
     """
 
     def test_current_evaluation_meets_or_exceeds_baseline(self):
@@ -166,3 +166,4 @@ class BaselineRegressionGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

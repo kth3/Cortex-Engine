@@ -158,9 +158,9 @@ def _scan_files_python(workspace: str, supported_extensions: dict, settings: dic
             for path in Path(abs_doc_dir).rglob("*.md"):
                 files.append(os.path.relpath(str(path), workspace).replace("\\", "/"))
 
-    cortex_scripts_dir = cortex_home / "scripts"
-    if cortex_scripts_dir.exists():
-        for path in cortex_scripts_dir.rglob("*.py"):
+    cortex_src_dir = cortex_home / "src" / "cortex"
+    if cortex_src_dir.exists():
+        for path in cortex_src_dir.rglob("*.py"):
             spath = str(path)
             if any(x in spath for x in ["__pycache__", ".venv", "site-packages"]):
                 continue

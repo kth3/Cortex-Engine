@@ -10,8 +10,8 @@ class TestFTSQueryNormalization(unittest.TestCase):
 
     def test_normalize_file_paths(self):
         self.assertEqual(
-            normalize_fts_query("scripts/cortex/retrieval/fts.py"),
-            '"scripts/cortex/retrieval/fts.py"*'
+            normalize_fts_query("src/cortex/retrieval/fts.py"),
+            '"src/cortex/retrieval/fts.py"*'
         )
 
     def test_normalize_camel_case(self):
@@ -45,7 +45,7 @@ class TestFTSQueryNormalization(unittest.TestCase):
             return
 
         test_cases = [
-            "scripts/cortex/retrieval/fts.py",
+            "src/cortex/retrieval/fts.py",
             "some_camel_case_Func",
             "MyClass",
             "my_func",
@@ -70,3 +70,4 @@ class TestFTSQueryNormalization(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

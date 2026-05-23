@@ -25,7 +25,7 @@ class RetrievalSnippetTests(unittest.TestCase):
         row = {
             "signature": "def run_pipeline(query: str) -> dict:",
             "content": "less useful body",
-            "file_path": "scripts/cortex/retrieval/hybrid.py",
+            "file_path": "src/cortex/retrieval/hybrid.py",
         }
         self.assertEqual(
             code_result_snippet(row),
@@ -44,12 +44,12 @@ class RetrievalSnippetTests(unittest.TestCase):
 
     def test_code_snippet_uses_location_before_static_fallback(self):
         row = {
-            "file_path": "scripts/cortex/retrieval/hybrid.py",
+            "file_path": "src/cortex/retrieval/hybrid.py",
             "line": 120,
         }
         self.assertEqual(
             code_result_snippet(row),
-            "→ scripts/cortex/retrieval/hybrid.py:120 참조 (코드 본문 생략됨)",
+            "→ src/cortex/retrieval/hybrid.py:120 참조 (코드 본문 생략됨)",
         )
 
     def test_code_snippet_static_fallback(self):
@@ -83,3 +83,4 @@ class RetrievalSnippetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

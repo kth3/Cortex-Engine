@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 # Paths
-SCRIPTS_DIR = Path(__file__).resolve().parent # .cortex/scripts/cortex
+SCRIPTS_DIR = Path(__file__).resolve().parent # .cortex/src/cortex
 WORKSPACE = str(SCRIPTS_DIR.parent.parent.parent) # 프로젝트 루트
 
 # Cortex Modules
@@ -98,3 +98,4 @@ def extract_to_inbox():
 
 if __name__ == "__main__":
     extract_to_inbox()
+

@@ -190,7 +190,7 @@ def _prepare_smoke_db(env):
                     "function",
                     "smoke_symbol",
                     IMPACT_FQN,
-                    "scripts/cortex/tests/test_mcp_smoke.py",
+                    "src/cortex/tests/test_mcp_smoke.py",
                     1,
                     1,
                     "def smoke_symbol()",
@@ -485,3 +485,4 @@ if __name__ == "__main__":
         run_smoke()
     except AssertionError:
         sys.exit(1)
+

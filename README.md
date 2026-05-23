@@ -12,7 +12,7 @@
 
 ## 시스템 아키텍처
 
-기존 단일체 엔진은 MCP dispatcher, engine server, embedding worker, watcher, process control 계층으로 분리되었습니다. `cortex_ctl.py`는 thin entrypoint로 남고, 실제 start/status/stop 로직은 `scripts/cortex/runtime/` 하위 모듈에 위치합니다.
+기존 단일체 엔진은 MCP dispatcher, engine server, embedding worker, watcher, process control 계층으로 분리되었습니다. `cortex_ctl.py`는 thin entrypoint로 남고, 실제 start/status/stop 로직은 `src/cortex/runtime/` 하위 모듈에 위치합니다.
 
 ```mermaid
 ---
@@ -355,3 +355,4 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
 - **Code**: [MIT License](LICENSE)
 - **Knowledge**: 외부 지식 라이브러리의 원본은 [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills)이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 라이선스를 따릅니다.
+

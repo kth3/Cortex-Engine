@@ -16,12 +16,12 @@
     - id: hybrid-search-module
       query: "hybrid search"
       expected_keys:
-        - "scripts/cortex/retrieval/hybrid.py"
+        - "src/cortex/retrieval/hybrid.py"
       domain: code
       tags: ["retrieval", "core"]
 
 개인화 금지 원칙:
-    expected_keys는 저장소 동봉 fixture(scripts/cortex/eval/fixture/ 예정)나
+    expected_keys는 저장소 동봉 fixture(src/cortex/eval/fixture/ 예정)나
     cortex 저장소의 영구 경로만 참조한다. 사용자 워크스페이스 콘텐츠를 정답으로
     두지 않으며, 모든 사용자가 같은 점수를 재현할 수 있어야 한다.
 """
@@ -149,3 +149,4 @@ def load_golden_set(path: str | Path) -> list[GoldenCase]:
 
 
 __all__ = ["GoldenCase", "load_golden_set", "GoldenSetError", "VALID_DOMAINS"]
+

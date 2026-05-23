@@ -8,7 +8,7 @@ relay.py의 파일 락과 orchestrator.py의 _FileLock이
 LLM API 호출 없음 — 로컬 디스크 I/O와 락 메커니즘만 테스트합니다.
 
 Usage:
-    uv run --project .cortex python .cortex/scripts/cortex/tests/test_concurrency.py
+    uv run --project .cortex python .cortex/src/cortex/tests/test_concurrency.py
 """
 import json
 import os
@@ -22,7 +22,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 # 프로젝트 scripts/ 경로
-SCRIPTS_DIR = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 # ─── 테스트 설정 ───
@@ -274,3 +274,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

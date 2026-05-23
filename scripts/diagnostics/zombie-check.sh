@@ -12,9 +12,9 @@ set -u
 failures=()
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 target_regex="$(printf '%s\n' \
-    "$repo_root/scripts/cortex/vector_engine_server.py" \
-    "$repo_root/scripts/cortex/watch/daemon.py" \
-    "$repo_root/scripts/cortex/runtime/engine_worker.py" |
+    "$repo_root/src/cortex/vector_engine_server.py" \
+    "$repo_root/src/cortex/watch/daemon.py" \
+    "$repo_root/src/cortex/runtime/engine_worker.py" |
     sed 's/[.[\*^$()+?{}|]/\\&/g' |
     paste -sd '|' -)"
 
@@ -131,7 +131,7 @@ echo "재기동된 프로세스:"
 cortex_pids
 
 stage "4. SIGKILL — cortex 자식 프로세스 강제 종료"
-worker_pids=$(pgrep -f "$repo_root/scripts/cortex/vector_engine_server.py|$repo_root/scripts/cortex/watch/daemon.py" || true)
+worker_pids=$(pgrep -f "$repo_root/src/cortex/vector_engine_server.py|$repo_root/src/cortex/watch/daemon.py" || true)
 for pid in $worker_pids; do
     echo "kill -9 $pid"
     kill -9 "$pid" 2>/dev/null || true
@@ -164,3 +164,4 @@ else
     done
     exit 1
 fi
+
