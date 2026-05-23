@@ -2,27 +2,21 @@
 from __future__ import annotations
 
 import datetime
-from pathlib import Path
+import json
+import subprocess
 
 from cortex import storage as db
-from cortex.config.settings import load_settings
 from cortex.embeddings import batch_vectorize_memories, batch_vectorize_nodes, detect_gpu
-from cortex.indexing.cleanup import cleanup_deleted_files
-from cortex.indexing.constants import SUPPORTED_EXTENSIONS
-from cortex.indexing.edge_resolver import resolve_unresolved_edges
-from cortex.indexing.file_pipeline import index_file, read_text_file
-from cortex.indexing.index_roots import source_path_for_index_path
-from cortex.indexing.queries import DELETE_FILE_CACHE_SQL, SELECT_FILE_CACHE_SQL, UPSERT_LAST_INDEXED_AT_SQL
 from cortex.indexing.rules_sync import sync_rules_to_memories
 from cortex.logger import get_logger
-from cortex.indexing.scanner import scan_files
-from cortex.utils.text import compute_hash
+from cortex.runtime.paths import ensure_rust_watcher_binary
 
 log = get_logger("indexer")
 
 
 def _sync_skills(workspace):
     from cortex.skills.manager import SkillManager
+
     log.info("Auto-syncing skills to memories DB...")
     try:
         sm = SkillManager(workspace)
@@ -31,34 +25,40 @@ def _sync_skills(workspace):
         log.warning("Skill sync failed: %s", e)
 
 
-def _load_file_cache(conn, force):
+def _run_rust_index(workspace: str, force: bool) -> dict:
+    binary = ensure_rust_watcher_binary()
+    command = [
+        str(binary),
+        "index",
+        "--workspace",
+        workspace,
+    ]
     if force:
-        conn.execute(DELETE_FILE_CACHE_SQL)
-        conn.commit()
-        return {}
+        command.append("--force")
 
-    cached_rows = conn.execute(SELECT_FILE_CACHE_SQL).fetchall()
-    return {row[0]: row[1] for row in cached_rows}
+    proc = subprocess.run(command, capture_output=True, text=True, check=True)
+    return json.loads(proc.stdout or "{}")
 
 
-def _vector_prefix_for_path(rel_path):
-    parts = Path(rel_path).parts
-    prefix = "root"
-    if len(parts) > 1 and not parts[0].startswith("."):
-        prefix = parts[0]
-    return prefix
+def _sync_graph_from_sqlite(workspace, conn):
+    gdb = None
+    try:
+        from cortex.storage.graph import GraphDB
 
-
-def _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res):
-    if "error" in res:
-        stats["errors"] += 1
-        return
-
-    stats["indexed"] += 1
-    prefix = _vector_prefix_for_path(rel_path)
-    if prefix not in all_vector_items_by_prefix:
-        all_vector_items_by_prefix[prefix] = []
-    all_vector_items_by_prefix[prefix].extend(res.get("_vector_items", []))
+        gdb = GraphDB(workspace)
+        log.info("Building Kuzu graph from SQLite edges...")
+        g_stats = gdb.build_from_sqlite(conn)
+        log.info(
+            "Kuzu graph built: %d nodes, %d edges, %d errors",
+            g_stats["nodes"],
+            g_stats["edges"],
+            g_stats["errors"],
+        )
+    except Exception as e:
+        log.warning("Kuzu graph build failed: %s", e)
+    finally:
+        if gdb is not None:
+            del gdb
 
 
 def _release_local_cuda_model_after_indexing() -> None:
@@ -77,55 +77,23 @@ def _release_local_cuda_model_after_indexing() -> None:
         log.debug("Local CUDA embedding model release skipped.", exc_info=True)
 
 
-def _sync_graph_from_sqlite(workspace, conn):
-    gdb = None
-    try:
-        from cortex.storage.graph import GraphDB
-        gdb = GraphDB(workspace)
-        log.info("Building Kuzu graph from SQLite edges...")
-        g_stats = gdb.build_from_sqlite(conn)
-        log.info("Kuzu graph built: %d nodes, %d edges, %d errors", g_stats['nodes'], g_stats['edges'], g_stats['errors'])
-    except Exception as e:
-        log.warning("Kuzu graph build failed: %s", e)
-    finally:
-        if gdb is not None:
-            del gdb
-
-
 def index_workspace(workspace: str, force: bool = False) -> dict:
     """전체 워크스페이스 하이브리드 인덱싱."""
     _sync_skills(workspace)
 
-    files = scan_files(workspace, SUPPORTED_EXTENSIONS)
-    settings = load_settings(workspace)
+    report = _run_rust_index(workspace, force=force)
+    stats = {
+        "total_files": int(report.get("total_files", 0)),
+        "indexed": int(report.get("indexed", 0)),
+        "skipped": int(report.get("skipped", 0)),
+        "errors": int(report.get("errors", 0)),
+        "deleted": int(report.get("deleted", 0)),
+    }
+    all_vector_items_by_prefix = report.get("vector_items_by_prefix") or {}
+
     conn = db.get_connection(workspace)
     try:
         db.init_schema(conn)
-
-        cleanup_deleted_files(workspace, conn, files)
-
-        stats = {"total_files": len(files), "indexed": 0, "skipped": 0, "errors": 0}
-        all_vector_items_by_prefix = {}
-
-        cache_dict = _load_file_cache(conn, force)
-
-        for rel_path in files:
-            full_path = str(source_path_for_index_path(workspace, rel_path, settings))
-            try:
-                source = read_text_file(full_path)
-            except Exception:
-                stats["errors"] += 1
-                continue
-
-            file_hash = compute_hash(source)
-            if not force:
-                cached_hash = cache_dict.get(rel_path)
-                if cached_hash == file_hash:
-                    stats["skipped"] += 1
-                    continue
-
-            res = index_file(workspace, rel_path, conn=conn, vectorize=False, source_path=full_path)
-            _collect_index_result(stats, all_vector_items_by_prefix, rel_path, res)
 
         use_gpu = detect_gpu()
         if all_vector_items_by_prefix:
@@ -141,12 +109,11 @@ def index_workspace(workspace: str, force: bool = False) -> dict:
         _release_local_cuda_model_after_indexing()
 
         conn.execute(
-            UPSERT_LAST_INDEXED_AT_SQL,
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_indexed_at', ?)",
             (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),),
         )
         conn.commit()
 
-        resolve_unresolved_edges(conn)
         _sync_graph_from_sqlite(workspace, conn)
     finally:
         conn.close()

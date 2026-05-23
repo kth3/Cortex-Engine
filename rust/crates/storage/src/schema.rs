@@ -1,24 +1,12 @@
-"""Database schema definitions and initialization.
+use rusqlite::{Connection, Result};
 
-- 책임: Cortex 시스템의 모든 SQLite 테이블, 인덱스, 트리거 및 가상 테이블(FTS5, sqlite-vec)을 생성하는 DDL 전담 계층이다.
-- 주의: DDL 쿼리는 시스템의 근간이 되므로, 외부 모듈로 분리하거나 기존 테이블/컬럼의 자료형 및 제약 조건을 임의로 변경하지 않는다.
-"""
-import sqlite3
-from cortex.storage.connection import is_vec_available
-from cortex.storage.migrations import _apply_migrations
+const SCHEMA_VERSION_META_KEY: &str = "schema_version";
+const CURRENT_SCHEMA_VERSION: &str = "2";
+const INIT_SCHEMA_VERSION_SQL: &str = "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)";
+const UPGRADE_SCHEMA_VERSION_SQL: &str =
+    "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?";
 
-SCHEMA_VERSION_META_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = "2"
-
-INIT_SCHEMA_VERSION_SQL = "INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)"
-UPGRADE_SCHEMA_VERSION_SQL = (
-    "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value < ?"
-)
-
-
-def _create_core_tables(conn: sqlite3.Connection):
-    """핵심 테이블 생성 (파일 캐시, 노드, 엣지 등)"""
-    conn.executescript("""
+const CREATE_CORE_TABLES_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS file_cache (
         file_path   TEXT PRIMARY KEY,
         hash        TEXT NOT NULL,
@@ -66,12 +54,9 @@ def _create_core_tables(conn: sqlite3.Connection):
     );
     CREATE INDEX IF NOT EXISTS idx_edges_hint_name ON edges(target_name);
     CREATE INDEX IF NOT EXISTS idx_edges_hint_kind ON edges(target_kind_hint);
-    """)
+"#;
 
-
-def _create_history_tables(conn: sqlite3.Connection):
-    """Git 이력 및 변경 이력 추적용 테이블 생성"""
-    conn.executescript("""
+const CREATE_HISTORY_TABLES_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS file_lineage (
         file_path       TEXT PRIMARY KEY,
         commit_count    INTEGER DEFAULT 0,
@@ -101,7 +86,6 @@ def _create_history_tables(conn: sqlite3.Connection):
         detected_at     INTEGER NOT NULL
     );
 
-    -- v2: Cortex MCP 편집 이벤트 로그 적재용 시계열 테이블
     CREATE TABLE IF NOT EXISTS file_edit_events (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         file_path     TEXT NOT NULL,
@@ -120,12 +104,9 @@ def _create_history_tables(conn: sqlite3.Connection):
         ON file_edit_events(file_path, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_fee_session_updated
         ON file_edit_events(session_id, updated_at DESC);
-    """)
+"#;
 
-
-def _create_memory_tables(conn: sqlite3.Connection):
-    """에이전트 메모리, 관찰, 세션용 테이블 생성"""
-    conn.executescript("""
+const CREATE_MEMORY_TABLES_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS sessions (
         id              TEXT PRIMARY KEY,
         agent_name      TEXT DEFAULT 'unknown',
@@ -174,36 +155,9 @@ def _create_memory_tables(conn: sqlite3.Connection):
         key     TEXT PRIMARY KEY,
         value   TEXT
     );
-    """)
+"#;
 
-
-def _create_vec_tables(conn: sqlite3.Connection):
-    """sqlite-vec 가상 테이블 생성 (확장이 로드된 경우에만 호출)"""
-    conn.executescript("""
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
-        rowid INTEGER PRIMARY KEY,
-        embedding float[1024]
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes USING vec0(
-        rowid INTEGER PRIMARY KEY,
-        embedding float[1024]
-    );
-
-    -- sqlite-vec 고아 벡터 방지용 CASCADE 트리거
-    CREATE TRIGGER IF NOT EXISTS del_node_vec AFTER DELETE ON nodes BEGIN
-        DELETE FROM vec_nodes WHERE rowid = old.rowid;
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS del_memory_vec AFTER DELETE ON memories BEGIN
-        DELETE FROM vec_memories WHERE rowid = old.rowid;
-    END;
-    """)
-
-
-def _create_fts_and_triggers(conn: sqlite3.Connection):
-    """FTS5 인덱스와 연관 트리거 생성"""
-    conn.executescript("""
+const CREATE_FTS_AND_TRIGGERS_SQL: &str = r#"
     CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
         name, fqn, docstring, signature,
         content='nodes',
@@ -242,12 +196,9 @@ def _create_fts_and_triggers(conn: sqlite3.Connection):
         INSERT INTO memories_fts(rowid, key, content, tags, category)
         VALUES (new.rowid, new.key, new.content, new.tags, new.category);
     END;
-    """)
+"#;
 
-
-def _create_indexes(conn: sqlite3.Connection):
-    """성능 최적화용 일반 인덱스 생성"""
-    conn.executescript("""
+const CREATE_INDEXES_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
     CREATE INDEX IF NOT EXISTS idx_nodes_fqn ON nodes(fqn);
     CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
@@ -257,52 +208,91 @@ def _create_indexes(conn: sqlite3.Connection):
     CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
     CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
     CREATE INDEX IF NOT EXISTS idx_search_misses_ts ON search_misses(created_at);
-    """)
+"#;
 
+pub fn init_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(CREATE_CORE_TABLES_SQL)?;
+    conn.execute_batch(CREATE_HISTORY_TABLES_SQL)?;
+    conn.execute_batch(CREATE_MEMORY_TABLES_SQL)?;
+    apply_legacy_migrations(conn)?;
+    conn.execute_batch(CREATE_FTS_AND_TRIGGERS_SQL)?;
+    conn.execute_batch(CREATE_INDEXES_SQL)?;
+    initialize_meta(conn)?;
+    Ok(())
+}
 
-def _create_vec_tables_if_available(conn: sqlite3.Connection):
-    """sqlite-vec 확장이 로드된 경우에만 벡터 가상 테이블을 생성한다."""
-    if is_vec_available():
-        try:
-            _create_vec_tables(conn)
-        except sqlite3.OperationalError as exc:
-            if "vec0" in str(exc).lower():
-                return
-            raise
+fn apply_legacy_migrations(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "nodes", "module", "TEXT DEFAULT 'unknown'")?;
+    add_column_if_missing(conn, "nodes", "workspace_id", "TEXT DEFAULT 'default'")?;
+    add_column_if_missing(conn, "nodes", "category", "TEXT DEFAULT 'SOURCE'")?;
 
+    add_column_if_missing(conn, "file_cache", "workspace_id", "TEXT DEFAULT 'default'")?;
 
-def _initialize_schema_version(conn: sqlite3.Connection):
-    """meta 테이블에 현재 스키마 버전 기본값을 기록한다."""
+    add_column_if_missing(conn, "edges", "target_name", "TEXT")?;
+    add_column_if_missing(conn, "edges", "target_kind_hint", "TEXT")?;
+    add_column_if_missing(conn, "edges", "target_fqn_hint", "TEXT")?;
+    add_column_if_missing(conn, "edges", "resolution_status", "TEXT DEFAULT 'unresolved'")?;
+    add_column_if_missing(conn, "edges", "resolution_confidence", "REAL DEFAULT 1.0")?;
+
+    Ok(())
+}
+
+fn add_column_if_missing(conn: &Connection, table: &str, column: &str, ddl: &str) -> Result<()> {
+    if !has_column(conn, table, column)? {
+        let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, ddl);
+        conn.execute(&sql, [])?;
+    }
+    Ok(())
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(columns.iter().any(|name| name == column))
+}
+
+fn initialize_meta(conn: &Connection) -> Result<()> {
     conn.execute(
         INIT_SCHEMA_VERSION_SQL,
         (SCHEMA_VERSION_META_KEY, CURRENT_SCHEMA_VERSION),
-    )
-
-
-def _upgrade_schema_version(conn: sqlite3.Connection):
-    """기존 schema_version이 낮은 경우 현재 버전으로 갱신한다."""
+    )?;
     conn.execute(
         UPGRADE_SCHEMA_VERSION_SQL,
         (CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION),
-    )
+    )?;
+    Ok(())
+}
 
+#[cfg(test)]
+mod tests {
+    use super::init_schema;
+    use rusqlite::Connection;
 
-def _initialize_meta(conn: sqlite3.Connection):
-    """스키마 메타 정보를 초기화하고 현재 버전으로 보정한다."""
-    _initialize_schema_version(conn)
-    _upgrade_schema_version(conn)
+    #[test]
+    fn init_schema_creates_core_tables_and_version() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        init_schema(&conn).expect("init schema");
 
+        let version: String = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("schema_version");
+        assert_eq!(version, "2");
 
-def init_schema(conn: sqlite3.Connection):
-    """DB 스키마 생성 및 마이그레이션 (동적 인덱싱용)"""
-    _create_core_tables(conn)
-    _create_history_tables(conn)
-    _create_memory_tables(conn)
-    _create_fts_and_triggers(conn)
-    _create_indexes(conn)
-
-    _create_vec_tables_if_available(conn)
-
-    _apply_migrations(conn)
-    _initialize_meta(conn)
-    conn.commit()
+        for table in ["nodes", "edges", "file_cache", "meta", "nodes_fts"] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .expect("sqlite_master lookup");
+            assert_eq!(exists, 1, "missing table {}", table);
+        }
+    }
+}

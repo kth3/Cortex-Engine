@@ -17,6 +17,7 @@ tracing-subscriber = { workspace = true }
 signal-hook = { workspace = true, features = ["iterator"] }
 rayon = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
 globset = { workspace = true }
 serde_yaml = { workspace = true }
 sha1 = { workspace = true }

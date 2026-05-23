@@ -71,13 +71,12 @@ pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<
         }
     }
 
-    // 3. Cortex 엔진 스크립트 강제 포함 (.py)
-    let scripts_dir = cortex_home.join("scripts");
-    if scripts_dir.exists() {
-        for entry in WalkDir::new(&scripts_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+    // 3. Cortex Python package 강제 포함 (.py)
+    for forced_dir in [&cortex_home.join("src").join("cortex"), &cortex_home.join("scripts")] {
+        if !forced_dir.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(forced_dir).into_iter().filter_map(|e| e.ok()) {
             if !entry.file_type().is_file() {
                 continue;
             }
