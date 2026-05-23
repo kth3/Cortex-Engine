@@ -15,6 +15,15 @@ from .environment import build_child_env
 from .ipc import send_minimal_ping, send_minimal_ping_status
 from .local_daemon import resolve_local_daemon_script
 from .lock import control_lock
+from .control_support import (
+    cleanup_runtime_logs as _cleanup_runtime_logs_impl,
+    is_local_daemon_running as _is_local_daemon_running_impl,
+    launch_local_daemon as _launch_local_daemon_impl,
+    perform_stop as _perform_stop_impl,
+    resolve_start_timeout as _resolve_start_timeout_impl,
+    service_scripts as _service_scripts_impl,
+    wait_for_engine_ready as _wait_for_engine_ready_impl,
+)
 from .paths import (
     CORTEX_HOME,
     ENGINE_HOST,
@@ -70,74 +79,31 @@ def _watcher_binary() -> Path:
 
 
 def _resolve_start_timeout() -> int:
-    """Total seconds to wait for the engine before reporting a failure.
-
-    `CORTEX_START_TIMEOUT` env (positive integer) overrides the default.
-    Empty/non-integer/non-positive values fall back to the default. WSL2 +
-    CUDA users typically need 60-120s for the first model load.
-    """
-    raw = (os.environ.get("CORTEX_START_TIMEOUT") or "").strip()
-    if raw:
-        try:
-            value = int(raw)
-            if value > 0:
-                return value
-        except ValueError:
-            pass
-    return DEFAULT_ENGINE_READY_MAX_RETRIES
+    return _resolve_start_timeout_impl()
 
 
 def _service_scripts() -> list[tuple[Path, str]]:
-    scripts = [(SERVER_SCRIPT, "Engine Server"), (_watcher_binary(), "Watcher")]
-    local_daemon_script = resolve_local_daemon_script(CORTEX_HOME)
-    if local_daemon_script:
-        scripts.append((local_daemon_script, "Local Daemon"))
-    return scripts
+    return _service_scripts_impl(CORTEX_HOME, resolve_local_daemon_script, _watcher_binary())
 
 
 def _cleanup_runtime_logs() -> None:
-    for log_name in CLEANUP_LOG_FILENAMES:
-        target = LOG_DIR / log_name
-        if target.exists():
-            try:
-                target.unlink()
-            except Exception:
-                pass
-            logger.info(f"Infrastructure Cleaned: Removed {log_name}")
+    _cleanup_runtime_logs_impl(LOG_DIR, logger)
 
 
 def _perform_stop() -> None:
-    """Stop services and clean stale runtime state.
-    
-    graceful stop 이후 포트 cleanup(port release)까지 수행하는 완전한 정리 경로다.
-    """
-    logger.info("Stopping all Cortex services...")
-
-    all_pids: list[int] = []
-    for script, label in _service_scripts():
-        pids = get_pids(str(script))
-        if pids:
-            for pid in pids:
-                logger.info(f"Terminating {label} (PID: {pid})...")
-                if _request_graceful_stop(pid):
-                    all_pids.append(pid)
-        else:
-            logger.info(f"{label} is not running.")
-
-    if all_pids:
-        for pid in all_pids:
-            terminate_pid(pid, logger)
-
-        time.sleep(STOP_PORT_RELEASE_GRACE_SECONDS)
-        cleanup_ports(logger, os.getpid())
-
-    force_cleanup_ports(logger, os.getpid())
-
-    logger.info(f"IPC Endpoint: {ENGINE_HOST}:{ENGINE_PORT} (TCP — no file cleanup needed)")
-
-    _cleanup_runtime_logs()
-
-    logger.info("All services stop/cleanup sequence complete.")
+    """Stop services and clean stale runtime state."""
+    _perform_stop_impl(
+        logger=logger,
+        service_scripts=_service_scripts(),
+        get_pids=get_pids,
+        request_graceful_stop=_request_graceful_stop,
+        terminate_pid=terminate_pid,
+        cleanup_ports=cleanup_ports,
+        force_cleanup_ports=force_cleanup_ports,
+        os_getpid=os.getpid,
+        sleep_fn=time.sleep,
+        stop_port_release_grace_seconds=STOP_PORT_RELEASE_GRACE_SECONDS,
+    )
 
 
 def stop() -> None:
@@ -149,73 +115,30 @@ def stop() -> None:
 
 
 def _is_local_daemon_running(local_daemon_script: Path | None) -> bool:
-    if not local_daemon_script:
-        return True
-    return bool(get_pids(str(local_daemon_script)))
+    return _is_local_daemon_running_impl(local_daemon_script, get_pids)
 
 
 def _wait_for_engine_ready(server_proc) -> bool:
-    """Poll the engine for readiness up to CORTEX_START_TIMEOUT seconds.
-
-    Returns True if the engine reaches `ok`, or if the timeout is hit while the
-    engine is still in `loading` (it will keep loading in the background).
-    Returns False only when the engine crashed or the IPC endpoint is
-    unreachable/error at deadline.
-    """
-    max_retries = _resolve_start_timeout()
-    logger.info(
-        f"Waiting for Engine Server to initialize GPU (timeout {max_retries}s, "
-        f"CORTEX_START_TIMEOUT to override)..."
+    return _wait_for_engine_ready_impl(
+        server_proc,
+        logger,
+        _resolve_start_timeout,
+        send_minimal_ping_status,
+        time.sleep,
+        ENGINE_READY_POLL_INTERVAL_SECONDS,
+        ENGINE_READY_WARNING_INTERVAL_RETRIES,
     )
-
-    last_status = "unreachable"
-    for retry in range(max_retries):
-        if server_proc.poll() is not None:
-            logger.error(
-                f"CRITICAL: Engine Server crashed during startup (code={server_proc.returncode})."
-            )
-            return False
-
-        last_status = send_minimal_ping_status()
-        if last_status == "ok":
-            return True
-
-        if retry > 0 and retry % ENGINE_READY_WARNING_INTERVAL_RETRIES == 0:
-            logger.warning(
-                f"Engine Server not ready yet (status={last_status}, "
-                f"retry {retry}/{max_retries})..."
-            )
-        time.sleep(ENGINE_READY_POLL_INTERVAL_SECONDS)
-
-    if last_status == "loading":
-        logger.info(
-            "Engine Server is still loading in background after "
-            f"{max_retries}s. Run 'cortex-ctl status' to track readiness, "
-            "or set CORTEX_START_TIMEOUT to wait longer synchronously."
-        )
-        return True
-
-    logger.error(
-        f"CRITICAL: Engine Server failed to become ready (last status={last_status}). "
-        "Check cortex.log."
-    )
-    return False
 
 
 def _launch_local_daemon(local_daemon_script: Path | None, env: dict[str, str]) -> None:
-    if not local_daemon_script:
-        return
-
-    logger.info(f"Launching Local Daemon: {local_daemon_script}")
-    daemon_proc = launch_background_process(local_daemon_script, env)
-    time.sleep(LOCAL_DAEMON_SETTLE_SECONDS)
-    if daemon_proc.poll() is not None:
-        logger.error(
-            f"Local Daemon exited immediately (code={daemon_proc.returncode}). "
-            "Check local daemon logs or configuration."
-        )
-    else:
-        logger.info("Local Daemon started successfully.")
+    _launch_local_daemon_impl(
+        local_daemon_script,
+        env,
+        logger,
+        launch_background_process,
+        time.sleep,
+        LOCAL_DAEMON_SETTLE_SECONDS,
+    )
 
 
 def start() -> None:
