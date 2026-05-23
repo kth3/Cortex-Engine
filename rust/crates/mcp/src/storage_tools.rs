@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cortex_parsers::{
     parse_c_file, parse_csharp_file, parse_css_file, parse_html_file, parse_java_file,
-    parse_markdown_file, parse_pdf_file, parse_python_file, parse_ts_file, NodeRecord, ParseResult,
+    parse_markdown_file, parse_pdf_file, parse_python_file, parse_ts_file, ParseResult,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde_json::{json, Value};
@@ -381,36 +381,6 @@ fn parse_file(file_path: &str, abs_path: &Path) -> Result<ParseResult, String> {
         _ => return Err(format!("No parser found for: {file_path}")),
     };
     Ok(result)
-}
-
-fn generate_file_skeleton(nodes: &[NodeRecord], detail: &str) -> String {
-    let mut sorted = nodes.to_vec();
-    sorted.sort_by_key(|node| node.start_line);
-    sorted
-        .iter()
-        .filter_map(|node| node_skeleton(node, detail))
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-fn node_skeleton(node: &NodeRecord, detail: &str) -> Option<String> {
-    if detail == "minimal" {
-        return node
-            .skeleton_minimal
-            .clone()
-            .or_else(|| node.signature.clone())
-            .filter(|value| !value.is_empty());
-    }
-    if detail == "detailed" {
-        let body = node.raw_body.lines().take(5).collect::<Vec<_>>().join("\n");
-        if !body.is_empty() {
-            return Some(format!("{body} ... (truncated)"));
-        }
-    }
-    node.skeleton_standard
-        .clone()
-        .or_else(|| node.signature.clone())
-        .filter(|value| !value.is_empty())
 }
 
 #[cfg(test)]
