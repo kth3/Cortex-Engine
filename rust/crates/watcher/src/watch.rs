@@ -120,7 +120,6 @@ fn flush_pending_batch(
     let cache_map = load_file_cache_hash_map(conn)?;
 
     let mut rust_count = 0usize;
-    let mut python_count = 0usize;
     let mut skipped_count = 0usize;
     let mut deleted_count = 0usize;
 
@@ -137,10 +136,6 @@ fn flush_pending_batch(
                 outcome: ProcessOutcome::RustIndexed,
                 ..
             }) => rust_count += 1,
-            Ok(ProcessResult {
-                outcome: ProcessOutcome::PythonIndexed,
-                ..
-            }) => python_count += 1,
             Ok(ProcessResult {
                 outcome: ProcessOutcome::Skipped,
                 ..
@@ -159,7 +154,6 @@ fn flush_pending_batch(
 
     tracing::info!(
         rust_indexed = rust_count,
-        python_indexed = python_count,
         skipped = skipped_count,
         deleted = deleted_count,
         "debounce batch complete"

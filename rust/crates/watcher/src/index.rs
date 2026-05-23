@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
-use std::process::Command as ProcessCommand;
 
 use crate::common::{
     blake2b16_hex, category_for, file_extension, module_name_for, now_unix_seconds,
@@ -51,7 +50,6 @@ pub(crate) struct ProcessResult {
 
 pub(crate) enum ProcessOutcome {
     RustIndexed,
-    PythonIndexed,
     Skipped,
     Deleted,
 }
@@ -96,12 +94,6 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
                     .entry(prefix)
                     .or_default()
                     .extend(vector_items);
-            }
-            ProcessResult {
-                outcome: ProcessOutcome::PythonIndexed,
-                ..
-            } => {
-                stats.indexed += 1;
             }
             ProcessResult {
                 outcome: ProcessOutcome::Skipped,
@@ -189,14 +181,6 @@ pub(crate) fn process_path(
         });
     }
 
-    if ext == "py" && python_indexer_fallback_enabled() {
-        run_python_indexer(workspace, rel_path)?;
-        return Ok(ProcessResult {
-            outcome: ProcessOutcome::PythonIndexed,
-            vector_items: Vec::new(),
-        });
-    }
-
     let result = parse_indexable_file(rel_path, &file_path)?;
     let workspace_id = workspace_id_for(workspace);
     let module_name = module_name_for(rel_path, settings);
@@ -260,34 +244,6 @@ fn build_vector_items(
     }
 
     items
-}
-
-fn run_python_indexer(workspace: &Path, rel_path: &str) -> Result<()> {
-    let python = std::env::var("CORTEX_PYTHON_EXECUTABLE").unwrap_or_else(|_| "python".to_string());
-    let output = ProcessCommand::new(python)
-        .args(["-m", "cortex.indexing.cli"])
-        .arg(workspace)
-        .arg("--file")
-        .arg(rel_path)
-        .output()
-        .with_context(|| format!("failed to run python indexer for {}", rel_path))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    anyhow::bail!("python indexer failed for {}: {}", rel_path, stderr.trim());
-}
-
-fn python_indexer_fallback_enabled() -> bool {
-    match std::env::var("CORTEX_PYTHON_INDEXER_FALLBACK") {
-        Ok(value) => {
-            let normalized = value.trim().to_ascii_lowercase();
-            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
-        }
-        Err(_) => false,
-    }
 }
 
 fn load_file_cache_hash_map(conn: &rusqlite::Connection) -> Result<HashMap<String, String>> {
