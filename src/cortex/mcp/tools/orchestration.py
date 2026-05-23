@@ -12,7 +12,6 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from cortex.orchestration import manage_todo, create_contract
 from cortex.memories import working as pc_mem_mod
-from cortex.hooks import manager as pc_hooks
 
 CONTRACT_OBSERVATION_CATEGORY = "decision"
 AFTER_SAVE_OBSERVATION_HOOK = "after_save_observation"
@@ -30,7 +29,6 @@ def _save_contract_observation(ctx, contract_id: str, contract_path: str) -> Non
         _contract_observation_message(contract_id),
         [contract_path],
     )
-    pc_hooks.dispatch(ctx.workspace, AFTER_SAVE_OBSERVATION_HOOK)
 
 
 def call_todo_manager(ctx, args):

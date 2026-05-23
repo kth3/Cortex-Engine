@@ -2,15 +2,10 @@
 파일 또는 노드의 스켈레톤(시그니처 + 독스트링)을 생성하여 토큰을 절약합니다.
 """
 import os
+import json
+import subprocess
 
-from cortex.indexing.parsers import get_parser
-
-
-def get_parser_internal(file_path: str):
-    """확장자에 맞는 파서 함수 반환 (레지스트리 활용)"""
-    ext = os.path.splitext(file_path)[1]
-    _, parser_func = get_parser(ext)
-    return parser_func
+from cortex.runtime.paths import ensure_rust_watcher_binary
 
 
 def get_node_skeleton(node_dict, detail="standard"):
@@ -51,18 +46,17 @@ def generate_file_skeleton(nodes, detail="standard"):
 
 
 def generate_skeleton(workspace, file_path, detail="standard"):
-    parser_func = get_parser_internal(file_path)
-
-    if not parser_func:
-        return f"No parser found for: {file_path}"
-
     abs_path = os.path.join(workspace, file_path) if not os.path.isabs(file_path) else file_path
     if not os.path.exists(abs_path):
         return f"File not found: {abs_path}"
 
-    with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
-        code = f.read()
-
-    result = parser_func(file_path, code, abs_path)
+    binary = ensure_rust_watcher_binary()
+    proc = subprocess.run(
+        [str(binary), "parse-file", "--file", abs_path, "--rel", file_path],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    result = json.loads(proc.stdout or "{}")
     nodes = result.get("nodes", [])
     return generate_file_skeleton(nodes, detail)

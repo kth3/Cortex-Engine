@@ -1,4 +1,5 @@
 mod catalog;
+mod hooks;
 mod protocol;
 mod storage_tools;
 

@@ -75,7 +75,7 @@ def save_embedding_config(model_id: str | None, max_seq_length: int | None) -> d
     if model_id:
         payload["warning"] = (
             "Embedding model changed. Existing vectors may be incompatible. "
-            "Run 'cortex-index --force' to rebuild the index if dimensions differ."
+            "Run 'cortex-watcher index --workspace <workspace> --force' to rebuild the index if dimensions differ."
         )
     return payload
 
@@ -128,4 +128,3 @@ def expand_knowledge(workspace: Path, force: bool, dry_run: bool) -> dict:
         payload = {"raw": raw}
     payload["exit_code"] = exit_code
     return payload
-

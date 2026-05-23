@@ -87,7 +87,7 @@ def _enable(args: argparse.Namespace, workspace: Path) -> int:
                 "status": "ok",
                 "knowledge_root": str(root),
                 "expanded": counts,
-                "hint": "watcher will index new files; run cortex-index incremental for immediate sync",
+                "hint": "watcher will index new files; run cortex-watcher index for immediate sync",
             },
             ensure_ascii=False,
         )

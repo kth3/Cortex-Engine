@@ -1,2 +1,0 @@
-"""Backward-compatible watch package."""
-

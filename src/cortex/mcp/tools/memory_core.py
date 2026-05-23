@@ -6,7 +6,6 @@ import os
 import shutil
 
 from cortex import paths as pc_paths
-from cortex.hooks import manager as pc_hooks
 from cortex.memories import working as pc_mem_mod
 from cortex.memories.persistent import PersistentMemoryManager
 
@@ -114,7 +113,7 @@ def _append_promoted_memory_log(ctx, target_file, title, category, content) -> N
 
 
 def _dispatch_after_save_observation(ctx) -> None:
-    pc_hooks.dispatch(ctx.workspace, "after_save_observation")
+    return None
 
 
 def _save_observation(ctx, args):

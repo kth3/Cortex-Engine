@@ -141,6 +141,7 @@ def _resolve_cortex_home(
         from_payload = _find_cortex_home_from_workspace(Path(payload_cwd))
         if from_payload is not None:
             return from_payload
+        return None
 
     env_home = os.environ.get("CORTEX_HOME")
     if env_home:

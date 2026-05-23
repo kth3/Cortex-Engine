@@ -193,7 +193,7 @@ fn board_json_path(workspace: impl AsRef<Path>) -> PathBuf {
         .join(BOARD_JSON_FILENAME)
 }
 
-fn workspace_history_dir(workspace: impl AsRef<Path>) -> PathBuf {
+pub(crate) fn workspace_history_dir(workspace: impl AsRef<Path>) -> PathBuf {
     absolute_path(workspace).join(".cortex").join("history")
 }
 
@@ -208,7 +208,7 @@ fn now_text() -> String {
     now_unix().to_string()
 }
 
-fn open_connection(workspace: impl AsRef<Path>) -> Result<Connection, String> {
+pub(crate) fn open_connection(workspace: impl AsRef<Path>) -> Result<Connection, String> {
     let path = memories_db_path(workspace);
     let conn = Connection::open(path).map_err(|err| err.to_string())?;
     conn.execute_batch(

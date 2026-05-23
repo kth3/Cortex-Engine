@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from cortex import storage as pc_db
 from cortex.editing import record_edit_event, strict_replace
-from cortex.hooks import dispatch
 from cortex.memories import working as pc_mem_mod
 
 TEXT_FILE_ENCODING = "utf-8"
@@ -63,11 +64,19 @@ def _record_successful_strict_replace(ctx, full_path, file_path, before_content)
 
 
 def _dispatch_after_edit(ctx, file_path):
-    return dispatch(
-        ctx.workspace,
-        AFTER_EDIT_HOOK,
-        os.path.join(ctx.workspace, file_path),
+    if not file_path.endswith(".py"):
+        return None
+    full_path = os.path.join(ctx.workspace, file_path)
+    if not os.path.exists(full_path):
+        return None
+    res = subprocess.run(
+        [sys.executable, "-m", "py_compile", full_path],
+        capture_output=True,
+        text=True,
     )
+    if res.returncode == 0:
+        return None
+    return f"[LINT ERROR] Python syntax error detected:\n{res.stderr}"
 
 
 def _save_strict_edit_observation(ctx, file_path) -> None:
@@ -78,7 +87,6 @@ def _save_strict_edit_observation(ctx, file_path) -> None:
         _strict_edit_summary(file_path),
         [file_path],
     )
-    dispatch(ctx.workspace, AFTER_SAVE_OBSERVATION_HOOK)
 
 
 def call_replace_exact_text(ctx, args):

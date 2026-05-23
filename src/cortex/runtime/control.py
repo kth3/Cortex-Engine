@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -248,8 +249,9 @@ def main(argv: list[str] | None = None) -> int:
         status()
         return 0
     if command == "index-roots":
-        from cortex.runtime import index_roots_cli
-        return index_roots_cli.main(args[1:])
+        binary = resolve_rust_watcher_binary()
+        completed = subprocess.run([str(binary), "index-roots", *args[1:]])
+        return completed.returncode
     if command == "knowledge":
         from cortex.runtime import knowledge_cli
         return knowledge_cli.main(args[1:])

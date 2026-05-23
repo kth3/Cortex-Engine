@@ -34,7 +34,14 @@ pub fn call_replace_exact_text(
         &format!("Strict edit: {file_path}"),
         Some(file_path),
     )?;
-    Ok(json!({"success": true, "match_type": "exact"}))
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
+    let hook_feedback = crate::hooks::after_edit(&workspace, file_path)?;
+    Ok(json!({
+        "success": true,
+        "match_type": "exact",
+        "hook_feedback": hook_feedback,
+        "inbox_items": inbox_items,
+    }))
 }
 
 fn record_edit_event(

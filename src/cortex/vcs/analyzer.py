@@ -117,8 +117,8 @@ def install_git_hooks(workspace):
         return False
 
     scripts = {
-        "post-checkout": "#!/bin/sh\nROOT=$(git rev-parse --show-toplevel)\nCORTEX_HOME=\"$ROOT/.cortex\"\nuv run --project \"$CORTEX_HOME\" cortex-index \"$ROOT\" &\n",
-        "post-merge": "#!/bin/sh\nROOT=$(git rev-parse --show-toplevel)\nCORTEX_HOME=\"$ROOT/.cortex\"\nuv run --project \"$CORTEX_HOME\" cortex-index \"$ROOT\" &\n",
+        "post-checkout": "#!/bin/sh\nROOT=$(git rev-parse --show-toplevel)\ncortex-watcher index --workspace \"$ROOT\" &\n",
+        "post-merge": "#!/bin/sh\nROOT=$(git rev-parse --show-toplevel)\ncortex-watcher index --workspace \"$ROOT\" &\n",
     }
 
     for name, content in scripts.items():

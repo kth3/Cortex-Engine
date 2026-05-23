@@ -1,6 +1,7 @@
 use super::*;
 
 pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) -> ToolResult {
+    let workspace = absolute_path(workspace);
     let branch = git_text(&workspace, &["rev-parse", "--abbrev-ref", "HEAD"])
         .unwrap_or_else(|| "unknown".to_string());
     let key = format!("session-sync-{}", now_unix());
@@ -13,25 +14,35 @@ pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) ->
         Some(json!(["session-sync", "auto-generated", "autonomous-rag"])),
         Some(relationships.clone()),
     )?;
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "success": true,
         "key": key,
         "extracted_relationships": relationships,
         "markdown_synced": false,
+        "inbox_items": inbox_items,
     }))
 }
 
 pub fn call_write_memory(workspace: impl AsRef<Path>, args: &Value) -> ToolResult {
+    let workspace = absolute_path(workspace);
     let key = arg_str(args, "key");
     let category = arg_str(args, "category");
     let content = arg_str(args, "content");
     let tags = args.get("tags").cloned();
     let relationships = args.get("relationships").cloned();
     write_memory_row(&workspace, key, category, content, tags, relationships)?;
-    Ok(json!({"success": true, "key": key, "auto_promoted_to": promoted_file(category)}))
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
+    Ok(json!({
+        "success": true,
+        "key": key,
+        "auto_promoted_to": promoted_file(category),
+        "inbox_items": inbox_items,
+    }))
 }
 
 pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> ToolResult {
+    let workspace = absolute_path(workspace);
     let new_key = arg_str(args, "new_key");
     let category = arg_str(args, "category");
     let content = arg_str(args, "content");
@@ -72,6 +83,7 @@ pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> Too
         args.get("tags").cloned(),
         args.get("relationships").cloned(),
     )?;
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "executed": true,
         "success": true,
@@ -80,6 +92,7 @@ pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> Too
         "auto_promoted_to": promoted_file(category),
         "would_delete": old_keys,
         "would_write": would_write,
+        "inbox_items": inbox_items,
     }))
 }
 
@@ -105,8 +118,10 @@ pub fn call_read_memory(workspace: impl AsRef<Path>, key: &str) -> ToolResult {
 }
 
 pub fn call_save_observation(workspace: impl AsRef<Path>, content: &str) -> ToolResult {
-    save_observation(workspace, "insight", content, None)?;
-    Ok(Value::Bool(true))
+    let workspace = absolute_path(workspace);
+    save_observation(&workspace, "insight", content, None)?;
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
+    Ok(json!({"success": true, "inbox_items": inbox_items}))
 }
 
 pub fn call_search_memory(
@@ -166,7 +181,8 @@ pub fn call_create_task_contract(workspace: impl AsRef<Path>, args: &Value) -> T
         &format!("Contract created: {contract_id}"),
         Some(&path.to_string_lossy()),
     )?;
-    Ok(json!({"contract_id": contract_id, "path": path.to_string_lossy()}))
+    let inbox_items = crate::hooks::after_save_observation(&workspace)?;
+    Ok(json!({"contract_id": contract_id, "path": path.to_string_lossy(), "inbox_items": inbox_items}))
 }
 
 pub fn call_manage_todo(workspace: impl AsRef<Path>, args: &Value) -> ToolResult {

@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 
 use serde_json::{json, Value};
 
-use crate::{catalog, storage_tools};
+use crate::{catalog, hooks, storage_tools};
 
 const PROTOCOL_VERSION: &str = "2025-11-25";
 const SERVER_NAME: &str = "Cortex-Hooks";
@@ -67,9 +67,13 @@ fn dispatch_tools_call(id: Option<Value>, params: Value) -> Option<Value> {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let hook_warning = match hooks::before_tool_call(name, &arguments) {
+        Ok(warning) => warning,
+        Err(message) => return Some(error_text_response(id, &format!("Error: {message}"))),
+    };
 
     match dispatch_native_tool(name, &arguments) {
-        Some(Ok(value)) => Some(text_response(id, value)),
+        Some(Ok(value)) => Some(text_response(id, value, hook_warning)),
         Some(Err(message)) => Some(error_text_response(id, &format!("Error: {message}"))),
         None => Some(response_error(
             id,
@@ -215,11 +219,17 @@ fn response_error(id: Value, code: i64, message: &str) -> Value {
     })
 }
 
-fn text_response(id: Value, value: Value) -> Value {
-    let text = match value {
+fn text_response(id: Value, value: Value, hook_warning: Option<String>) -> Value {
+    let mut text = match value {
         Value::String(text) => text,
         other => serde_json::to_string_pretty(&other).unwrap_or_else(|_| other.to_string()),
     };
+    if let Some(warning) = hook_warning {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&warning);
+    }
     response_ok(
         id,
         json!({

@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
 use crate::index::{cmd_index, cmd_index_file, parse_indexable_file};
+use crate::index_roots::{cmd_index_roots_add, cmd_index_roots_count, cmd_index_roots_list, cmd_index_roots_remove};
 use crate::watch::cmd_watch;
 
 #[derive(Parser, Debug)]
@@ -58,6 +59,39 @@ enum Command {
         #[arg(short, long)]
         workspace: PathBuf,
     },
+    /// 인덱싱 루트 관리.
+    IndexRoots {
+        #[command(subcommand)]
+        action: IndexRootsCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum IndexRootsCommand {
+    /// 현재 인덱싱 루트 목록 출력.
+    List {
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+    },
+    /// 인덱싱 루트 추가.
+    Add {
+        path: PathBuf,
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long)]
+        alias: Option<String>,
+    },
+    /// 인덱싱 루트 제거.
+    Remove {
+        target: String,
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+    },
+    /// 현재 설정 기준 스캔 파일 수 출력.
+    Count {
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+    },
 }
 
 pub(crate) fn run() -> Result<()> {
@@ -76,6 +110,16 @@ pub(crate) fn run() -> Result<()> {
         Command::Index { workspace, force } => cmd_index(&workspace, force),
         Command::IndexFile { workspace, file, force } => cmd_index_file(&workspace, &file, force),
         Command::Watch { workspace } => cmd_watch(&workspace),
+        Command::IndexRoots { action } => match action {
+            IndexRootsCommand::List { workspace } => cmd_index_roots_list(&workspace),
+            IndexRootsCommand::Add { path, workspace, alias } => {
+                cmd_index_roots_add(&workspace, &path, alias.as_deref())
+            }
+            IndexRootsCommand::Remove { target, workspace } => {
+                cmd_index_roots_remove(&workspace, &target)
+            }
+            IndexRootsCommand::Count { workspace } => cmd_index_roots_count(&workspace),
+        },
     }
 }
 
