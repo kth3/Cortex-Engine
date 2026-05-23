@@ -4,8 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 
-from cortex import storage as db
-from cortex.indexing.edge_resolver import resolve_unresolved_edges
 from cortex.indexing.file_pipeline import index_file
 from cortex.indexing.workspace import index_workspace
 
@@ -20,9 +18,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.file:
         result = index_file(args.workspace, args.file)
-        conn = db.get_connection(args.workspace)
-        resolve_unresolved_edges(conn)
-        conn.close()
         print(json.dumps(result, indent=2))
         return 0
 

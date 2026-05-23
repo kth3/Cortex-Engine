@@ -2,8 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
-use crate::index::parse_indexable_file;
-use crate::index::cmd_index;
+use crate::index::{cmd_index, cmd_index_file, parse_indexable_file};
 use crate::watch::cmd_watch;
 
 #[derive(Parser, Debug)]
@@ -44,6 +43,19 @@ enum Command {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
+    /// 단일 파일을 인덱싱하고 JSON 요약 출력.
+    IndexFile {
+        #[arg(short, long)]
+        workspace: PathBuf,
+        /// 워크스페이스 기준 상대 경로 또는 synthetic 경로
+        #[arg(short, long)]
+        file: PathBuf,
+        /// 실제 소스 경로가 별도일 때 사용
+        #[arg(long)]
+        source: Option<PathBuf>,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
     /// 감시 데몬 모드.
     Watch {
         #[arg(short, long)]
@@ -65,6 +77,9 @@ pub(crate) fn run() -> Result<()> {
         Command::Scan { workspace, format } => cmd_scan(&workspace, &format),
         Command::ParseFile { file, rel } => cmd_parse_file(&file, rel.as_deref()),
         Command::Index { workspace, force } => cmd_index(&workspace, force),
+        Command::IndexFile { workspace, file, source, force } => {
+            cmd_index_file(&workspace, &file, source.as_deref(), force)
+        }
         Command::Watch { workspace } => cmd_watch(&workspace),
     }
 }

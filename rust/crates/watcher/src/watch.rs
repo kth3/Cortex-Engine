@@ -16,9 +16,7 @@ const WATCH_DEBOUNCE: Duration = Duration::from_secs(5);
 const WATCH_HEARTBEAT: Duration = Duration::from_secs(60);
 
 pub(crate) fn cmd_watch(workspace: &Path) -> Result<()> {
-    let workspace = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf());
+    let workspace = workspace.to_path_buf();
     let settings = cortex_scanner::load_settings(&workspace).unwrap_or_default();
     let ignore_patterns = load_ignore_patterns(&workspace, &settings);
     let db_path = workspace_db_path(&workspace);
@@ -132,6 +130,7 @@ fn flush_pending_batch(
             false,
             cache_map.get(&rel_path).map(|s| s.as_str()),
             false,
+            None,
         ) {
             Ok(ProcessResult {
                 outcome: ProcessOutcome::RustIndexed,

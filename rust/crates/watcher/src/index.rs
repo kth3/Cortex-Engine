@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use rusqlite::OptionalExtension;
 
 use crate::common::{
     blake2b16_hex, category_for, file_extension, module_name_for, now_unix_seconds,
@@ -55,9 +57,7 @@ pub(crate) enum ProcessOutcome {
 }
 
 pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
-    let workspace = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf());
+    let workspace = workspace.to_path_buf();
     let settings = cortex_scanner::load_settings(&workspace).unwrap_or_default();
     let files = cortex_scanner::scan_files(&workspace, None)?;
     let db_path = workspace_db_path(&workspace);
@@ -86,6 +86,7 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
                 force,
                 cache_map.get(rel_path).map(|s| s.as_str()),
                 true,
+                None,
             )
         })
         .collect::<Vec<_>>();
@@ -128,6 +129,64 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
         errors: stats.errors,
         deleted: stats.deleted,
         vector_items_by_prefix,
+    };
+    println!("{}", serde_json::to_string(&report)?);
+    Ok(())
+}
+
+pub(crate) fn cmd_index_file(
+    workspace: &Path,
+    rel_path: &Path,
+    source_path: Option<&Path>,
+    force: bool,
+) -> Result<()> {
+    let workspace = workspace.to_path_buf();
+    let settings = cortex_scanner::load_settings(&workspace).unwrap_or_default();
+    let rel_path = rel_path.to_string_lossy().replace('\\', "/");
+    let db_path = workspace_db_path(&workspace);
+    let mut conn = cortex_storage::open_connection(&db_path)
+        .with_context(|| format!("failed to open workspace db: {}", db_path.display()))?;
+    cortex_storage::init_schema(&conn)?;
+
+    let cached_hash = load_file_cache_hash(&conn, &rel_path)?;
+    let source_path = source_path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace.join(&rel_path));
+    let existed_before = file_record_exists(&conn, &rel_path)?;
+
+    let outcome = if !source_path.exists() {
+        cleanup_file_records(&mut conn, &rel_path)?;
+        ProcessOutcome::Deleted
+    } else {
+        process_path(
+            &workspace,
+            &settings,
+            &mut conn,
+            &rel_path,
+            force,
+            cached_hash.as_deref(),
+            false,
+            Some(&source_path),
+        )?
+        .outcome
+    };
+
+    cortex_storage::resolve_unresolved_edges(&mut conn)?;
+
+    let report = match outcome {
+        ProcessOutcome::RustIndexed => serde_json::json!({
+            "status": if existed_before { "updated" } else { "created" },
+            "reason": "indexed"
+        }),
+        ProcessOutcome::Skipped => serde_json::json!({
+            "status": "skipped",
+            "reason": "hash unchanged",
+            "chunks": 0
+        }),
+        ProcessOutcome::Deleted => serde_json::json!({
+            "status": "deleted",
+            "reason": "File removed from DB"
+        }),
     };
     println!("{}", serde_json::to_string(&report)?);
     Ok(())
@@ -183,6 +242,7 @@ pub(crate) fn process_path(
     force: bool,
     cached_hash: Option<&str>,
     include_vector_items: bool,
+    source_path: Option<&Path>,
 ) -> Result<ProcessResult> {
     let indexed = inspect_path(
         workspace,
@@ -191,6 +251,7 @@ pub(crate) fn process_path(
         force,
         cached_hash,
         include_vector_items,
+        source_path,
     )?;
     let vector_items = match indexed {
         InspectOutcome::Indexed(indexed) => {
@@ -222,8 +283,11 @@ fn inspect_path(
     force: bool,
     cached_hash: Option<&str>,
     include_vector_items: bool,
+    source_path: Option<&Path>,
 ) -> Result<InspectOutcome> {
-    let file_path = workspace.join(rel_path);
+    let file_path = source_path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace.join(rel_path));
     let ext = file_extension(rel_path);
 
     if !file_path.exists() {
@@ -331,6 +395,23 @@ fn load_file_cache_hash_map(conn: &rusqlite::Connection) -> Result<HashMap<Strin
         out.insert(path, hash);
     }
     Ok(out)
+}
+
+fn load_file_cache_hash(conn: &rusqlite::Connection, rel_path: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT hash FROM file_cache WHERE file_path = ?1")?;
+    let hash = stmt
+        .query_row([rel_path], |row| row.get::<_, String>(0))
+        .optional()?;
+    Ok(hash)
+}
+
+fn file_record_exists(conn: &rusqlite::Connection, rel_path: &str) -> Result<bool> {
+    let mut stmt = conn.prepare("SELECT 1 FROM nodes WHERE file_path = ?1 LIMIT 1")?;
+    let exists = stmt
+        .query_row([rel_path], |_| Ok(()))
+        .optional()?
+        .is_some();
+    Ok(exists)
 }
 
 fn cleanup_deleted_file_records(
