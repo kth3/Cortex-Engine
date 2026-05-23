@@ -18,7 +18,7 @@ ENGINE_PORT = 42384
 WORKER_PORT = 42385
 TARGET_PORTS = [ENGINE_PORT, WORKER_PORT]
 
-SERVER_SCRIPT = CORTEX_DIR / "vector_engine_server.py"
+SERVER_SCRIPT = CORTEX_DIR / "runtime" / "engine_server.py"
 RUST_WATCHER_BINARY_NAME = "cortex-watcher.exe" if os.name == "nt" else "cortex-watcher"
 
 
