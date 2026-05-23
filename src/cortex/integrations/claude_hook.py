@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from cortex.mcp.context import McpContext
-from cortex.mcp.tools.memory import call_save_observation
-from cortex.mcp.tools.search import call_search_context, call_get_file_outline
-from cortex.mcp.tools.session import call_get_session_context, call_sync_session_memory
+from cortex.mcp.tools.memory_ops import call_save_observation
+from cortex.mcp.tools.search_capsule import call_search_context, call_get_file_outline
+from cortex.mcp.tools.session_context import call_get_session_context
+from cortex.mcp.tools.session_sync_record import call_sync_session_memory
 
 SETTINGS_FILENAME = "settings.json"
 HOOK_ENTRY_NAME = "cortex-claude-hook"

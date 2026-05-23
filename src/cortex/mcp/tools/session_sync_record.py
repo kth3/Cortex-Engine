@@ -7,7 +7,7 @@ import yaml
 
 from cortex import paths as pc_paths
 
-from .memory_support import _append_markdown_with_archive, get_storage
+from .memory_core import _append_markdown_with_archive, get_storage
 from .session_sync_git import _current_branch_and_issues, _recent_modified_files, _session_relationships
 
 TEXT_FILE_ENCODING = "utf-8"

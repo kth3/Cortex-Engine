@@ -6,7 +6,7 @@ from cortex.embeddings import provider as ve
 from cortex.retrieval.hybrid import unified_pipeline_search
 
 from .search_capsule import _chain_memories_for_query
-from .search_graph import DEFAULT_IMPACT_DIRECTION, call_get_impact_graph
+from .search_graph_impact import DEFAULT_IMPACT_DIRECTION, call_get_impact_graph
 
 DEFAULT_PIPELINE_LIMIT = 5
 PIPELINE_PROBE_EXTRA = 1
@@ -75,4 +75,3 @@ def call_search_deep_context(ctx, args):
         return result
     except Exception as e:
         return {"error": str(e)}
-

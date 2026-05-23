@@ -9,22 +9,20 @@ from cortex.hooks import manager as pc_hooks
 from cortex.mcp.response import create_text_response, create_error_response
 
 from cortex.mcp.tools.indexing import call_get_index_status
-from cortex.mcp.tools.search import (
-    call_search_context, call_get_file_outline, call_get_impact_graph,
-    call_find_execution_path, call_search_deep_context
-)
-from cortex.mcp.tools.symbols import call_resolve_symbol
-from cortex.mcp.tools.edit import (
-    call_read_file_with_hash, call_replace_exact_text
-)
+from cortex.mcp.tools.search_capsule import call_search_context, call_get_file_outline
+from cortex.mcp.tools.search_pipeline import call_search_deep_context
+from cortex.mcp.tools.search_graph_impact import call_get_impact_graph
+from cortex.mcp.tools.search_graph_path import call_find_execution_path
+from cortex.mcp.tools.symbols_resolve import call_resolve_symbol
+from cortex.mcp.tools.edit_read import call_read_file_with_hash
+from cortex.mcp.tools.edit_replace import call_replace_exact_text
 from cortex.mcp.tools.git import call_get_file_git_history
-from cortex.mcp.tools.memory import (
+from cortex.mcp.tools.memory_ops import (
     call_save_observation, call_write_memory, call_consolidate_memory,
     call_read_memory, call_search_memory
 )
-from cortex.mcp.tools.session import (
-    call_get_session_context, call_sync_session_memory
-)
+from cortex.mcp.tools.session_context import call_get_session_context
+from cortex.mcp.tools.session_sync_record import call_sync_session_memory
 from cortex.mcp.tools.orchestration import (
     call_todo_manager, call_create_contract
 )

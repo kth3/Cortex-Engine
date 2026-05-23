@@ -7,7 +7,7 @@ from cortex.embeddings import provider as ve
 from cortex.memories import working as pc_mem_mod
 from cortex.skeletons import generator as pc_skeleton_mod
 
-from .search_graph import (
+from .search_graph_impact import (
     DEFAULT_IMPACT_DIRECTION,
     DEFAULT_IMPACT_MAX_DEPTH,
     call_get_impact_graph,
@@ -109,4 +109,3 @@ def call_capsule(ctx, args):
 def call_search_context(ctx, args):
     """search_context: read-only capsule search. auto_chain side-effect is permanently disabled."""
     return call_capsule(ctx, {**args, "auto_chain": False})
-
