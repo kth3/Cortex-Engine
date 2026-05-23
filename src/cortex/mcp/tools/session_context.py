@@ -7,7 +7,7 @@ from cortex import paths as pc_paths
 from cortex import storage as pc_db
 from cortex.retrieval.snippets import text_result_snippet
 
-from .session_sync import (
+from .session_context_support import (
     AUTO_CONTEXT_DECISION_CATEGORY,
     AUTO_CONTEXT_PATTERN_CATEGORY,
     AUTO_CONTEXT_POPULAR_SNIPPET_CHARS,
@@ -115,4 +115,3 @@ def call_get_session_context(ctx, args):
         }
     finally:
         conn.close()
-
