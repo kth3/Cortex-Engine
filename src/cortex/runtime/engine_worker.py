@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gc
 import json
+import logging
 import os
 import socket
 import struct
@@ -14,9 +15,8 @@ import threading
 import traceback
 from typing import Any
 
-from cortex.logger import get_logger
-
-logger = get_logger("server")
+logging.basicConfig(level=os.environ.get("CORTEX_LOG_LEVEL", "INFO"))
+logger = logging.getLogger("cortex.server")
 
 WORKER_HOST = "127.0.0.1"
 WORKER_PORT = int(os.environ.get("CORTEX_ENGINE_WORKER_PORT", "42385"))

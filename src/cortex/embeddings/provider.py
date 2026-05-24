@@ -5,14 +5,64 @@
 """
 import os
 import sys
+import json
+import logging
+import socket
+import struct
+import time
 import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
 
-from cortex.logger import get_logger
-from cortex.embeddings.server_client import _send_to_server
+logging.basicConfig(level=os.environ.get("CORTEX_LOG_LEVEL", "INFO"))
+log = logging.getLogger("cortex.vector")
 
-log = get_logger("vector")
+ENGINE_HOST = "127.0.0.1"
+ENGINE_PORT = 42384
+
+
+def _send_to_server(request: dict, retries: int = 15) -> dict:
+    for attempt in range(retries):
+        client = None
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(10.0)
+            client.connect((ENGINE_HOST, ENGINE_PORT))
+
+            data = json.dumps(request).encode("utf-8")
+            client.sendall(struct.pack("!I", len(data)) + data)
+
+            header = client.recv(4)
+            if not header:
+                return {"status": "error", "message": "Empty response"}
+            size = struct.unpack("!I", header)[0]
+
+            payload = b""
+            while len(payload) < size:
+                chunk = client.recv(min(size - len(payload), 4096))
+                if not chunk:
+                    break
+                payload += chunk
+
+            return json.loads(payload.decode("utf-8"))
+        except (ConnectionRefusedError, socket.timeout):
+            if attempt < retries - 1:
+                time.sleep(1.0)
+                continue
+            return {"status": "offline"}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        finally:
+            if client is not None:
+                client.close()
+    return {"status": "error", "message": "Max retries exceeded"}
+
+
+def _data_home() -> Path:
+    raw = os.environ.get("CORTEX_DATA_HOME")
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return Path.home() / ".cortex"
 
 def _resolve_env_path() -> Path:
     explicit = os.getenv("CORTEX_ENV_PATH")
@@ -23,13 +73,9 @@ def _resolve_env_path() -> Path:
     if home:
         return Path(home).expanduser().resolve() / ".env"
 
-    try:
-        from cortex.paths import data_home
-        global_env = data_home() / ".env"
-        if global_env.exists():
-            return global_env
-    except Exception:
-        pass
+    global_env = _data_home() / ".env"
+    if global_env.exists():
+        return global_env
 
     capsule_root = Path(__file__).resolve().parents[3]
     candidate = capsule_root / ".env"

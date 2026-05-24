@@ -22,7 +22,7 @@ def detect_gpu() -> bool:
     # 1. 서버가 활성화되어 있다면, 클라이언트 프로세스에서는 CUDA Context 생성을 방지하기 위해
     # torch.cuda.is_available() 호출을 건너뜁니다.
     try:
-        from cortex.embeddings.server_client import _send_to_server
+        from cortex.embeddings.provider import _send_to_server
         status = _send_to_server({"command": "ping"}, retries=1)
         if status.get("status") == "ok":
             return True
