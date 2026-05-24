@@ -50,12 +50,16 @@ fn start() -> Result<()> {
         .arg(paths::python())
         .arg("--worker-log")
         .arg(paths::worker_log())
-        .env("CORTEX_WORKSPACE", &workspace);
+        .env("CORTEX_WORKSPACE", &workspace)
+        .env("CORTEX_DATA_HOME", paths::data_home());
     let engine_pid = process::spawn_logged(engine, &paths::engine_log())?;
     process::write_pid(&paths::engine_pid_file(), engine_pid)?;
 
     let mut watcher = Command::new(paths::watcher_binary());
     watcher.args(["watch", "--workspace"]).arg(&workspace);
+    watcher
+        .env("CORTEX_WORKSPACE", &workspace)
+        .env("CORTEX_DATA_HOME", paths::data_home());
     let watcher_pid = process::spawn_logged(watcher, &paths::watcher_log())?;
     process::write_pid(&paths::watcher_pid_file(), watcher_pid)?;
 

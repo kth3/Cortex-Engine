@@ -34,13 +34,16 @@ pub(crate) fn remove_pid(path: &Path) {
 
 pub(crate) fn is_alive(pid: u32) -> bool {
     if cfg!(windows) {
-        let output = Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output();
-        return output
-            .ok()
-            .and_then(|out| String::from_utf8(out.stdout).ok())
-            .map(|text| text.contains(&pid.to_string()))
+        return Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
+                ),
+            ])
+            .status()
+            .map(|status| status.success())
             .unwrap_or(false);
     }
     Command::new("kill")

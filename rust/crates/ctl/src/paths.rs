@@ -31,6 +31,10 @@ pub(crate) fn history_dir() -> PathBuf {
     workspace().join(".cortex").join("history")
 }
 
+pub(crate) fn data_home() -> PathBuf {
+    workspace().join(".cortex")
+}
+
 pub(crate) fn pid_dir() -> PathBuf {
     history_dir().join("pids")
 }
