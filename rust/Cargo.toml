@@ -6,6 +6,7 @@ members = [
     "crates/parsers",
     "crates/storage",
     "crates/mcp",
+    "crates/ctl",
 ]
 
 [workspace.package]

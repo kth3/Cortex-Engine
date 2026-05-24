@@ -26,7 +26,6 @@ dependencies = [
 [project.scripts]
 cortex-eval = "cortex.eval.__main__:main"
 cortex-mcp = "cortex.mcp.entrypoint:main"
-cortex-ctl = "cortex.runtime.cli:main"
 cortex-codex-hook = "cortex.integrations.codex_hook:main"
 cortex-codex-session-start = "cortex.integrations.codex_session_start:main"
 cortex-claude-hook = "cortex.integrations.claude_hook:main"

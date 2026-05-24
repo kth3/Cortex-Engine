@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import threading
 import time
 from pathlib import Path
@@ -84,8 +83,9 @@ def start_cortex_engine_if_available() -> None:
     try:
         import subprocess
 
+        binary_name = "cortex-ctl.exe" if os.name == "nt" else "cortex-ctl"
         subprocess.Popen(
-            [sys.executable, "-m", "cortex.runtime.cli", "start"],
+            [binary_name, "start"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -116,4 +116,3 @@ def serve_stdin_loop(handle_request) -> None:
             write_response(res)
         except Exception:
             pass
-
