@@ -134,11 +134,7 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn cmd_index_file(
-    workspace: &Path,
-    rel_path: &Path,
-    force: bool,
-) -> Result<()> {
+pub(crate) fn cmd_index_file(workspace: &Path, rel_path: &Path, force: bool) -> Result<()> {
     let workspace = workspace.to_path_buf();
     let settings = cortex_scanner::load_settings(&workspace).unwrap_or_default();
     let rel_path = rel_path.to_string_lossy().replace('\\', "/");
@@ -210,7 +206,10 @@ struct PreparedIndex {
     vector_items: Vec<VectorItem>,
 }
 
-pub(crate) fn parse_indexable_file(rel_path: &str, file: &Path) -> Result<cortex_parsers::ParseResult> {
+pub(crate) fn parse_indexable_file(
+    rel_path: &str,
+    file: &Path,
+) -> Result<cortex_parsers::ParseResult> {
     let ext = file_extension(rel_path);
     let result = match ext.as_str() {
         "pdf" => cortex_parsers::parse_pdf_file(rel_path, file),
@@ -334,10 +333,7 @@ fn inspect_path(
     }))
 }
 
-fn write_indexed_path(
-    conn: &mut rusqlite::Connection,
-    indexed: &PreparedIndex,
-) -> Result<()> {
+fn write_indexed_path(conn: &mut rusqlite::Connection, indexed: &PreparedIndex) -> Result<()> {
     let batch = cortex_storage::FileWriteBatch {
         file_path: &indexed.rel_path,
         file_hash: &indexed.file_hash,
@@ -390,7 +386,9 @@ fn build_vector_items(
 
 fn load_file_cache_hash_map(conn: &rusqlite::Connection) -> Result<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT file_path, hash FROM file_cache")?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
     let mut out = HashMap::new();
     for row in rows {
         let (path, hash) = row?;
@@ -409,10 +407,7 @@ fn load_file_cache_hash(conn: &rusqlite::Connection, rel_path: &str) -> Result<O
 
 fn file_record_exists(conn: &rusqlite::Connection, rel_path: &str) -> Result<bool> {
     let mut stmt = conn.prepare("SELECT 1 FROM nodes WHERE file_path = ?1 LIMIT 1")?;
-    let exists = stmt
-        .query_row([rel_path], |_| Ok(()))
-        .optional()?
-        .is_some();
+    let exists = stmt.query_row([rel_path], |_| Ok(())).optional()?.is_some();
     Ok(exists)
 }
 

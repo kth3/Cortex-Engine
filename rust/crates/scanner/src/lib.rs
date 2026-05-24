@@ -13,6 +13,7 @@ pub use filters::{is_supported_extension, should_include, SUPPORTED_EXTENSIONS};
 pub use finder::scan_files;
 pub use ignores::{load_gitignore, should_ignore, DEFAULT_IGNORES};
 pub use index_roots::{
-    db_path_for_source_path, normalize_configured_index_roots, source_path_for_index_path, IndexRoot,
+    db_path_for_source_path, normalize_configured_index_roots, source_path_for_index_path,
+    IndexRoot,
 };
 pub use settings::{load_settings, settings_paths};

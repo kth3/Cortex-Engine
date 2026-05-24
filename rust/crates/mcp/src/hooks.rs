@@ -33,7 +33,10 @@ pub(crate) fn before_tool_call(tool_name: &str, args: &Value) -> Result<Option<S
     Ok(warning)
 }
 
-pub(crate) fn after_edit(workspace: impl AsRef<Path>, file_path: &str) -> Result<Option<String>, String> {
+pub(crate) fn after_edit(
+    workspace: impl AsRef<Path>,
+    file_path: &str,
+) -> Result<Option<String>, String> {
     if !file_path.ends_with(".py") {
         return Ok(None);
     }

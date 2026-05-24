@@ -3,7 +3,9 @@ use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
 use crate::index::{cmd_index, cmd_index_file, parse_indexable_file};
-use crate::index_roots::{cmd_index_roots_add, cmd_index_roots_count, cmd_index_roots_list, cmd_index_roots_remove};
+use crate::index_roots::{
+    cmd_index_roots_add, cmd_index_roots_count, cmd_index_roots_list, cmd_index_roots_remove,
+};
 use crate::watch::cmd_watch;
 
 #[derive(Parser, Debug)]
@@ -108,13 +110,19 @@ pub(crate) fn run() -> Result<()> {
         Command::Scan { workspace, format } => cmd_scan(&workspace, &format),
         Command::ParseFile { file, rel } => cmd_parse_file(&file, rel.as_deref()),
         Command::Index { workspace, force } => cmd_index(&workspace, force),
-        Command::IndexFile { workspace, file, force } => cmd_index_file(&workspace, &file, force),
+        Command::IndexFile {
+            workspace,
+            file,
+            force,
+        } => cmd_index_file(&workspace, &file, force),
         Command::Watch { workspace } => cmd_watch(&workspace),
         Command::IndexRoots { action } => match action {
             IndexRootsCommand::List { workspace } => cmd_index_roots_list(&workspace),
-            IndexRootsCommand::Add { path, workspace, alias } => {
-                cmd_index_roots_add(&workspace, &path, alias.as_deref())
-            }
+            IndexRootsCommand::Add {
+                path,
+                workspace,
+                alias,
+            } => cmd_index_roots_add(&workspace, &path, alias.as_deref()),
             IndexRootsCommand::Remove { target, workspace } => {
                 cmd_index_roots_remove(&workspace, &target)
             }

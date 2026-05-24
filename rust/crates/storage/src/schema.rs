@@ -231,7 +231,12 @@ fn apply_legacy_migrations(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "edges", "target_name", "TEXT")?;
     add_column_if_missing(conn, "edges", "target_kind_hint", "TEXT")?;
     add_column_if_missing(conn, "edges", "target_fqn_hint", "TEXT")?;
-    add_column_if_missing(conn, "edges", "resolution_status", "TEXT DEFAULT 'unresolved'")?;
+    add_column_if_missing(
+        conn,
+        "edges",
+        "resolution_status",
+        "TEXT DEFAULT 'unresolved'",
+    )?;
     add_column_if_missing(conn, "edges", "resolution_confidence", "REAL DEFAULT 1.0")?;
 
     Ok(())

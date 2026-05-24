@@ -15,26 +15,26 @@ use sha2::{Digest, Sha256};
 
 pub type ToolResult = Result<Value, String>;
 
-#[path = "memory.rs"]
-mod memory;
 #[path = "edit.rs"]
 mod edit;
+#[path = "memory.rs"]
+mod memory;
 #[path = "query.rs"]
 mod query;
 
+pub use edit::call_replace_exact_text;
+pub(crate) use memory::save_observation;
+pub(crate) use memory::search_memories_fts;
 pub use memory::{
     call_consolidate_memory, call_create_task_contract, call_manage_todo, call_read_memory,
     call_save_observation, call_search_memory, call_sync_session_memory, call_write_memory,
 };
-pub use edit::call_replace_exact_text;
+pub(crate) use query::snippet;
 pub use query::{
     call_find_execution_path, call_get_file_git_history, call_get_file_outline,
     call_get_impact_graph, call_get_index_status, call_get_session_context,
     call_read_file_with_hash, call_resolve_symbol, call_search_context, call_search_deep_context,
 };
-pub(crate) use query::snippet;
-pub(crate) use memory::save_observation;
-pub(crate) use memory::search_memories_fts;
 
 const DEFAULT_RESOLVE_LIMIT: usize = 5;
 const DEFAULT_SEARCH_TOKEN_BUDGET: usize = 4000;

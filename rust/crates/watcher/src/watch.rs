@@ -101,7 +101,8 @@ fn enqueue_event_paths(
     last_event_at: &mut Option<Instant>,
 ) {
     for path in &event.paths {
-        let Some(rel_path) = cortex_scanner::db_path_for_source_path(workspace, settings, path) else {
+        let Some(rel_path) = cortex_scanner::db_path_for_source_path(workspace, settings, path)
+        else {
             continue;
         };
         if !should_track_path(&rel_path, settings, ignore_patterns) {
@@ -167,9 +168,13 @@ fn flush_pending_batch(
     Ok(())
 }
 
-fn load_file_cache_hash_map(conn: &rusqlite::Connection) -> Result<std::collections::HashMap<String, String>> {
+fn load_file_cache_hash_map(
+    conn: &rusqlite::Connection,
+) -> Result<std::collections::HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT file_path, hash FROM file_cache")?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
     let mut out = std::collections::HashMap::new();
     for row in rows {
         let (path, hash) = row?;

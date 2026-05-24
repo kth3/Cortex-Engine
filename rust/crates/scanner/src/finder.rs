@@ -72,7 +72,10 @@ pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<
     }
 
     // 3. Cortex Python package 강제 포함 (.py)
-    for forced_dir in [&cortex_home.join("src").join("cortex"), &cortex_home.join("scripts")] {
+    for forced_dir in [
+        &cortex_home.join("src").join("cortex"),
+        &cortex_home.join("scripts"),
+    ] {
         if !forced_dir.exists() {
             continue;
         }
@@ -117,7 +120,8 @@ fn collect_from_index_root(
         if let Some(e) = ext {
             if is_supported_extension(&e) {
                 if let Some(db_path) = db_path_for_source_path(workspace, settings, root_path) {
-                    if !should_ignore(&db_path, ignore_patterns) && should_include(&db_path, settings)
+                    if !should_ignore(&db_path, ignore_patterns)
+                        && should_include(&db_path, settings)
                     {
                         out.insert(db_path);
                     }

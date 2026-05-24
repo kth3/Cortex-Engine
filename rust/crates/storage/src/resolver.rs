@@ -115,9 +115,13 @@ fn source_language_map(conn: &Connection, edge_ids: &[i64]) -> Result<HashMap<i6
 }
 
 fn target_name(target_id: &str, target_name: Option<&str>) -> String {
-    target_name
-        .map(|name| name.to_string())
-        .unwrap_or_else(|| target_id.split("::").last().unwrap_or(target_id).to_string())
+    target_name.map(|name| name.to_string()).unwrap_or_else(|| {
+        target_id
+            .split("::")
+            .last()
+            .unwrap_or(target_id)
+            .to_string()
+    })
 }
 
 fn collect_targets(unresolved: &[UnresolvedEdge]) -> (HashSet<String>, HashSet<String>) {
@@ -183,7 +187,12 @@ fn fetch_candidates_by_field(
     Ok(())
 }
 
-fn build_lookup_maps(candidates: Vec<Candidate>) -> (HashMap<String, Vec<Candidate>>, HashMap<String, Vec<Candidate>>) {
+fn build_lookup_maps(
+    candidates: Vec<Candidate>,
+) -> (
+    HashMap<String, Vec<Candidate>>,
+    HashMap<String, Vec<Candidate>>,
+) {
     let mut nodes_by_name: HashMap<String, Vec<Candidate>> = HashMap::new();
     let mut nodes_by_fqn: HashMap<String, Vec<Candidate>> = HashMap::new();
     let mut nodes_by_id: HashMap<String, Candidate> = HashMap::new();
@@ -254,10 +263,7 @@ fn match_by_kind_hint(
         .collect()
 }
 
-fn match_by_language(
-    name_candidates: &[Candidate],
-    source_lang: Option<&str>,
-) -> Vec<Candidate> {
+fn match_by_language(name_candidates: &[Candidate], source_lang: Option<&str>) -> Vec<Candidate> {
     let Some(source_lang) = source_lang else {
         return Vec::new();
     };
@@ -433,7 +439,11 @@ mod tests {
         }
     }
 
-    fn sample_edge(target_id: &str, target_name: Option<&str>, target_fqn_hint: Option<&str>) -> EdgeRecord {
+    fn sample_edge(
+        target_id: &str,
+        target_name: Option<&str>,
+        target_fqn_hint: Option<&str>,
+    ) -> EdgeRecord {
         EdgeRecord {
             source_id: "source".to_string(),
             target_id: target_id.to_string(),
@@ -450,8 +460,26 @@ mod tests {
     fn resolves_unresolved_edge_by_name() -> Result<(), rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         create_schema(&conn)?;
-        insert_node(&conn, &sample_node("source", "source", "pkg/source.py::source", "python", "FUNCTION"))?;
-        insert_node(&conn, &sample_node("target", "callee", "pkg/target.py::callee", "python", "FUNCTION"))?;
+        insert_node(
+            &conn,
+            &sample_node(
+                "source",
+                "source",
+                "pkg/source.py::source",
+                "python",
+                "FUNCTION",
+            ),
+        )?;
+        insert_node(
+            &conn,
+            &sample_node(
+                "target",
+                "callee",
+                "pkg/target.py::callee",
+                "python",
+                "FUNCTION",
+            ),
+        )?;
         let edge = sample_edge("__unresolved__::callee", Some("callee"), None);
         conn.execute(
             "INSERT INTO edges (source_id, target_id, type, target_name, target_kind_hint, target_fqn_hint, resolution_status, resolution_confidence, call_site_line, confidence) VALUES (?, ?, ?, ?, ?, ?, 'unresolved', 1.0, ?, ?)",

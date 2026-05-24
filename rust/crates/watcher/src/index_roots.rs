@@ -17,13 +17,19 @@ pub(crate) fn cmd_index_roots_list(workspace: &Path) -> Result<()> {
             })
         })
         .collect::<Vec<_>>();
-    println!("{}", serde_json::to_string_pretty(&json!({"index_roots": roots}))?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"index_roots": roots}))?
+    );
     Ok(())
 }
 
 pub(crate) fn cmd_index_roots_count(workspace: &Path) -> Result<()> {
     let files = cortex_scanner::scan_files(workspace, None)?;
-    println!("{}", serde_json::to_string_pretty(&json!({"scan_count": files.len()}))?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"scan_count": files.len()}))?
+    );
     Ok(())
 }
 
@@ -63,7 +69,9 @@ fn root_entry(workspace: &Path, path: &Path, alias: Option<&str>) -> Result<Valu
         workspace.join(path)
     };
     let target = target.canonicalize().unwrap_or(target);
-    let workspace = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    let workspace = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
     if let Ok(rel) = target.strip_prefix(&workspace) {
         return Ok(Value::String(normalize_path(rel)));
     }
@@ -72,14 +80,22 @@ fn root_entry(workspace: &Path, path: &Path, alias: Option<&str>) -> Result<Valu
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .or_else(|| target.file_name().and_then(|name| name.to_str()).map(str::to_string))
+        .or_else(|| {
+            target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
         .ok_or_else(|| anyhow!("external index root requires an alias"))?;
     if alias.chars().any(|ch| "/\\:*?\"<>|".contains(ch)) {
         return Err(anyhow!("invalid external index root alias"));
     }
 
     let mut map = Mapping::new();
-    map.insert(Value::String("path".to_string()), Value::String(normalize_path(&target)));
+    map.insert(
+        Value::String("path".to_string()),
+        Value::String(normalize_path(&target)),
+    );
     map.insert(Value::String("external".to_string()), Value::Bool(true));
     map.insert(Value::String("alias".to_string()), Value::String(alias));
     Ok(Value::Mapping(map))
@@ -172,9 +188,15 @@ mod tests {
     #[test]
     fn matches_external_alias_and_db_root() {
         let mut map = Mapping::new();
-        map.insert(Value::String("path".to_string()), Value::String("../docs".to_string()));
+        map.insert(
+            Value::String("path".to_string()),
+            Value::String("../docs".to_string()),
+        );
         map.insert(Value::String("external".to_string()), Value::Bool(true));
-        map.insert(Value::String("alias".to_string()), Value::String("Docs".to_string()));
+        map.insert(
+            Value::String("alias".to_string()),
+            Value::String("Docs".to_string()),
+        );
         let root = Value::Mapping(map);
         assert!(matches_target(&root, "Docs"));
         assert!(matches_target(&root, "@external/Docs"));

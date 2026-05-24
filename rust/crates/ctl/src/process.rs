@@ -9,7 +9,10 @@ pub(crate) fn spawn_logged(mut command: Command, log_path: &Path) -> Result<u32>
     }
     let stdout = File::create(log_path)?;
     let stderr = stdout.try_clone()?;
-    let child = command.stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).spawn()?;
+    let child = command
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .spawn()?;
     Ok(child.id())
 }
 
@@ -53,7 +56,9 @@ pub(crate) fn terminate(pid: u32) -> Result<()> {
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .status()?
     } else {
-        Command::new("kill").args(["-TERM", &pid.to_string()]).status()?
+        Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()?
     };
     if status.success() {
         Ok(())

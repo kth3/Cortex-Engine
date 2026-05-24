@@ -8,8 +8,8 @@ use std::path::Path;
 use cortex_parsers::{EdgeRecord, NodeRecord, UNRESOLVED_FQN_PREFIX};
 use rusqlite::{params, Connection, Result, Transaction};
 
-mod schema;
 mod resolver;
+mod schema;
 
 /// Default workspace id used when the caller does not provide one.
 pub const DEFAULT_WORKSPACE_ID: &str = "default";
@@ -55,8 +55,8 @@ const UPSERT_FILE_CACHE_SQL: &str = r#"
 
 /// Re-export parser records so the storage API stays self-contained.
 pub use cortex_parsers::{ParseResult, UNRESOLVED_NAME_PREFIX};
-pub use schema::init_schema;
 pub use resolver::resolve_unresolved_edges;
+pub use schema::init_schema;
 
 /// Open a SQLite database and apply the pragmas used by the Python storage layer.
 pub fn open_connection(path: impl AsRef<Path>) -> Result<Connection> {

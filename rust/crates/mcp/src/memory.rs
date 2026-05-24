@@ -182,7 +182,9 @@ pub fn call_create_task_contract(workspace: impl AsRef<Path>, args: &Value) -> T
         Some(&path.to_string_lossy()),
     )?;
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
-    Ok(json!({"contract_id": contract_id, "path": path.to_string_lossy(), "inbox_items": inbox_items}))
+    Ok(
+        json!({"contract_id": contract_id, "path": path.to_string_lossy(), "inbox_items": inbox_items}),
+    )
 }
 
 pub fn call_manage_todo(workspace: impl AsRef<Path>, args: &Value) -> ToolResult {
@@ -407,5 +409,7 @@ fn git_text(workspace: impl AsRef<Path>, args: &[&str]) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    String::from_utf8(output.stdout).ok().map(|text| text.trim().to_string())
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|text| text.trim().to_string())
 }
