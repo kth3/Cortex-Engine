@@ -47,6 +47,10 @@ pub(crate) fn engine_log() -> PathBuf {
     history_dir().join("engine_server.log")
 }
 
+pub(crate) fn worker_log() -> PathBuf {
+    history_dir().join("engine_worker.log")
+}
+
 pub(crate) fn watcher_log() -> PathBuf {
     history_dir().join("watcher_output.log")
 }
@@ -58,11 +62,30 @@ pub(crate) fn python() -> String {
 }
 
 pub(crate) fn watcher_binary() -> PathBuf {
-    let name = if cfg!(windows) {
+    rust_binary(if cfg!(windows) {
         "cortex-watcher.exe"
     } else {
         "cortex-watcher"
-    };
+    })
+}
+
+pub(crate) fn engine_binary() -> PathBuf {
+    rust_binary(if cfg!(windows) {
+        "cortex-engine.exe"
+    } else {
+        "cortex-engine"
+    })
+}
+
+pub(crate) fn worker_script() -> PathBuf {
+    repo_root()
+        .join("src")
+        .join("cortex")
+        .join("runtime")
+        .join("engine_worker.py")
+}
+
+fn rust_binary(name: &str) -> PathBuf {
     let root = repo_root();
     for profile in ["release", "debug"] {
         let candidate = root.join("rust").join("target").join(profile).join(name);

@@ -1,0 +1,15 @@
+[package]
+name = "cortex-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "cortex-engine"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true }
+serde_json.workspace = true

@@ -1,4 +1,4 @@
-"""PyTorch embedding worker runtime for the Cortex engine server.
+"""PyTorch embedding worker runtime for the Rust Cortex engine.
 
 - Worker의 책임: 실제 GPU(또는 CPU) 임베딩 모델(residency)을 메모리에 보유하고 인퍼런스를 수행한다.
 - VRAM lifecycle: 워커 프로세스가 유지되는 동안 모델이 메모리에 남아있으며, shutdown IPC를 받으면 워커가 종료되면서 VRAM이 해제된다.
@@ -6,20 +6,46 @@
 from __future__ import annotations
 
 import gc
+import json
 import os
 import socket
+import struct
 import threading
 import traceback
 from typing import Any
 
 from cortex.logger import get_logger
 
-from .ipc import recv_msg, send_msg
-from .paths import WORKER_PORT
-
 logger = get_logger("server")
 
 WORKER_HOST = "127.0.0.1"
+WORKER_PORT = int(os.environ.get("CORTEX_ENGINE_WORKER_PORT", "42385"))
+
+
+def recv_exact(sock: socket.socket, size: int) -> bytes | None:
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(min(size - len(data), 4096))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
+def recv_msg(sock: socket.socket) -> dict[str, Any] | None:
+    header = recv_exact(sock, 4)
+    if not header:
+        return None
+    size = struct.unpack("!I", header)[0]
+    data = recv_exact(sock, size)
+    if not data:
+        return None
+    return json.loads(data.decode("utf-8"))
+
+
+def send_msg(sock: socket.socket, msg: dict[str, Any]) -> None:
+    data = json.dumps(msg).encode("utf-8")
+    sock.sendall(struct.pack("!I", len(data)) + data)
 
 
 class WorkerState:

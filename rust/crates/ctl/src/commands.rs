@@ -40,9 +40,16 @@ fn start() -> Result<()> {
     stop_stale();
 
     let workspace = paths::workspace();
-    let mut engine = Command::new(paths::python());
+    let mut engine = Command::new(paths::engine_binary());
     engine
-        .args(["-m", "cortex.runtime.engine_server"])
+        .arg("--workspace")
+        .arg(&workspace)
+        .arg("--worker-script")
+        .arg(paths::worker_script())
+        .arg("--python")
+        .arg(paths::python())
+        .arg("--worker-log")
+        .arg(paths::worker_log())
         .env("CORTEX_WORKSPACE", &workspace);
     let engine_pid = process::spawn_logged(engine, &paths::engine_log())?;
     process::write_pid(&paths::engine_pid_file(), engine_pid)?;
