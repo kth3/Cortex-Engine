@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cortex_parsers::{
     parse_c_file, parse_csharp_file, parse_css_file, parse_html_file, parse_java_file,
@@ -17,6 +19,8 @@ pub type ToolResult = Result<Value, String>;
 
 #[path = "edit.rs"]
 mod edit;
+#[path = "embedding.rs"]
+mod embedding;
 #[path = "memory.rs"]
 mod memory;
 #[path = "query.rs"]

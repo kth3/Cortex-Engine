@@ -129,17 +129,34 @@ pub fn call_search_memory(
     query: &str,
     category: Option<&str>,
 ) -> ToolResult {
-    let results = search_memories_fts(&open_connection(workspace)?, query, category, 5)?
+    let conn = open_connection(workspace)?;
+    let mut results = search_memories_fts(&conn, query, category, 5)?
         .into_iter()
         .map(|memory| {
             json!({
                 "key": memory.key,
                 "category": memory.category,
                 "content": snippet(&memory.content, 200),
+                "match_reason": "fts_match",
                 "score": 0.0,
             })
         })
         .collect::<Vec<_>>();
+    for memory in embedding::search_memories_vec(&conn, query, category, 5)? {
+        if results
+            .iter()
+            .any(|item| item.get("key").and_then(Value::as_str) == Some(memory.key.as_str()))
+        {
+            continue;
+        }
+        results.push(json!({
+            "key": memory.key,
+            "category": memory.category,
+            "content": snippet(&memory.content, 200),
+            "match_reason": "vector_match",
+            "score": 0.0,
+        }));
+    }
     Ok(Value::String(
         serde_json::to_string_pretty(&results).map_err(|err| err.to_string())?,
     ))

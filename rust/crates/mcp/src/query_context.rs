@@ -151,9 +151,28 @@ pub fn call_search_context(
             node.start_line.unwrap_or_default()
         ));
     }
+    for node in embedding::search_nodes_vec(&conn, query, 8)? {
+        let line = format!(
+            "[code:vector] {} {}:{}",
+            node.fqn,
+            node.file_path.unwrap_or_default(),
+            node.start_line.unwrap_or_default()
+        );
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
     for item in search_memories_fts(&conn, query, None, 5)? {
         lines.push(format!(
             "[{}] {}: {}",
+            item.category,
+            item.key,
+            snippet(&item.content, 180)
+        ));
+    }
+    for item in embedding::search_memories_vec(&conn, query, None, 5)? {
+        lines.push(format!(
+            "[{}:vector] {}: {}",
             item.category,
             item.key,
             snippet(&item.content, 180)
@@ -188,6 +207,17 @@ pub fn call_search_deep_context(
             "category": node.node_type,
             "file_path": node.file_path.unwrap_or_default(),
             "snippet": node.name,
+            "_total_score": 0.0,
+        }));
+    }
+    for node in embedding::search_nodes_vec(&conn, query, limit)? {
+        unified.push(json!({
+            "domain": "code",
+            "key": node.fqn,
+            "category": node.node_type,
+            "file_path": node.file_path.unwrap_or_default(),
+            "snippet": node.name,
+            "match_reason": "vector_match",
             "_total_score": 0.0,
         }));
     }

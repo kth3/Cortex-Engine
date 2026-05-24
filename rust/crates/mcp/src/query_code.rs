@@ -96,6 +96,25 @@ pub fn call_resolve_symbol(
         }
     }
 
+    if candidates.len() < limit {
+        for node in embedding::search_nodes_vec(&conn, name, limit * FTS_PROBE_MULTIPLIER)? {
+            if seen.contains(&node.fqn) {
+                continue;
+            }
+            if file_path.is_some() && node.file_path.as_deref() != file_path {
+                continue;
+            }
+            if language.is_some() && node.language.as_deref() != language {
+                continue;
+            }
+            seen.insert(node.fqn.clone());
+            candidates.push(symbol_candidate(&node, "vector_match"));
+            if candidates.len() >= limit {
+                break;
+            }
+        }
+    }
+
     if candidates.is_empty() {
         return Ok(json!({
             "candidates": [],
