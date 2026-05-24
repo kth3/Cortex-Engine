@@ -4,7 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use crate::{paths, process};
+use crate::{paths, process, relay};
 
 #[derive(Parser)]
 #[command(name = "cortex-ctl", version, about = "Cortex Rust runtime supervisor")]
@@ -19,6 +19,10 @@ enum CommandKind {
     Stop,
     Restart,
     Status,
+    Relay {
+        #[command(subcommand)]
+        command: relay::RelayCommand,
+    },
 }
 
 pub(crate) fn run() -> Result<()> {
@@ -30,6 +34,7 @@ pub(crate) fn run() -> Result<()> {
             start()
         }
         CommandKind::Status => status(),
+        CommandKind::Relay { command } => relay::run(command),
     }
 }
 
