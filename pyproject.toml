@@ -18,17 +18,11 @@ dependencies = [
     # Cross-platform OS abstraction (fcntl/pgrep 대체)
     "portalocker>=2.8.0",
     "psutil>=5.9.0",
-    # MCP Server
-    "mcp>=1.0.0",
     # Tree-sitter parsers
 ]
 
 [project.scripts]
 cortex-eval = "cortex.eval.__main__:main"
-cortex-mcp = "cortex.mcp.entrypoint:main"
-cortex-codex-hook = "cortex.integrations.codex_hook:main"
-cortex-codex-session-start = "cortex.integrations.codex_session_start:main"
-cortex-claude-hook = "cortex.integrations.claude_hook:main"
 
 [project.optional-dependencies]
 gpu-accel = [

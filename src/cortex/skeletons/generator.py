@@ -4,8 +4,7 @@
 import os
 import json
 import subprocess
-
-from cortex.runtime.paths import ensure_rust_watcher_binary
+from pathlib import Path
 
 
 def get_node_skeleton(node_dict, detail="standard"):
@@ -45,12 +44,22 @@ def generate_file_skeleton(nodes, detail="standard"):
     return "\n\n".join(parts)
 
 
+def _rust_watcher_binary():
+    name = "cortex-watcher.exe" if os.name == "nt" else "cortex-watcher"
+    repo_root = Path(__file__).resolve().parents[3]
+    for profile in ("release", "debug"):
+        candidate = repo_root / "rust" / "target" / profile / name
+        if candidate.exists():
+            return candidate
+    return repo_root / "rust" / "target" / "release" / name
+
+
 def generate_skeleton(workspace, file_path, detail="standard"):
     abs_path = os.path.join(workspace, file_path) if not os.path.isabs(file_path) else file_path
     if not os.path.exists(abs_path):
         return f"File not found: {abs_path}"
 
-    binary = ensure_rust_watcher_binary()
+    binary = _rust_watcher_binary()
     proc = subprocess.run(
         [str(binary), "parse-file", "--file", abs_path, "--rel", file_path],
         capture_output=True,
