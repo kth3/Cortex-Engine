@@ -18,10 +18,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $TargetScripts = @(
-    (Join-Path $RepoRoot "src\cortex\vector_engine_server.py"),
-    (Join-Path $RepoRoot "src\cortex\watch\daemon.py"),
+    (Join-Path $RepoRoot "rust\target\debug\cortex-engine.exe"),
+    (Join-Path $RepoRoot "rust\target\debug\cortex-watcher.exe"),
     (Join-Path $RepoRoot "src\cortex\runtime\engine_worker.py")
-) | ForEach-Object { (Resolve-Path $_).Path }
+) | ForEach-Object { (Resolve-Path $_ -ErrorAction SilentlyContinue).Path } | Where-Object { $_ }
 
 if (Get-Command cortex-ctl -ErrorAction SilentlyContinue) {
     $CortexCtl = @("cortex-ctl")
@@ -155,7 +155,7 @@ Write-Host "재기동된 프로세스: $($beforeKill.Count)"
 Stage "4. cortex-ctl 부모 프로세스 강제 종료 (taskkill /F)"
 # control 프로세스 자체는 cortex-ctl 명령이 끝나면 사라지므로,
 # 여기서는 워커/워처 PID만 추출해 부모 chain을 끊는 시나리오를 시뮬레이션합니다.
-$workerPids = $beforeKill | Where-Object { $_.CommandLine -match 'vector_engine_server|watch[\\/]daemon\.py' }
+$workerPids = $beforeKill | Where-Object { $_.CommandLine -match 'cortex-engine|cortex-watcher|engine_worker\.py' }
 foreach ($p in $workerPids) {
     Write-Host "taskkill /F /PID $($p.ProcessId) ($($p.Name))"
     & taskkill /F /PID $p.ProcessId | Out-Null

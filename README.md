@@ -126,20 +126,12 @@ flowchart TB
 런타임 제어 계층은 다음처럼 분리되어 있습니다.
 
 - `runtime/paths.py`: 포트, 스크립트, 로그/락 파일 경로
-- `runtime/ipc.py`: 길이 prefix 기반 소켓 메시지 송수신
-- `runtime/environment.py`: child process 환경 변수 구성
-- `runtime/process.py`: 백그라운드 프로세스 실행 및 PID 관리
-- `runtime/lock.py`: ctl 실행 단위 상호 배제
-- `runtime/logging.py`: 런타임 로그 설정
-- `runtime/control.py`: start/status/stop orchestration
-- `runtime/engine_server.py`: engine server entrypoint
-- `runtime/engine_router.py`: worker 라우팅 및 idle 모니터 연계
-- `runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
-- `runtime/worker_manager.py`: worker 기동/종료/상태 확인
-- `runtime/watcher_launcher.py`: watchdog watcher 실행
-- `runtime/local_daemon.py`: 선택적 local daemon 실행
+- `rust/crates/runtime`: Rust engine router, worker supervisor, idle monitor, length-prefixed JSON IPC
+- `rust/crates/ctl`: start/status/stop orchestration
+- `rust/crates/watcher`: file watch, scan, parse, SQLite write path
+- `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
 
-이 구조는 Python 구현을 유지하면서도 추후 CLI hook 연동, Rust 등 일부 구성요소 포팅, worker 교체를 쉽게 하기 위한 경계입니다.
+Python은 embedding 모델 생태계에 필요한 worker/provider 영역에만 남고, runtime orchestration과 MCP는 Rust 바이너리 기준으로 동작합니다.
 
 ### 3. `.cortex` Path Model
 
@@ -204,9 +196,9 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 - `cortex/config/`: YAML 설정 로드 및 하드웨어 기반 튜닝
 - `cortex/scanner/`: `.gitignore` 기반 스캐닝 필터
 - `cortex/parsers/`: Tree-sitter 중심 파서 레지스트리
-- `cortex/runtime/`: 데몬 워커, 락 관리, IPC 등 실행 환경 인프라
+- `rust/crates/runtime`: 데몬 라우터, 워커 supervisor, IPC 등 실행 환경 인프라
 
-> 외부 Workspace 경로 대응은 `runtime.paths` 및 신규 `.cortex` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
+> 외부 Workspace 경로 대응은 Rust `cortex-ctl`/`cortex-engine` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
 
 ---
 
