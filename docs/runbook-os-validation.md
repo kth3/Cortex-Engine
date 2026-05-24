@@ -25,37 +25,35 @@ bash에서 실행한다.
 bash scripts/diagnostics/zombie-check.sh
 ```
 
-확인 기준은 Windows와 같다. WSL2에서는 `/mnt/c/...` mounted drive보다 Linux home 아래 checkout에서 검증하는 것을 우선한다. `portalocker`는 OS advisory lock을 사용하므로 mounted drive에서는 lock 동작이 Windows/Linux 양쪽 파일시스템 semantics에 걸릴 수 있다.
+확인 기준은 Windows와 같다. WSL2에서는 `/mnt/c/...` mounted drive보다 Linux home 아래 checkout에서 검증하는 것을 우선한다. Rust process control과 watcher도 mounted drive에서는 lock·watch 동작이 Windows/Linux 양쪽 파일시스템 semantics에 걸릴 수 있다.
 
 ## 3. 설정 키 참조 감사
 
 설정 키를 바꾼 뒤에는 다음 검색으로 실제 참조 지점을 확인한다.
 
 ```bash
-rg -n "settings\\.get|indexing_rules|index_roots|include_paths|exclude_paths|config_whitelist|linked_workspaces|idle_timeout|modules|tuning|get_tuning_params|CORTEX_EMBEDDING_MAX_SEQ_LENGTH|MAX_SEQ_LENGTH" src/cortex
+rg -n "indexing_rules|index_roots|include_paths|exclude_paths|config_whitelist|linked_workspaces|idle_timeout|modules|CORTEX_EMBEDDING_MAX_SEQ_LENGTH|MAX_SEQ_LENGTH" src/cortex rust/crates
 ```
 
 현재 런타임 참조 상태:
 
 | Key | Runtime reference |
 | --- | --- |
-| `CORTEX_DATA_HOME` | `cortex.paths.data_home()` |
-| `CORTEX_WORKSPACE_KEY` | `cortex.paths.workspace_key()` |
+| `CORTEX_DATA_HOME` | Rust ctl/runtime/MCP storage path resolution, Python embedding env lookup |
+| `CORTEX_WORKSPACE_KEY` | Rust workspace key resolution |
 | `CORTEX_EMBEDDING_MODEL` | `cortex.embeddings.provider._resolve_model_id()` |
 | `CORTEX_EMBEDDING_MAX_SEQ_LENGTH` | `cortex.embeddings.provider._resolve_max_seq_length()` |
 | `CORTEX_EMBEDDING_TRUST_REMOTE_CODE` | `cortex.embeddings.provider._resolve_trust_remote_code()` |
 | `HF_TOKEN` | `cortex.embeddings.provider._resolve_hf_token()` |
-| `CORTEX_START_TIMEOUT` | `cortex.runtime.control._resolve_start_timeout()` |
+| `CORTEX_START_TIMEOUT` | Rust `cortex-ctl start` ready polling |
 | `CORTEX_DIAG_READY_TIMEOUT` | `scripts/diagnostics/zombie-check.{sh,ps1}` 폴링 시간 |
-| `CORTEX_LOCAL_DAEMON` | `cortex.runtime.local_daemon.resolve_local_daemon_script()` |
-| `CORTEX_HOME`, `CORTEX_WORKSPACE`, `CORTEX_ENV_PATH` | `cortex.paths.*` (기존 경로 결정 로직) |
-| `indexing_rules.idle_timeout` | `cortex.runtime.idle_monitor.get_idle_timeout()` |
-| `indexing_rules.index_roots` | scanner discovery and MCP index-roots tools |
-| `indexing_rules.include_paths` | scanner filters |
-| `indexing_rules.exclude_paths` | scanner discovery and watcher filters |
-| `indexing_rules.config_whitelist` | scanner filters |
-| `indexing_rules.modules` | scanner filters |
-| `tuning.mode`, `batch_size`, `max_chars`, `cache_clear_freq` | `cortex.config.tuning.get_tuning_params()` |
+| `CORTEX_HOME`, `CORTEX_WORKSPACE`, `CORTEX_ENV_PATH` | Rust path resolution and Python embedding env lookup |
+| `indexing_rules.idle_timeout` | Rust runtime idle monitor |
+| `indexing_rules.index_roots` | Rust scanner discovery and index-roots tools |
+| `indexing_rules.include_paths` | Rust scanner filters |
+| `indexing_rules.exclude_paths` | Rust scanner discovery and watcher filters |
+| `indexing_rules.config_whitelist` | Rust scanner filters |
+| `indexing_rules.modules` | Rust scanner filters |
 
 주의:
 
@@ -84,7 +82,7 @@ cortex 코드 자체를 수정하면서 `.cortex` 폴더에서 `uv run cortex-ct
 
 ### 5.1 워크스페이스 키 결정
 
-`cortex.paths.workspace_key()`는 `Path(workspace or os.getcwd()).resolve()`의 sha1 앞 12자를 키로 사용한다.
+Rust path resolver는 `Path(workspace or current_dir).resolve()`의 sha1 앞 12자를 키로 사용한다.
 
 | 실행 위치 | 결정된 워크스페이스 키 |
 |---|---|
@@ -96,7 +94,7 @@ cortex 코드 자체를 수정하면서 `.cortex` 폴더에서 `uv run cortex-ct
 
 ### 5.2 WSL2 mounted drive 경고
 
-WSL2의 `/mnt/c/...` 경로 아래에서 cortex를 실행하면 `portalocker`의 advisory lock이 Windows/Linux 양쪽 파일시스템 semantics를 가로지른다. 안정성 검증은 반드시 Linux home(`~/...`) 아래 checkout에서 수행한다. mounted drive는 일시 작업·읽기 전용 검토에만 사용한다.
+WSL2의 `/mnt/c/...` 경로 아래에서 cortex를 실행하면 lock·watch 동작이 Windows/Linux 양쪽 파일시스템 semantics를 가로지른다. 안정성 검증은 반드시 Linux home(`~/...`) 아래 checkout에서 수행한다. mounted drive는 일시 작업·읽기 전용 검토에만 사용한다.
 
 ### 5.3 자가 모드 데이터 격리
 

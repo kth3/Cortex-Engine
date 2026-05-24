@@ -6,13 +6,13 @@
 
 파편화된 에이전트의 기억을 영속화하고, MCP(Model Context Protocol)를 통해 어떤 프로젝트에서든 즉시 작업 맥락을 형성할 수 있도록 설계된 범용 에이전트 엔지니어링 인프라입니다. 최신 멀티 에이전트 오케스트레이션 패턴과 하이브리드 데이터베이스 기술을 결합하여 로컬 우선 컨텍스트 엔진을 제공합니다.
 
-최근 구조는 `.cortex` 경로 모델을 기본으로 사용하며, 기존 단일 제어 파일 중심 구조를 dispatcher/server/runtime 계층으로 분리하는 방향으로 정리되었습니다.
+최근 구조는 `.cortex` 경로 모델을 기본으로 사용하며, MCP, watcher, process control, runtime router를 Rust crate로 분리하는 방향으로 정리되었습니다.
 
 ---
 
 ## 시스템 아키텍처
 
-기존 단일체 엔진은 MCP dispatcher, engine server, embedding worker, watcher, process control 계층으로 분리되었습니다. `cortex_ctl.py`는 thin entrypoint로 남고, 실제 start/status/stop 로직은 `src/cortex/runtime/` 하위 모듈에 위치합니다.
+기존 Python 단일체 엔진은 Rust MCP dispatcher, Rust engine server, Python embedding worker, Rust watcher, Rust process control 계층으로 분리되었습니다. `cortex-ctl`, `cortex-engine`, `cortex-mcp`, `cortex-watcher`가 운영 표면을 담당하고 Python은 임베딩 모델 실행 계층에만 남습니다.
 
 ```mermaid
 ---
@@ -125,7 +125,7 @@ flowchart TB
 
 런타임 제어 계층은 다음처럼 분리되어 있습니다.
 
-- `runtime/paths.py`: 포트, 스크립트, 로그/락 파일 경로
+- `rust/crates/ctl`: start/status/stop orchestration과 프로세스 경로 관리
 - `rust/crates/runtime`: Rust engine router, worker supervisor, idle monitor, length-prefixed JSON IPC
 - `rust/crates/ctl`: start/status/stop orchestration
 - `rust/crates/watcher`: file watch, scan, parse, SQLite write path
@@ -186,17 +186,15 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 
 ## Cortex Modular Layout
 
-최근 구조 개편에 따라 Cortex 백엔드는 역할별 패키지로 분리되었습니다. SQLite, GraphDB, 검색, 임베딩, 메모리 구현은 하위 패키지에 위치합니다:
+최근 구조 개편에 따라 Cortex 백엔드는 Rust crate 중심으로 분리되었습니다. SQLite, 검색, 메모리, 편집, watcher, parser 구현은 Rust에 위치하고 Python은 임베딩 worker/provider만 유지합니다:
 
-- `cortex/indexing/`: 인덱싱 파이프라인 (추출, 기록, 그래프 동기화)
-- `cortex/embeddings/`: 모델 로드, 배치 임베딩, 하드웨어 자동 감지
-- `cortex/retrieval/`: 하이브리드 검색 알고리즘 (FTS, 벡터, RRF 병합)
-- `cortex/storage/`: SQLite 및 GraphDB 스키마/연결 관리
-- `cortex/memories/`: 관찰 기록(단기) 및 영구 지식(Persistent) CRUD
-- `cortex/config/`: YAML 설정 로드 및 하드웨어 기반 튜닝
-- `cortex/scanner/`: `.gitignore` 기반 스캐닝 필터
-- `cortex/parsers/`: Tree-sitter 중심 파서 레지스트리
-- `rust/crates/runtime`: 데몬 라우터, 워커 supervisor, IPC 등 실행 환경 인프라
+- `rust/crates/mcp`: MCP JSON-RPC 도구 catalog, 검색, 메모리, 편집, 세션 도구
+- `rust/crates/storage`: SQLite 스키마, resolver, 공용 저장소 접근
+- `rust/crates/scanner`: `.gitignore` 기반 파일 탐색과 필터
+- `rust/crates/parsers`: Tree-sitter 중심 파서 레지스트리
+- `rust/crates/watcher`: file watch, scan, parse, SQLite write path
+- `rust/crates/runtime`: 데몬 라우터, worker supervisor, IPC 등 실행 환경 인프라
+- `src/cortex/embeddings`, `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers 모델 로드와 추론
 
 > 외부 Workspace 경로 대응은 Rust `cortex-ctl`/`cortex-engine` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
 
@@ -221,7 +219,7 @@ iwr -useb https://astral.sh/uv/install.ps1 | iex
 그 다음 cortex를 글로벌로 설치하고 hook까지 한 호흡에 등록합니다:
 
 ```bash
-# 1) cortex 본체 글로벌 설치 (PATH에 cortex-ctl, cortex-codex-hook, cortex-claude-hook 등록)
+# 1) cortex 본체 글로벌 설치 (PATH에 cortex-ctl 등 실행 파일 등록)
 uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
 
 # 2) Codex + Claude Code hook 등록 + 글로벌 데이터 디렉토리 초기화 + (선택) HF 토큰·모델 워밍
@@ -306,7 +304,7 @@ Codex 매처는 `apply_patch`, Claude Code 매처는 `Edit|Write|MultiEdit` 정�
 
 ### MCP 등록
 
-기존 동작은 유지됩니다. MCP 등록 시 `PYTHONPATH`, `CORTEX_HOME`, `CORTEX_WORKSPACE` 명시를 권장합니다. 멀티레포 그룹화는 `CORTEX_WORKSPACE_KEY` 환경변수로 같은 값을 박아 처리합니다.
+MCP 등록은 Rust `cortex-mcp` 바이너리를 기준으로 합니다. `CORTEX_HOME`, `CORTEX_WORKSPACE` 명시를 권장하며, 멀티레포 그룹화는 `CORTEX_WORKSPACE_KEY` 환경변수로 같은 값을 박아 처리합니다.
 
 ### 마이그레이션
 
@@ -324,11 +322,11 @@ cortex-ctl migrate              # 실제 이동
 GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
 - `uv sync --group dev` 기반 의존성 설치
-- `scripts/**/*.py` 전체 `py_compile`
-- runtime 모듈 import smoke
-- `pytest -m "not smoke"` 회귀 테스트
+- Rust workspace build/test
+- embedding worker/provider import smoke
+- 유지 Python 테스트
 - `.cortex` 기준 테스트 워크스페이스 인덱싱
-- `pytest -m smoke` MCP JSON-RPC smoke test
+- Rust MCP JSON-RPC smoke test
 
 장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)에 정리합니다.
 
