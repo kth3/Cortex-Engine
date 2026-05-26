@@ -184,32 +184,29 @@ daemon 경로가 상대 경로이면 `CORTEX_HOME` 기준으로 해석됩니다.
 
 CI와 동일한 방향으로 로컬 검증하려면 (개발 모드에서):
 
-```bash
+```powershell
 # 의존성 확인
 uv sync
 
-# py_compile 회귀
-uv run python - <<'PY'
-from pathlib import Path
-import py_compile
-for path in Path('scripts').rglob('*.py'):
-    py_compile.compile(str(path), doraise=True)
-print('py_compile ok')
-PY
+# Python 패키지 문법 확인
+uv run python -m compileall -q src
 
-# 회귀 테스트 (test_mcp_smoke.py는 standalone 스크립트라 컬렉션에서 제외)
-uv run --group dev python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+# 회귀 테스트
+uv run --group dev python -m pytest src/cortex/tests -m "not smoke" -q
 
-# MCP smoke는 별도 실행 (subprocess로 실 cortex-mcp를 띄우므로 standalone)
-uv run python scripts/cortex/tests/test_mcp_smoke.py
+# Rust MCP JSON-RPC smoke
+uv run --group dev python -m pytest src/cortex/tests/test_mcp_smoke.py -q
 
-# 런타임 제어
-uv run cortex-ctl status
-uv run cortex-ctl stop
-uv run cortex-ctl start
+# Rust 런타임 제어 바이너리 빌드
+cargo build --manifest-path rust/Cargo.toml -p cortex-ctl -p cortex-runtime -p cortex-watcher
+
+# Windows PowerShell: 프로세스/포트/VRAM 진단
+powershell -ExecutionPolicy Bypass -File scripts/diagnostics/zombie-check.ps1
 ```
 
-임베딩 모델 캐시가 없는 환경에서는 첫 실행 시 모델 다운로드가 발생할 수 있습니다(`--warm-models`로 사전 처리 가능). CI에서는 문법/import/회귀/MCP smoke를 중점 검증하고, 장시간 GPU/daemon 실기동 검증은 로컬 검증 대상으로 둡니다. OS별 프로세스/VRAM 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)을 따릅니다.
+Windows 소스 체크아웃에서 `uv run cortex-ctl`은 Python entrypoint가 없으면 실패할 수 있으므로, 개발 모드 런타임 검증은 빌드된 `rust\target\debug\cortex-ctl.exe`를 기준으로 봅니다. `42384`/`42385` 포트가 이미 점유되어 있으면 먼저 기존 Cortex 프로세스를 정리한 뒤 재실행하십시오.
+
+임베딩 모델 캐시가 없는 환경에서는 첫 실행 시 모델 다운로드가 발생할 수 있습니다(`--warm-models`로 사전 처리 가능). CI에서는 문법/import/회귀/MCP smoke를 중점 검증하고, 장시간 GPU/daemon 실기동 검증은 로컬 검증 대상으로 둡니다. OS별 프로세스/VRAM 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)을 따릅니다. WSL 전환 후에는 Windows mounted drive(`/mnt/c/...`)보다 Linux home checkout에서 같은 절차를 다시 검증하는 편이 안전합니다.
 
 ---
 

@@ -196,32 +196,29 @@ Relative paths are resolved from `CORTEX_HOME`.
 
 For development-mode validation:
 
-```bash
+```powershell
 # Dependency check
 uv sync
 
-# Compile all Python files
-uv run python - <<'PY'
-from pathlib import Path
-import py_compile
-for path in Path('scripts').rglob('*.py'):
-    py_compile.compile(str(path), doraise=True)
-print('py_compile ok')
-PY
+# Compile the Python package
+uv run python -m compileall -q src
 
-# Unit regression tests (test_mcp_smoke.py is a standalone script — skipped from collection)
-uv run --group dev python -m pytest scripts/cortex/tests/ -q --ignore=scripts/cortex/tests/test_mcp_smoke.py
+# Regression tests
+uv run --group dev python -m pytest src/cortex/tests -m "not smoke" -q
 
-# MCP smoke runs as a standalone script that spawns cortex-mcp via stdio
-uv run python scripts/cortex/tests/test_mcp_smoke.py
+# Rust MCP JSON-RPC smoke
+uv run --group dev python -m pytest src/cortex/tests/test_mcp_smoke.py -q
 
-# Runtime control
-uv run cortex-ctl status
-uv run cortex-ctl stop
-uv run cortex-ctl start
+# Build Rust runtime control binaries
+cargo build --manifest-path rust/Cargo.toml -p cortex-ctl -p cortex-runtime -p cortex-watcher
+
+# Windows PowerShell: process, port, and VRAM diagnostics
+powershell -ExecutionPolicy Bypass -File scripts/diagnostics/zombie-check.ps1
 ```
 
-If the embedding model is not cached, the first model-backed run may download it. Use `--warm-models` to pre-download. For OS-level process and VRAM validation, follow the [OS Validation Runbook](./docs/runbook-os-validation.md).
+In a Windows source checkout, `uv run cortex-ctl` can fail when the Python package does not expose that entrypoint. Development-mode runtime validation should use the built `rust\target\debug\cortex-ctl.exe`. If ports `42384` or `42385` are already occupied, stop the existing Cortex processes first and rerun the diagnostic.
+
+If the embedding model is not cached, the first model-backed run may download it. Use `--warm-models` to pre-download. For OS-level process and VRAM validation, follow the [OS Validation Runbook](./docs/runbook-os-validation.md). After moving to WSL, prefer a Linux-home checkout over a Windows-mounted path such as `/mnt/c/...` and rerun the same validation there.
 
 ---
 

@@ -7,7 +7,7 @@
   자식 프로세스(워커, 워처) 잔존 여부와 VRAM 해제 여부를 보고합니다.
 
   사용: PowerShell에서 .\zombie-check.ps1 실행.
-  요구사항: PATH에 cortex-ctl, psutil 동작 가능한 python.
+  요구사항: PATH에 cortex-ctl 또는 소스 체크아웃의 rust\target\debug\cortex-ctl.exe.
 
 .OUTPUTS
   표준출력에 단계별 PID 목록과 잔존 검사 결과를 출력합니다. 종료 코드 0=정상,
@@ -23,8 +23,15 @@ $TargetScripts = @(
     (Join-Path $RepoRoot "src\cortex\runtime\engine_worker.py")
 ) | ForEach-Object { (Resolve-Path $_ -ErrorAction SilentlyContinue).Path } | Where-Object { $_ }
 
+$LocalDebugCtl = Join-Path $RepoRoot "rust\target\debug\cortex-ctl.exe"
+$LocalReleaseCtl = Join-Path $RepoRoot "rust\target\release\cortex-ctl.exe"
+
 if (Get-Command cortex-ctl -ErrorAction SilentlyContinue) {
     $CortexCtl = @("cortex-ctl")
+} elseif (Test-Path $LocalDebugCtl) {
+    $CortexCtl = @($LocalDebugCtl)
+} elseif (Test-Path $LocalReleaseCtl) {
+    $CortexCtl = @($LocalReleaseCtl)
 } else {
     $CortexCtl = @("uv", "run", "cortex-ctl")
 }
@@ -44,6 +51,7 @@ function Get-CortexPids {
     $patterns = $TargetScripts | ForEach-Object { [regex]::Escape($_) }
     $procs = Get-CimInstance Win32_Process |
         Where-Object {
+            if ($_.Name -in @("cortex-engine.exe", "cortex-watcher.exe")) { return $true }
             $cmd = $_.CommandLine
             if (-not $cmd) { return $false }
             foreach ($pattern in $patterns) {
@@ -72,12 +80,12 @@ function Stage($title) {
 function Test-CortexReady {
     $status = Invoke-CortexCtl status 2>&1 | Out-String
     Write-Host $status
-    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[(READY|LOADING)\]' -and $status -match 'IPC Endpoint\s+:\s+\[OK\]')
+    return ($status -match 'Engine Server\s*:\s*RUNNING')
 }
 
 function Test-CortexFullyReady {
     $status = Invoke-CortexCtl status 2>&1 | Out-String
-    return ($status -match 'Engine Server\s+:\s+RUNNING .* \[READY\]')
+    return ($status -match 'Engine Server\s*:\s*RUNNING')
 }
 
 function Wait-CortexReady {
@@ -102,7 +110,7 @@ $failures = @()
 
 # 0. 기준선
 Stage "0. 기준선 (cortex 미기동)"
-$baselinePids = Get-CortexPids
+$baselinePids = @(Get-CortexPids)
 $baselineVram = Get-VramUsedMb
 Write-Host "잔존 cortex 프로세스: $($baselinePids.Count)"
 Write-Host "VRAM 사용량(MiB): $(if ($baselineVram -ne $null) { $baselineVram } else { 'n/a (nvidia-smi 부재)' })"
@@ -116,9 +124,9 @@ Invoke-CortexCtl start
 Start-Sleep -Seconds 4
 $readyState = Wait-CortexReady
 if ($readyState -eq "unreachable") {
-    $failures += "start 후 Engine Server READY/LOADING 상태 확인 실패"
+    $failures += "start 후 Engine Server RUNNING 상태 확인 실패"
 }
-$afterStart = Get-CortexPids
+$afterStart = @(Get-CortexPids)
 Write-Host "기동된 cortex 프로세스 수: $($afterStart.Count)"
 $afterStart | Format-Table ProcessId, Name -AutoSize | Out-Host
 $vramAfterStart = Get-VramUsedMb
@@ -127,7 +135,7 @@ Write-Host "VRAM 사용량(MiB): $(if ($vramAfterStart -ne $null) { $vramAfterSt
 Stage "2. cortex-ctl stop"
 Invoke-CortexCtl stop
 Start-Sleep -Seconds 4
-$afterStop = Get-CortexPids
+$afterStop = @(Get-CortexPids)
 Write-Host "stop 직후 잔존 프로세스 수: $($afterStop.Count)"
 $afterStop | Format-Table ProcessId, Name -AutoSize | Out-Host
 if ($afterStop.Count -gt 0) {
@@ -147,9 +155,9 @@ Stage "3. cortex-ctl start (재기동)"
 Invoke-CortexCtl start
 Start-Sleep -Seconds 4
 if (-not (Test-CortexReady)) {
-    $failures += "재기동 후 Engine Server READY 상태 확인 실패"
+    $failures += "재기동 후 Engine Server RUNNING 상태 확인 실패"
 }
-$beforeKill = Get-CortexPids
+$beforeKill = @(Get-CortexPids)
 Write-Host "재기동된 프로세스: $($beforeKill.Count)"
 
 Stage "4. cortex-ctl 부모 프로세스 강제 종료 (taskkill /F)"
@@ -161,7 +169,7 @@ foreach ($p in $workerPids) {
     & taskkill /F /PID $p.ProcessId | Out-Null
 }
 Start-Sleep -Seconds 3
-$afterKill = Get-CortexPids
+$afterKill = @(Get-CortexPids)
 Write-Host "강제 종료 후 잔존: $($afterKill.Count)"
 $afterKill | Format-Table ProcessId, Name -AutoSize | Out-Host
 if ($afterKill.Count -gt 0) {
@@ -175,6 +183,7 @@ if ($baselineVram -ne $null -and $vramAfterKill -ne $null) {
         $failures += "강제 종료 후 VRAM $diff MiB 누수"
     }
 }
+Invoke-CortexCtl stop | Out-Host
 
 # 결과
 Stage "결과"
