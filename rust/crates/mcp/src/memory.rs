@@ -1,5 +1,15 @@
 use super::*;
 
+#[derive(Debug, Clone)]
+struct MemorySearchHit {
+    key: String,
+    category: String,
+    content: String,
+    source_scope: String,
+    match_reason: String,
+    score: i64,
+}
+
 pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) -> ToolResult {
     let workspace = absolute_path(workspace);
     let branch = git_text(&workspace, &["rev-parse", "--abbrev-ref", "HEAD"])
@@ -129,34 +139,36 @@ pub fn call_search_memory(
     query: &str,
     category: Option<&str>,
 ) -> ToolResult {
-    let conn = open_connection(workspace)?;
-    let mut results = search_memories_fts(&conn, query, category, 5)?
+    let workspace = absolute_path(workspace);
+    let workspace_conn = open_connection(&workspace)?;
+    let global_conn = open_global_connection(&workspace)?;
+    let mut hits = collect_memory_hits(&workspace_conn, "workspace", query, category, 5)?;
+    hits.extend(collect_memory_hits(
+        &global_conn,
+        "global",
+        query,
+        category,
+        5,
+    )?);
+    hits.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.source_scope.cmp(&b.source_scope))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    let results = hits
         .into_iter()
-        .map(|memory| {
+        .map(|hit| {
             json!({
-                "key": memory.key,
-                "category": memory.category,
-                "content": snippet(&memory.content, 200),
-                "match_reason": "fts_match",
-                "score": 0.0,
+                "key": hit.key,
+                "category": hit.category,
+                "content": snippet(&hit.content, 200),
+                "source_scope": hit.source_scope,
+                "match_reason": hit.match_reason,
+                "score": hit.score,
             })
         })
         .collect::<Vec<_>>();
-    for memory in embedding::search_memories_vec(&conn, query, category, 5)? {
-        if results
-            .iter()
-            .any(|item| item.get("key").and_then(Value::as_str) == Some(memory.key.as_str()))
-        {
-            continue;
-        }
-        results.push(json!({
-            "key": memory.key,
-            "category": memory.category,
-            "content": snippet(&memory.content, 200),
-            "match_reason": "vector_match",
-            "score": 0.0,
-        }));
-    }
     Ok(Value::String(
         serde_json::to_string_pretty(&results).map_err(|err| err.to_string())?,
     ))
@@ -350,43 +362,79 @@ fn write_memory_row(
     tags: Option<Value>,
     relationships: Option<Value>,
 ) -> Result<(), String> {
-    if key.is_empty() {
-        return Err("memory key is required".to_string());
-    }
     let conn = open_connection(workspace)?;
-    let now = now_unix();
-    let tags =
-        serde_json::to_string(&tags.unwrap_or_else(|| json!([]))).map_err(|err| err.to_string())?;
-    let relationships = serde_json::to_string(&relationships.unwrap_or_else(|| json!({})))
-        .map_err(|err| err.to_string())?;
-    let exists = conn
-        .query_row(
-            "SELECT key FROM memories WHERE key = ?1",
-            params![key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|err| err.to_string())?
-        .is_some();
-    if exists {
-        conn.execute(
-            "UPDATE memories
-             SET category = ?1, content = ?2, tags = ?3, relationships = ?4,
-                 updated_at = ?5, access_count = access_count + 1
-             WHERE key = ?6",
-            params![category, content, tags, relationships, now, key],
-        )
-        .map_err(|err| err.to_string())?;
-    } else {
-        conn.execute(
-            "INSERT INTO memories
-             (key, project_id, category, content, tags, relationships, created_at, updated_at)
-             VALUES (?1, 'default', ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![key, category, content, tags, relationships, now, now],
-        )
-        .map_err(|err| err.to_string())?;
+    upsert_memory_record(
+        &conn,
+        key,
+        "default",
+        category,
+        content,
+        tags,
+        relationships,
+    )
+}
+
+fn collect_memory_hits(
+    conn: &Connection,
+    source_scope: &str,
+    query: &str,
+    category: Option<&str>,
+    limit: usize,
+) -> Result<Vec<MemorySearchHit>, String> {
+    let mut hits = Vec::new();
+    let mut seen = HashSet::new();
+
+    for (idx, memory) in search_memories_fts(conn, query, category, limit)?
+        .into_iter()
+        .enumerate()
+    {
+        let dedupe_key = format!("{source_scope}::{}", memory.key);
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        hits.push(MemorySearchHit {
+            key: memory.key,
+            category: memory.category,
+            content: memory.content,
+            source_scope: source_scope.to_string(),
+            match_reason: "fts_match".to_string(),
+            score: memory_rank_score(source_scope, "fts_match", idx),
+        });
     }
-    Ok(())
+
+    for (idx, memory) in embedding::search_memories_vec(conn, query, category, limit)?
+        .into_iter()
+        .enumerate()
+    {
+        let dedupe_key = format!("{source_scope}::{}", memory.key);
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        hits.push(MemorySearchHit {
+            key: memory.key,
+            category: memory.category,
+            content: memory.content,
+            source_scope: source_scope.to_string(),
+            match_reason: "vector_match".to_string(),
+            score: memory_rank_score(source_scope, "vector_match", idx),
+        });
+    }
+
+    Ok(hits)
+}
+
+fn memory_rank_score(source_scope: &str, match_reason: &str, index: usize) -> i64 {
+    let scope_bias = match source_scope {
+        "workspace" => 2_000,
+        "global" => 1_000,
+        _ => 0,
+    };
+    let reason_bias = match match_reason {
+        "fts_match" => 800,
+        "vector_match" => 400,
+        _ => 0,
+    };
+    scope_bias + reason_bias - index as i64
 }
 
 pub(crate) fn save_observation(

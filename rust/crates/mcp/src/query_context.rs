@@ -134,52 +134,48 @@ pub(crate) fn snippet(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
 }
 
+#[derive(Debug, Clone)]
+struct RankedContextLine {
+    key: String,
+    line: String,
+    score: i64,
+}
+
 pub fn call_search_context(
     workspace: impl AsRef<Path>,
     query: &str,
     token_budget: Option<usize>,
 ) -> ToolResult {
     let token_budget = token_budget.unwrap_or(DEFAULT_SEARCH_TOKEN_BUDGET);
-    let conn = open_connection(workspace)?;
+    let workspace = absolute_path(workspace);
+    let workspace_conn = open_connection(&workspace)?;
+    let global_conn = open_global_connection(&workspace)?;
     let mut lines = Vec::new();
+    let mut seen = HashSet::new();
 
-    for node in search_nodes_fts(&conn, query, 8)? {
-        lines.push(format!(
-            "[code] {} {}:{}",
-            node.fqn,
-            node.file_path.unwrap_or_default(),
-            node.start_line.unwrap_or_default()
-        ));
-    }
-    for node in embedding::search_nodes_vec(&conn, query, 8)? {
-        let line = format!(
-            "[code:vector] {} {}:{}",
-            node.fqn,
-            node.file_path.unwrap_or_default(),
-            node.start_line.unwrap_or_default()
-        );
-        if !lines.contains(&line) {
-            lines.push(line);
-        }
-    }
-    for item in search_memories_fts(&conn, query, None, 5)? {
-        lines.push(format!(
-            "[{}] {}: {}",
-            item.category,
-            item.key,
-            snippet(&item.content, 180)
-        ));
-    }
-    for item in embedding::search_memories_vec(&conn, query, None, 5)? {
-        lines.push(format!(
-            "[{}:vector] {}: {}",
-            item.category,
-            item.key,
-            snippet(&item.content, 180)
-        ));
-    }
+    collect_code_context_hits(&workspace_conn, query, &mut lines, &mut seen)?;
+    collect_memory_context_hits(
+        &workspace_conn,
+        "workspace",
+        query,
+        None,
+        &mut lines,
+        &mut seen,
+    )?;
+    collect_memory_context_hits(&global_conn, "global", query, None, &mut lines, &mut seen)?;
 
-    let mut capsule = lines.join("\n");
+    lines.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.key.cmp(&b.key))
+            .then_with(|| a.line.cmp(&b.line))
+    });
+
+    let mut capsule = lines
+        .into_iter()
+        .map(|item| item.line)
+        .collect::<Vec<_>>()
+        .join("\n");
     if capsule.len() > token_budget {
         capsule = capsule.chars().take(token_budget).collect();
     }
@@ -197,42 +193,54 @@ pub fn call_search_deep_context(
     limit: Option<usize>,
 ) -> ToolResult {
     let limit = limit.unwrap_or(DEFAULT_DEEP_CONTEXT_LIMIT);
-    let conn = open_connection(&workspace)?;
+    let workspace = absolute_path(workspace);
+    let workspace_conn = open_connection(&workspace)?;
+    let global_conn = open_global_connection(&workspace)?;
     let mut unified = Vec::new();
+    let mut seen = HashSet::new();
 
-    for node in search_nodes_fts(&conn, query, limit)? {
-        unified.push(json!({
-            "domain": "code",
-            "key": node.fqn,
-            "category": node.node_type,
-            "file_path": node.file_path.unwrap_or_default(),
-            "snippet": node.name,
-            "_total_score": 0.0,
-        }));
-    }
-    for node in embedding::search_nodes_vec(&conn, query, limit)? {
-        unified.push(json!({
-            "domain": "code",
-            "key": node.fqn,
-            "category": node.node_type,
-            "file_path": node.file_path.unwrap_or_default(),
-            "snippet": node.name,
-            "match_reason": "vector_match",
-            "_total_score": 0.0,
-        }));
-    }
-    for memory in search_memories_fts(&conn, query, None, limit)? {
-        unified.push(json!({
-            "domain": "knowledge",
-            "key": memory.key,
-            "category": memory.category,
-            "snippet": snippet(&memory.content, 180),
-            "_total_score": 0.0,
-        }));
-    }
-    unified.truncate(limit);
+    collect_code_deep_hits(&workspace_conn, query, &mut unified, &mut seen)?;
+    collect_memory_deep_hits(
+        &workspace_conn,
+        "workspace",
+        query,
+        None,
+        &mut unified,
+        &mut seen,
+    )?;
+    collect_memory_deep_hits(&global_conn, "global", query, None, &mut unified, &mut seen)?;
 
-    let capsule = call_search_context(workspace, query, Some(DEFAULT_SEARCH_TOKEN_BUDGET))?;
+    unified.sort_by(|a, b| {
+        let a_score = a
+            .get("_total_score")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let b_score = b
+            .get("_total_score")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        b_score
+            .cmp(&a_score)
+            .then_with(|| {
+                a.get("source_scope")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .cmp(b.get("source_scope").and_then(Value::as_str).unwrap_or(""))
+            })
+            .then_with(|| {
+                a.get("key")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .cmp(b.get("key").and_then(Value::as_str).unwrap_or(""))
+            })
+    });
+    let total_seen = unified.len();
+    let truncated = total_seen > limit;
+    if truncated {
+        unified.truncate(limit);
+    }
+
+    let capsule = call_search_context(&workspace, query, Some(DEFAULT_SEARCH_TOKEN_BUDGET))?;
     let capsule_text = capsule
         .get("capsule")
         .and_then(Value::as_str)
@@ -260,11 +268,259 @@ pub fn call_search_deep_context(
         "capsule": capsule_text,
         "capsule_chars": capsule_text.len(),
         "impact_summary": impact_summary,
-        "truncated": false,
+        "truncated": truncated,
         "limit": limit,
         "returned_count": unified.len(),
-        "total_seen": unified.len(),
+        "total_seen": total_seen,
     }))
+}
+
+fn collect_code_context_hits(
+    conn: &Connection,
+    query: &str,
+    lines: &mut Vec<RankedContextLine>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
+    for (idx, node) in search_nodes_fts(conn, query, 8)?.into_iter().enumerate() {
+        push_context_line(
+            lines,
+            seen,
+            "code",
+            "workspace",
+            &node.fqn,
+            format!(
+                "[code:fts] {} {}:{}",
+                node.fqn,
+                node.file_path.unwrap_or_default(),
+                node.start_line.unwrap_or_default()
+            ),
+            context_rank_score("code", "workspace", "fts_match", idx),
+        );
+    }
+    for (idx, node) in embedding::search_nodes_vec(conn, query, 8)?
+        .into_iter()
+        .enumerate()
+    {
+        push_context_line(
+            lines,
+            seen,
+            "code",
+            "workspace",
+            &node.fqn,
+            format!(
+                "[code:vector] {} {}:{}",
+                node.fqn,
+                node.file_path.unwrap_or_default(),
+                node.start_line.unwrap_or_default()
+            ),
+            context_rank_score("code", "workspace", "vector_match", idx),
+        );
+    }
+    Ok(())
+}
+
+fn collect_memory_context_hits(
+    conn: &Connection,
+    source_scope: &str,
+    query: &str,
+    category: Option<&str>,
+    lines: &mut Vec<RankedContextLine>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
+    for (idx, item) in search_memories_fts(conn, query, category, 5)?
+        .into_iter()
+        .enumerate()
+    {
+        push_context_line(
+            lines,
+            seen,
+            "memory",
+            source_scope,
+            &item.key,
+            format!(
+                "[{source_scope}:{}:fts] {}: {}",
+                item.category,
+                item.key,
+                snippet(&item.content, 180)
+            ),
+            context_rank_score("memory", source_scope, "fts_match", idx),
+        );
+    }
+    for (idx, item) in embedding::search_memories_vec(conn, query, category, 5)?
+        .into_iter()
+        .enumerate()
+    {
+        push_context_line(
+            lines,
+            seen,
+            "memory",
+            source_scope,
+            &item.key,
+            format!(
+                "[{source_scope}:{}:vector] {}: {}",
+                item.category,
+                item.key,
+                snippet(&item.content, 180)
+            ),
+            context_rank_score("memory", source_scope, "vector_match", idx),
+        );
+    }
+    Ok(())
+}
+
+fn collect_code_deep_hits(
+    conn: &Connection,
+    query: &str,
+    unified: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
+    for (idx, node) in search_nodes_fts(conn, query, 5)?.into_iter().enumerate() {
+        push_deep_hit(
+            unified,
+            seen,
+            "code",
+            "workspace",
+            &node.fqn,
+            json!({
+                "domain": "code",
+                "source_scope": "workspace",
+                "match_reason": "fts_match",
+                "key": node.fqn,
+                "category": node.node_type,
+                "file_path": node.file_path.unwrap_or_default(),
+                "snippet": node.name,
+                "_total_score": context_rank_score("code", "workspace", "fts_match", idx),
+            }),
+        );
+    }
+    for (idx, node) in embedding::search_nodes_vec(conn, query, 5)?
+        .into_iter()
+        .enumerate()
+    {
+        push_deep_hit(
+            unified,
+            seen,
+            "code",
+            "workspace",
+            &node.fqn,
+            json!({
+                "domain": "code",
+                "source_scope": "workspace",
+                "match_reason": "vector_match",
+                "key": node.fqn,
+                "category": node.node_type,
+                "file_path": node.file_path.unwrap_or_default(),
+                "snippet": node.name,
+                "_total_score": context_rank_score("code", "workspace", "vector_match", idx),
+            }),
+        );
+    }
+    Ok(())
+}
+
+fn collect_memory_deep_hits(
+    conn: &Connection,
+    source_scope: &str,
+    query: &str,
+    category: Option<&str>,
+    unified: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
+    for (idx, item) in search_memories_fts(conn, query, category, 5)?
+        .into_iter()
+        .enumerate()
+    {
+        push_deep_hit(
+            unified,
+            seen,
+            "memory",
+            source_scope,
+            &item.key,
+            json!({
+                "domain": "knowledge",
+                "source_scope": source_scope,
+                "match_reason": "fts_match",
+                "key": item.key,
+                "category": item.category,
+                "snippet": snippet(&item.content, 180),
+                "_total_score": context_rank_score("memory", source_scope, "fts_match", idx),
+            }),
+        );
+    }
+    for (idx, item) in embedding::search_memories_vec(conn, query, category, 5)?
+        .into_iter()
+        .enumerate()
+    {
+        push_deep_hit(
+            unified,
+            seen,
+            "memory",
+            source_scope,
+            &item.key,
+            json!({
+                "domain": "knowledge",
+                "source_scope": source_scope,
+                "match_reason": "vector_match",
+                "key": item.key,
+                "category": item.category,
+                "snippet": snippet(&item.content, 180),
+                "_total_score": context_rank_score("memory", source_scope, "vector_match", idx),
+            }),
+        );
+    }
+    Ok(())
+}
+
+fn push_context_line(
+    lines: &mut Vec<RankedContextLine>,
+    seen: &mut HashSet<String>,
+    domain: &str,
+    source_scope: &str,
+    key: &str,
+    line: String,
+    score: i64,
+) {
+    let dedupe_key = format!("{domain}::{source_scope}::{key}");
+    if seen.insert(dedupe_key.clone()) {
+        lines.push(RankedContextLine {
+            key: dedupe_key,
+            line,
+            score,
+        });
+    }
+}
+
+fn push_deep_hit(
+    unified: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+    domain: &str,
+    source_scope: &str,
+    key: &str,
+    value: Value,
+) {
+    let dedupe_key = format!("{domain}::{source_scope}::{key}");
+    if seen.insert(dedupe_key) {
+        unified.push(value);
+    }
+}
+
+fn context_rank_score(domain: &str, source_scope: &str, match_reason: &str, index: usize) -> i64 {
+    let domain_bias = match domain {
+        "code" => 3_000,
+        "memory" => 2_000,
+        _ => 0,
+    };
+    let scope_bias = match source_scope {
+        "workspace" => 1_000,
+        "global" => 700,
+        _ => 0,
+    };
+    let reason_bias = match match_reason {
+        "fts_match" => 500,
+        "vector_match" => 250,
+        _ => 0,
+    };
+    domain_bias + scope_bias + reason_bias - index as i64
 }
 
 pub fn call_get_file_git_history(

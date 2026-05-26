@@ -14,6 +14,7 @@ use cortex_parsers::{
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use walkdir::WalkDir;
 
 pub type ToolResult = Result<Value, String>;
 
@@ -51,10 +52,15 @@ const DEFAULT_LOGIC_MAX_DEPTH: u32 = 6;
 const DEFAULT_LOGIC_MAX_NODES: u32 = 200;
 const DEFAULT_SESSION_TOKEN_BUDGET: u32 = 2000;
 const WORKSPACES_DIRNAME: &str = "workspaces";
+const GLOBAL_DATA_DIRNAME: &str = "data";
 const MEMORY_DB_FILENAME: &str = "memories.db";
 const BOARD_STATE_DIRNAME: &str = "state";
 const BOARD_JSON_FILENAME: &str = "board.json";
 const SESSION_ID: &str = "rust-mcp";
+const GLOBAL_WORKSPACE_ID: &str = "global";
+const GLOBAL_PROJECT_ID: &str = "global";
+const GLOBAL_MEMORY_KEY_PREFIX: &str = "global::";
+const GLOBAL_DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "json", "yaml", "yml"];
 
 #[derive(Debug, Clone)]
 struct Node {
@@ -99,6 +105,10 @@ fn data_home() -> PathBuf {
     env::var_os("CORTEX_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".cortex"))
+}
+
+fn global_data_home() -> PathBuf {
+    data_home().join(GLOBAL_DATA_DIRNAME)
 }
 
 fn sha1_hex(input: &[u8]) -> String {
@@ -191,6 +201,10 @@ fn memories_db_path(workspace: impl AsRef<Path>) -> PathBuf {
     workspace_data_dir(workspace).join(MEMORY_DB_FILENAME)
 }
 
+fn global_memories_db_path() -> PathBuf {
+    global_data_home().join(MEMORY_DB_FILENAME)
+}
+
 fn board_json_path(workspace: impl AsRef<Path>) -> PathBuf {
     workspace_data_dir(workspace)
         .join(BOARD_STATE_DIRNAME)
@@ -214,11 +228,7 @@ fn now_text() -> String {
 
 fn cortex_root(workspace: impl AsRef<Path>) -> PathBuf {
     let workspace = absolute_path(workspace);
-    if workspace
-        .file_name()
-        .and_then(|name| name.to_str())
-        == Some(".cortex")
-    {
+    if workspace.file_name().and_then(|name| name.to_str()) == Some(".cortex") {
         workspace
     } else {
         workspace.join(".cortex")
@@ -227,15 +237,216 @@ fn cortex_root(workspace: impl AsRef<Path>) -> PathBuf {
 
 pub(crate) fn open_connection(workspace: impl AsRef<Path>) -> Result<Connection, String> {
     let path = memories_db_path(workspace);
-    let conn = Connection::open(path).map_err(|err| err.to_string())?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;\
-         PRAGMA busy_timeout=5000;\
-         PRAGMA foreign_keys=ON;\
-         PRAGMA cache_size=-2000;",
-    )
-    .map_err(|err| err.to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let conn = cortex_storage::open_connection(&path).map_err(|err| err.to_string())?;
+    cortex_storage::init_schema(&conn).map_err(|err| err.to_string())?;
     Ok(conn)
+}
+
+fn open_global_connection(workspace: impl AsRef<Path>) -> Result<Connection, String> {
+    let path = global_memories_db_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let conn = cortex_storage::open_connection(&path).map_err(|err| err.to_string())?;
+    cortex_storage::init_schema(&conn).map_err(|err| err.to_string())?;
+    sync_global_knowledge(&conn, workspace.as_ref())?;
+    Ok(conn)
+}
+
+fn sync_global_knowledge(conn: &Connection, workspace: &Path) -> Result<(), String> {
+    let root = cortex_home_root(workspace);
+    let mut seen = HashSet::new();
+
+    for subdir in ["rules", "knowledge"] {
+        let dir = root.join(subdir);
+        if !dir.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if !is_global_doc(path) {
+                continue;
+            }
+            let rel_path = match path.strip_prefix(&root) {
+                Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
+            let key = format!("{GLOBAL_MEMORY_KEY_PREFIX}{rel_path}");
+            let content = fs::read_to_string(path)
+                .map(|text| text.replace("\r\n", "\n"))
+                .map_err(|err| err.to_string())?;
+            let hash = sha256_hex(content.as_bytes());
+            seen.insert(rel_path.clone());
+
+            let existing_hash = conn
+                .query_row(
+                    "SELECT hash FROM file_cache WHERE file_path = ?1 AND workspace_id = ?2",
+                    params![rel_path, GLOBAL_WORKSPACE_ID],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|err| err.to_string())?;
+            if existing_hash.as_deref() == Some(hash.as_str()) {
+                continue;
+            }
+
+            upsert_memory_record(
+                conn,
+                &key,
+                GLOBAL_PROJECT_ID,
+                global_doc_category(&rel_path),
+                &content,
+                None,
+                None,
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO file_cache (file_path, hash, last_indexed_at, node_count, workspace_id)
+                 VALUES (?1, ?2, ?3, 0, ?4)",
+                params![rel_path, hash, now_unix(), GLOBAL_WORKSPACE_ID],
+            )
+            .map_err(|err| err.to_string())?;
+        }
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT file_path FROM file_cache WHERE workspace_id = ?1")
+        .map_err(|err| err.to_string())?;
+    let stale_paths = stmt
+        .query_map(params![GLOBAL_WORKSPACE_ID], |row| row.get::<_, String>(0))
+        .map_err(|err| err.to_string())?
+        .filter_map(|row| row.ok())
+        .filter(|rel_path| !seen.contains(rel_path))
+        .collect::<Vec<_>>();
+
+    for rel_path in stale_paths {
+        let key = format!("{GLOBAL_MEMORY_KEY_PREFIX}{rel_path}");
+        conn.execute("DELETE FROM memories WHERE key = ?1", params![key])
+            .map_err(|err| err.to_string())?;
+        conn.execute(
+            "DELETE FROM file_cache WHERE file_path = ?1 AND workspace_id = ?2",
+            params![rel_path, GLOBAL_WORKSPACE_ID],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn cortex_home_root(workspace: impl AsRef<Path>) -> PathBuf {
+    if let Some(home) = env::var_os("CORTEX_HOME") {
+        let home = PathBuf::from(home);
+        if home.exists() {
+            return home;
+        }
+    }
+
+    let workspace = absolute_path(workspace);
+    if workspace.file_name().and_then(|name| name.to_str()) == Some(".cortex") {
+        return workspace;
+    }
+
+    let nested = workspace.join(".cortex");
+    if nested.exists() {
+        return nested;
+    }
+
+    workspace
+}
+
+fn is_global_doc(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| {
+            let ext = ext.to_ascii_lowercase();
+            GLOBAL_DOC_EXTENSIONS
+                .iter()
+                .any(|candidate| candidate == &ext.as_str())
+        })
+        .unwrap_or(false)
+}
+
+fn global_doc_category(rel_path: &str) -> &'static str {
+    let normalized = rel_path.replace('\\', "/");
+    if normalized.starts_with("rules/") {
+        "rule"
+    } else if normalized.contains("/skills/") {
+        "skill"
+    } else if normalized.contains("protocol") {
+        "protocol"
+    } else {
+        "knowledge"
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn upsert_memory_record(
+    conn: &Connection,
+    key: &str,
+    project_id: &str,
+    category: &str,
+    content: &str,
+    tags: Option<Value>,
+    relationships: Option<Value>,
+) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("memory key is required".to_string());
+    }
+    let now = now_unix();
+    let tags =
+        serde_json::to_string(&tags.unwrap_or_else(|| json!([]))).map_err(|err| err.to_string())?;
+    let relationships = serde_json::to_string(&relationships.unwrap_or_else(|| json!({})))
+        .map_err(|err| err.to_string())?;
+    let exists = conn
+        .query_row(
+            "SELECT key FROM memories WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|err| err.to_string())?
+        .is_some();
+    if exists {
+        conn.execute(
+            "UPDATE memories
+             SET project_id = ?1, category = ?2, content = ?3, tags = ?4, relationships = ?5,
+                 updated_at = ?6, access_count = access_count + 1
+             WHERE key = ?7",
+            params![project_id, category, content, tags, relationships, now, key],
+        )
+        .map_err(|err| err.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT INTO memories
+             (key, project_id, category, content, tags, relationships, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                key,
+                project_id,
+                category,
+                content,
+                tags,
+                relationships,
+                now,
+                now
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    Ok(())
 }
 
 fn count_table(conn: &Connection, table: &str) -> Result<i64, String> {
@@ -403,9 +614,16 @@ fn parse_file(file_path: &str, abs_path: &Path) -> Result<ParseResult, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{LazyLock, Mutex};
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_root(name: &str) -> PathBuf {
+        let id = NEXT_TMP_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("cortex_mcp_{name}_{}_{}", std::process::id(), id))
+    }
 
     #[test]
     fn normalize_fts_query_matches_phrase_prefix_shape() {
@@ -424,7 +642,7 @@ mod tests {
 
     #[test]
     fn workspace_key_honors_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         let old = env::var("CORTEX_WORKSPACE_KEY").ok();
         env::set_var("CORTEX_WORKSPACE_KEY", "shared-workspace");
         assert_eq!(workspace_key("repo"), "shared-workspace");
@@ -436,7 +654,7 @@ mod tests {
 
     #[test]
     fn memories_db_path_uses_workspace_key_prefix() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         let old = env::var("CORTEX_DATA_HOME").ok();
         let old_key = env::var("CORTEX_WORKSPACE_KEY").ok();
         env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
@@ -450,6 +668,106 @@ mod tests {
         match old_key {
             Some(value) => env::set_var("CORTEX_WORKSPACE_KEY", value),
             None => env::remove_var("CORTEX_WORKSPACE_KEY"),
+        }
+    }
+
+    #[test]
+    fn global_memories_db_path_uses_data_root() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let old = env::var("CORTEX_DATA_HOME").ok();
+        env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
+        let path = global_memories_db_path();
+        assert!(path.ends_with(r"data\memories.db"));
+        match old {
+            Some(value) => env::set_var("CORTEX_DATA_HOME", value),
+            None => env::remove_var("CORTEX_DATA_HOME"),
+        }
+    }
+
+    #[test]
+    fn cortex_home_root_prefers_env_when_present() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let old = env::var("CORTEX_HOME").ok();
+        let old_data = env::var("CORTEX_DATA_HOME").ok();
+        let home = temp_root("home");
+        fs::create_dir_all(&home).unwrap();
+        env::set_var("CORTEX_HOME", &home);
+        env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
+        let root = cortex_home_root("repo");
+        assert_eq!(root, home);
+        match old {
+            Some(value) => env::set_var("CORTEX_HOME", value),
+            None => env::remove_var("CORTEX_HOME"),
+        }
+        match old_data {
+            Some(value) => env::set_var("CORTEX_DATA_HOME", value),
+            None => env::remove_var("CORTEX_DATA_HOME"),
+        }
+    }
+
+    #[test]
+    fn search_merges_global_rules_and_workspace_memory() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let old_home = env::var("CORTEX_HOME").ok();
+        let old_data = env::var("CORTEX_DATA_HOME").ok();
+
+        let root = temp_root("search_merge");
+        let cortex_home = root.join("cortex-home");
+        let data_home = root.join("data-home");
+        let workspace = root.join("workspace");
+        fs::create_dir_all(cortex_home.join("rules")).unwrap();
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            cortex_home.join("rules").join("guide.md"),
+            "# Global Rule\nshared-token",
+        )
+        .unwrap();
+
+        env::set_var("CORTEX_HOME", &cortex_home);
+        env::set_var("CORTEX_DATA_HOME", &data_home);
+
+        let conn = open_connection(&workspace).unwrap();
+        upsert_memory_record(
+            &conn,
+            "workspace-note",
+            "default",
+            "decision",
+            "workspace shared-token note",
+            None,
+            None,
+        )
+        .unwrap();
+        drop(conn);
+
+        let memory_results = call_search_memory(&workspace, "shared-token", None).unwrap();
+        let memory_text = memory_results.as_str().expect("memory result text");
+        let parsed: Vec<Value> = serde_json::from_str(memory_text).expect("parse search result");
+        assert!(parsed
+            .iter()
+            .any(|item| item.get("source_scope").and_then(Value::as_str) == Some("global")));
+        assert!(parsed
+            .iter()
+            .any(|item| item.get("source_scope").and_then(Value::as_str) == Some("workspace")));
+
+        let context = call_search_context(&workspace, "shared-token", Some(1000)).unwrap();
+        assert!(context
+            .get("capsule")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("[global:"));
+        assert!(context
+            .get("capsule")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("[workspace:"));
+
+        match old_home {
+            Some(value) => env::set_var("CORTEX_HOME", value),
+            None => env::remove_var("CORTEX_HOME"),
+        }
+        match old_data {
+            Some(value) => env::set_var("CORTEX_DATA_HOME", value),
+            None => env::remove_var("CORTEX_DATA_HOME"),
         }
     }
 }

@@ -16,7 +16,11 @@ pub(crate) fn search_nodes_vec(
     let mut nodes = Vec::new();
     for rowid in rowids {
         if let Some(node) = conn
-            .query_row("SELECT * FROM nodes WHERE rowid = ?1", params![rowid], node_from_row)
+            .query_row(
+                "SELECT * FROM nodes WHERE rowid = ?1",
+                params![rowid],
+                node_from_row,
+            )
             .optional()
             .map_err(|err| err.to_string())?
         {

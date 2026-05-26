@@ -106,11 +106,7 @@ fn rust_binary(name: &str) -> PathBuf {
 
 fn cortex_root() -> PathBuf {
     let workspace = workspace();
-    if workspace
-        .file_name()
-        .and_then(|name| name.to_str())
-        == Some(".cortex")
-    {
+    if workspace.file_name().and_then(|name| name.to_str()) == Some(".cortex") {
         workspace
     } else {
         workspace.join(".cortex")

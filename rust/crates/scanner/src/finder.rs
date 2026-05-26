@@ -3,7 +3,7 @@
 use anyhow::Result;
 use serde_yaml::Value;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::filters::{is_supported_extension, should_include};
@@ -50,51 +50,6 @@ pub fn scan_files(workspace: &Path, settings_override: Option<Value>) -> Result<
             &settings,
             &mut files,
         );
-    }
-
-    // 2. Cortex home 강제 포함 (rules/, docs/ 내 .md)
-    let cortex_home = resolve_cortex_home(&workspace);
-    let home_rel = relative_to(&workspace, &cortex_home);
-    for sub in &["rules", "docs"] {
-        let dir = cortex_home.join(sub);
-        if dir.exists() {
-            for entry in WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
-                if entry.file_type().is_file()
-                    && entry.path().extension().and_then(|s| s.to_str()) == Some("md")
-                {
-                    if let Some(rel) = workspace_relative(&workspace, entry.path()) {
-                        let _ = home_rel; // home_rel은 metadev 시 사용 가능
-                        files.insert(rel);
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. Cortex Python package 강제 포함 (.py)
-    for forced_dir in [
-        &cortex_home.join("src").join("cortex"),
-        &cortex_home.join("scripts"),
-    ] {
-        if !forced_dir.exists() {
-            continue;
-        }
-        for entry in WalkDir::new(forced_dir).into_iter().filter_map(|e| e.ok()) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) != Some("py") {
-                continue;
-            }
-            let s = p.to_string_lossy();
-            if s.contains("__pycache__") || s.contains(".venv") || s.contains("site-packages") {
-                continue;
-            }
-            if let Some(rel) = workspace_relative(&workspace, p) {
-                files.insert(rel);
-            }
-        }
     }
 
     Ok(files.into_iter().collect())
@@ -163,34 +118,4 @@ fn collect_from_index_root(
             out.insert(db_path);
         }
     }
-}
-
-fn workspace_relative(workspace: &Path, path: &Path) -> Option<String> {
-    let p = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    p.strip_prefix(workspace)
-        .ok()
-        .map(|r| r.to_string_lossy().replace('\\', "/"))
-}
-
-fn relative_to(base: &Path, target: &Path) -> String {
-    target
-        .strip_prefix(base)
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| target.to_string_lossy().to_string())
-}
-
-/// Python `paths.py:resolve_cortex_home()` 동등.
-/// CORTEX_HOME 환경변수가 우선, 없으면 워크스페이스 내 `.cortex` 디렉토리.
-fn resolve_cortex_home(workspace: &Path) -> PathBuf {
-    if let Ok(env) = std::env::var("CORTEX_HOME") {
-        let p = PathBuf::from(env);
-        if p.exists() {
-            return p;
-        }
-    }
-    let candidate = workspace.join(".cortex");
-    if candidate.exists() {
-        return candidate;
-    }
-    workspace.to_path_buf()
 }
