@@ -30,7 +30,7 @@ uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
 # 2) Install Codex + Claude Code hooks and initialize the data directory.
 cortex-ctl bootstrap --include-all
 
-# 3) Optional: save an HF token and pre-download the embedding model.
+# 3) Optional HF token + embedding model preparation
 cortex-ctl bootstrap --include-all \
     --hf-token <YOUR_HF_TOKEN> \
     --warm-models
@@ -60,7 +60,7 @@ rm -rf ~/.cortex
 
 ## 2. Embedding And Acceleration Choices
 
-If the machine has no GPU or only a low-end GPU, use the default path and skip GPU extras. Search, memory, and MCP features still work; the embedding model loads on CPU or any available device on first use. `--warm-models` only pre-downloads the model and is not required for installation.
+If the machine has no GPU or only a low-end GPU, use the default path and skip GPU extras. Search, memory, and MCP features still work; the embedding model is downloaded and loaded on CPU or any available device on first use. In other words, the HF token and `--warm-models` are optional, but embedding model availability itself is still required for embedding-backed features.
 
 For lower-spec machines, switch to a smaller embedding model:
 
@@ -89,16 +89,15 @@ Use this mode only when editing Cortex itself.
 git clone https://github.com/kth3/Cortex-agents_infra.git
 cd Cortex-agents_infra
 
-# 2) Install standard dependencies.
+# 2) Install the base dependencies.
 uv sync
 
-# 3) Optional NVIDIA GPU acceleration extras on Linux/WSL.
-uv sync --extra gpu-accel
-
-# 4) Run local entrypoints.
+# 3) Run local entrypoints.
 uv run cortex-ctl bootstrap --include-all
 uv run cortex-index --force
 ```
+
+For GPU extras, smaller embedding models, and the bf16/Flash-Attention path, follow section `2. Embedding And Acceleration Choices` and [DEPENDENCIES.md](./DEPENDENCIES.md).
 
 When running from WSL2, prefer a Linux-home checkout such as `~/src/...`. Advisory locks can be less reliable on mounted Windows drives such as `/mnt/c/...`.
 
@@ -202,19 +201,7 @@ cortex-ctl migrate
 
 ---
 
-## 8. Optional Local Daemon
-
-Set this in `.env` to start an additional local daemon after the engine server is ready:
-
-```env
-CORTEX_LOCAL_DAEMON=path/to/daemon.py
-```
-
-Relative paths are resolved from `CORTEX_HOME`.
-
----
-
-## 9. Validation
+## 8. Validation
 
 For development-mode validation:
 

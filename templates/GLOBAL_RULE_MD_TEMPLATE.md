@@ -10,7 +10,7 @@
 > "[파악한 의도], [구체적인 계획]"
 
 ### 0.2 지식 인용 표기 (Citation Footer)
-응답 작성 중 mcp를 사용해 `pc_memory_search_knowledge` 또는 `pc_memory_read` 등으로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
+응답 작성 중 mcp를 사용해 `search_memory` 또는 `read_memory` 등으로 **`category: skill`** 지식을 참조했다면, 응답 마지막 줄에 출처를 명시하십시오. 환각 방지·검증성 확보가 목적입니다.
 > `참조: skill::{name1}, skill::{name2}` (rule 카테고리 동시 참조 시 `rule::{name}` 병기)
 참조하지 않았다면 표기를 생략합니다.
 
@@ -40,7 +40,7 @@
 
 ### Branch 1 (기본 — 코드 수정·의사결정 포함 모든 작업)
 코드 수정·다중파일·리팩토링·아키텍처·이전 세션 맥락·MR 리뷰, 그리고 직행 예외에 명확히 해당하지 않는 모든 작업.
-- 절차: ① `uv run --project .cortex python .cortex/scripts/cortex/cortex_ctl.py status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `pc_capsule`, `pc_run_pipeline`, `pc_skeleton` 등 상황에 맞는 Cortex 탐색 도구 또는 `pc_memory_search_knowledge(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
+- 절차: ① `cortex-ctl status`(미가동 시 start) → ② **§2 워크플로우 도구 강제 조건 먼저 확인** → ③ `search_context`, `search_deep_context`, `get_file_outline` 등 상황에 맞는 Cortex 탐색 도구 또는 `search_memory(category: skill|rule)` 1회 이상 호출 → ④ 본 작업.
 
 ### Branch 2 (직행 예외 해당 시에만)
 위 직행 예외 목록에 **명확히** 해당하는 경우에만 즉시 실행.
@@ -51,23 +51,24 @@
 - **Minimum Implementation**: 요청받은 것만 구현한다. 요청 외 기능·추상화·에러핸들링·유연성은 추가하지 않는다. 더 짧게 쓸 수 있다면 더 짧게 써야 한다. "시니어 엔지니어가 과도하다고 할 만한가?"를 자문하라.
 - **Surgical Check**: 변경한 모든 라인은 사용자 요청에 직접 추적 가능해야 한다. **인접 코드·주석·포맷을 '개선' 목적으로 수정하지 않는다. 동작하는 코드는 리팩토링 요청 없이 건드리지 않는다.** 관련 없는 dead code 발견 시 언급만 하고 건드리지 않는다.
 - **Knowledge Access Control**:
-  - Read: `pc_memory_search_knowledge` 호출 시 `category: skill` 또는 `rule` 필터를 명시.
-  - **Write 금지**: `skill`/`rule` 카테고리로 신규 작성·수정 금지(Anti-Hallucination). 에이전트 메모리는 `insight`/`architecture`/`memory`/`history` 카테고리만 사용.
+  - Read: `search_memory` 호출 시 `category: skill` 또는 `rule` 필터를 명시. 정확한 key를 알고 있으면 `read_memory`를 사용한다.
+  - **Write 금지**: `skill`/`rule` 카테고리로 신규 작성·수정 금지(Anti-Hallucination). 에이전트 메모리는 `insight`/`architecture`/`decision`/`history` 계열로만 기록한다.
 
 ## 2. 핵심 워크플로우 도구 강제 (Tool Routing Mandates)
 
 > **네이티브 도구 편향 억제**: 아래 조건에 해당하면 플랫폼 기본 도구 대신 반드시 지정 MCP 도구를 사용한다. 예외 없음.
 
-1. **맥락 복원 1순위**: 세션 첫 지시가 모호하거나("이어서 해", "검토해" 등) 이전 작업 맥락이 필요한 경우, 다른 탐색 도구에 앞서 **`pc_auto_context`를 1순위로 호출**하여 이전 세션 동기화 데이터를 복원한다.
-2. **세션 종료 동기화**: 유의미한 작업(코드 수정·설계 결정·탐색 완료)을 마치면 반드시 **`pc_session_sync`를 호출**하여 세션 상태를 저장한다. 호출하지 않으면 다음 세션의 `pc_auto_context` 복원이 불완전해진다.
-3. **코드 편집 네이티브 도구 금지**: 파일 수정 시 플랫폼 네이티브 편집 도구 사용 금지. 순서: ① **`pc_read_with_hash`로 파일 최신 상태 및 원본 텍스트를 정확히 확인** → ② **`pc_strict_replace`로 편집**. 이 순서를 우회하면 시스템 DB 로깅 및 라이프사이클 훅이 트리거되지 않는 '스텔스 수정'이 발생한다.
-4. **관찰 기록 의무**: 코드 수정·설계 결정·버그 발견 등 유의미한 작업 직후 반드시 **`pc_save_observation`을 호출**하여 관찰 내용을 DB에 기록한다. 기록하지 않으면 다른 에이전트와의 협업 맥락 및 이력이 단절된다.
-5. **복합 태스크 선행 계약**: 3개 이상의 파일 변경 또는 아키텍처·설계 관련 작업은 코딩 시작 전 반드시 `pc_create_contract`와 `pc_todo_manager`를 호출하여 작업 명세와 체크리스트를 생성한다.
+1. **hook 연동 기준**: Codex와 Claude Code hook은 `cortex-ctl bootstrap --include-all`로 설치된다고 가정한다. 수동 hook 명령이나 예전 `.cortex/scripts/...` 경로를 규칙 본문에 박아두지 않는다.
+2. **맥락 복원 1순위**: 세션 첫 지시가 모호하거나("이어서 해", "검토해" 등) 이전 작업 맥락이 필요한 경우, 다른 탐색 도구에 앞서 **`get_session_context`를 1순위로 호출**하여 최근 결정과 세션 동기화 데이터를 복원한다.
+3. **세션 종료 동기화**: 유의미한 작업(코드 수정·설계 결정·탐색 완료)을 마치면 반드시 **`sync_session_memory`를 호출**하여 세션 상태를 저장한다. 호출하지 않으면 다음 세션의 맥락 복원이 불완전해진다.
+4. **코드 편집 네이티브 도구 금지**: 파일 수정 시 플랫폼 네이티브 편집 도구 사용 금지. 순서: ① **`read_file_with_hash`로 파일 최신 상태 및 원본 텍스트를 정확히 확인** → ② **`replace_exact_text`로 편집**. 이 순서를 우회하면 시스템 DB 로깅 및 라이프사이클 훅이 트리거되지 않는 '스텔스 수정'이 발생한다.
+5. **관찰 기록 의무**: 코드 수정·설계 결정·버그 발견 등 유의미한 작업 직후 반드시 **`save_observation`을 호출**하여 관찰 내용을 DB에 기록한다. 기록하지 않으면 다른 에이전트와의 협업 맥락 및 이력이 단절된다.
+6. **복합 태스크 선행 계약**: 3개 이상의 파일 변경 또는 아키텍처·설계 관련 작업은 코딩 시작 전 반드시 `create_task_contract`와 `manage_todo`를 호출하여 작업 명세와 체크리스트를 생성한다.
 
 ## 3. 도구 운용 (Tool Operations)
 
 1. **MCP 우선**: Branch 1의 모든 정보 획득(Read·Grep·Glob 포함)은 Cortex MCP 파이프라인을 1차 경로로 사용.
-2. **Git 조회 강제**: `git log` / `git show` / `git diff` 셸 명령 직접 실행 금지. 파일 이력·커밋 확인은 **반드시 `pc_git_log` MCP를 먼저 호출**하고, 실패 시에만 셸로 전환하며 전환 사유를 명시.
+2. **Git 조회 강제**: `git log` / `git show` / `git diff` 셸 명령 직접 실행 금지. 파일 이력 확인은 **반드시 `get_file_git_history` MCP를 먼저 호출**하고, 범위를 넘어서는 조회만 예외적으로 셸로 전환하며 전환 사유를 명시한다.
 3. **Fallback 조건**: MCP가 **실제로 실패·타임아웃한 경우에만** 쉘 또는 플랫폼 내장 검색(`grep`, `find`, `grep_search`, `glob` 등)으로 전환. **선제적 Fallback 금지** — "느릴 것 같다"는 추측만으로 직행 불가. 검색 시 반드시 `.git`, `.cortex` 디렉토리를 **제외**(도구별 자율 문법 — 예: GNU grep `--exclude-dir=...`, ripgrep `--glob '!.git/**'`, 에디터 검색의 ignore 옵션).
 4. **Fallback도 실패 시**: 추측 진행 금지 → 오류 로그·원인을 보고하고 사용자 판단을 요청.
 5. **편집 도구 의미론**:
@@ -76,12 +77,12 @@
 6. **Cognitive Stack**: 정보 결합 시 ① 실시간(세션·파일) → ② MCP 검색 결과 → ③ 영구 기억(DB) 순으로 신뢰.
 7. **위임**: 3+파일 동시 수정 또는 1,000+줄 처리는 직접 수행 대신 스크립트(`.cortex/scripts/`)를 생성하여 위임.
 8. **상황별 보조 도구** (조건 충족 시 자율 호출):
-   `pc_impact_graph`(아키텍처 변경 전) / `pc_logic_flow`(복잡 흐름 분석) / `pc_index_status`(탐색 이상 시) / `pc_memory_consolidate`(메모리 중복·과다 시)
+   `get_impact_graph`(아키텍처 변경 전) / `find_execution_path`(복잡 흐름 분석) / `get_index_status`(탐색 이상 시) / `consolidate_memory`(메모리 중복·과다 시)
 
 
 ## 4. 안전망 (Safety First)
 
-- **Locking**: **쓰기 작업에 한해서만** `uv run --project .cortex python .cortex/scripts/relay.py acquire [agent_id] [task_name] [lane_id_opt]` → 종료 시 `uv run --project .cortex python .cortex/scripts/relay.py release [agent_id] [lane_id_opt]` 직접 실행. 읽기 전용은 락 없이 즉시. **acquire로 할당받은 Lane 범위 외 파일은 절대 수정하지 않는다.** (멀티에이전트 릴레이 활성 시 적용)
+- **Locking**: **쓰기 작업에 한해서만** `cortex-ctl relay acquire [agent_id] [task_name] [lane_id_opt]` → 종료 시 `cortex-ctl relay release [agent_id] [lane_id_opt]` 직접 실행. 읽기 전용은 락 없이 즉시. **acquire로 할당받은 Lane 범위 외 파일은 절대 수정하지 않는다.** (멀티에이전트 릴레이 활성 시 적용)
 - **Memo Override**:
   - **읽기**: 사용자가 `메모`만 입력 시, 즉시 `.cortex/memo.md`를 읽고 최우선 지침으로 채택.
   - **쓰기**: 사용자가 `메모해` 또는 "답변을 메모해" 등 쓰기를 지시 시, 현재 답변·분석 내용을 `.cortex/memo.md`에 **덮어쓰기(overwrite)**한다. 기존 내용에 추가(append) 금지.
@@ -97,7 +98,7 @@
 ```
 약한 기준("동작하게 해")으로는 강행 금지 — 검증 조건을 먼저 확정한다.
 
-다음 중 하나 이상의 객관적 증거 없이 작업 완료를 주장하지 마십시오: LSP 무에러 / 빌드 Exit 0 / 관련 테스트 통과 / `pc_todo_manager` 전 항목 `checked`.
+다음 중 하나 이상의 객관적 증거 없이 작업 완료를 주장하지 마십시오: LSP 무에러 / 빌드 Exit 0 / 관련 테스트 통과 / `manage_todo`로 기록한 전 항목 `checked`.
 
 **Anti-Patterns**: "수정했습니다"+증거 미제시 / 에러 회피용 테스트 삭제 / `as any`·`@ts-ignore` 남발.
 

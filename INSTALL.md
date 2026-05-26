@@ -29,7 +29,7 @@ uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
 # 2) Codex + Claude Code hook 등록 + 워크스페이스 데이터 디렉토리 초기화
 cortex-ctl bootstrap --include-all
 
-# 3) (선택) HF 토큰 저장 + 임베딩 모델 사전 다운로드
+# 3) HF 토큰 저장(선택) + 임베딩 모델 준비
 cortex-ctl bootstrap --include-all \
     --hf-token <YOUR_HF_TOKEN> \
     --warm-models
@@ -58,7 +58,7 @@ rm -rf ~/.cortex
 
 ## 2. 임베딩·가속 선택
 
-그래픽카드가 없거나 저사양이면 추가 GPU 설치를 하지 않는 기본 경로를 사용합니다. 이 경우에도 검색·메모리·MCP 기능은 동작하고, 임베딩 모델은 첫 사용 시 CPU 또는 사용 가능한 장치에서 로드됩니다. `--warm-models`는 모델을 미리 받아두는 선택 옵션일 뿐 필수 설치 단계가 아닙니다.
+그래픽카드가 없거나 저사양이면 추가 GPU 설치를 하지 않는 기본 경로를 사용합니다. 이 경우에도 검색·메모리·MCP 기능은 동작하고, 임베딩 모델은 첫 사용 시 CPU 또는 사용 가능한 장치에서 자동 다운로드·로드됩니다. 즉, HF 토큰과 `--warm-models`는 선택이지만 임베딩 모델 준비 자체는 관련 기능에 필요합니다.
 
 저사양 환경에서 기본 모델이 부담되면 더 작은 임베딩 모델로 바꿉니다:
 
@@ -87,18 +87,15 @@ cortex 코드 자체를 수정·기여할 때 사용합니다.
 git clone https://github.com/kth3/Cortex-agents_infra.git
 cd Cortex-agents_infra
 
-# 2) 표준 의존성 설치
+# 2) 기본 의존성 설치
 uv sync
 
-# 3) (선택) GPU 가속 설치 (NVIDIA Ampere 이상, Linux/WSL)
-uv sync --extra gpu-accel
-
-# 4) 로컬 entry point로 호출
+# 3) 로컬 entry point로 호출
 uv run cortex-ctl bootstrap --include-all
 uv run cortex-index --force
 ```
 
-상세 의존성 설명은 [DEPENDENCIES.md](./DEPENDENCIES.md)를 참고하십시오.
+GPU extra, 저사양 모델 변경, bf16/Flash-Attention 경로는 바로 앞의 `2. 임베딩·가속 선택`과 [DEPENDENCIES.md](./DEPENDENCIES.md)를 따릅니다.
 
 ---
 
@@ -190,19 +187,7 @@ cortex-ctl migrate              # 실제 이동
 
 ---
 
-## 8. 로컬 데몬 옵션 (선택)
-
-`.env`에 다음 값을 설정하면 `cortex-ctl start` 시 engine server 준비 이후 local daemon을 추가 실행합니다.
-
-```env
-CORTEX_LOCAL_DAEMON=path/to/daemon.py
-```
-
-daemon 경로가 상대 경로이면 `CORTEX_HOME` 기준으로 해석됩니다.
-
----
-
-## 9. 검증 절차
+## 8. 검증 절차
 
 CI와 동일한 방향으로 로컬 검증하려면 (개발 모드에서):
 
