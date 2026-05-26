@@ -78,7 +78,7 @@ pub fn call_resolve_symbol(
     }
 
     if candidates.len() < limit {
-        for node in search_nodes_fts(&conn, name, limit * FTS_PROBE_MULTIPLIER)? {
+        for node in search_nodes_fts(&conn, name, None, limit * FTS_PROBE_MULTIPLIER)? {
             if seen.contains(&node.fqn) {
                 continue;
             }
@@ -132,7 +132,8 @@ pub fn call_get_impact_graph(
     max_depth: Option<u32>,
     max_nodes: Option<u32>,
 ) -> ToolResult {
-    let conn = open_connection(workspace)?;
+    let workspace = absolute_path(workspace);
+    let conn = open_connection(&workspace)?;
     let direction = direction.unwrap_or(DEFAULT_IMPACT_DIRECTION);
     let max_depth = max_depth.unwrap_or(DEFAULT_IMPACT_MAX_DEPTH);
     let max_nodes = max_nodes.unwrap_or(DEFAULT_IMPACT_MAX_NODES) as usize;
@@ -151,13 +152,14 @@ pub fn call_get_impact_graph(
             continue;
         }
         visited.insert(current.id.clone());
-        let mut neighbors = Vec::new();
-        if direction == "callers" || direction == "both" {
-            neighbors.extend(get_callers(&conn, &current.id)?);
-        }
-        if direction == "callees" || direction == "both" {
-            neighbors.extend(get_callees(&conn, &current.id)?);
-        }
+        let neighbors = graph_or_sql_neighbors(
+            &workspace,
+            &conn,
+            &current.fqn,
+            &current.id,
+            direction,
+            max_nodes,
+        )?;
         for neighbor in neighbors {
             if impact_nodes.contains_key(&neighbor.id) {
                 continue;
@@ -193,7 +195,8 @@ pub fn call_find_execution_path(
     max_depth: Option<u32>,
     max_nodes: Option<u32>,
 ) -> ToolResult {
-    let conn = open_connection(workspace)?;
+    let workspace = absolute_path(workspace);
+    let conn = open_connection(&workspace)?;
     let max_depth = max_depth.unwrap_or(DEFAULT_LOGIC_MAX_DEPTH);
     let max_nodes = max_nodes.unwrap_or(DEFAULT_LOGIC_MAX_NODES) as usize;
     let Some(start) = get_node_by_fqn(&conn, from_fqn)? else {
@@ -237,7 +240,9 @@ pub fn call_find_execution_path(
             truncated = true;
             continue;
         }
-        for callee in get_callees(&conn, &current)? {
+        
+        let current_node = get_node_by_id(&conn, &current)?.unwrap();
+        for callee in graph_or_sql_neighbors(&workspace, &conn, &current_node.fqn, &current_node.id, "callees", max_nodes)? {
             total_seen += 1;
             let mut next = path.clone();
             next.push(callee.id);
@@ -252,6 +257,35 @@ pub fn call_find_execution_path(
         "returned_count": 0,
         "total_seen": total_seen,
     }))
+}
+
+fn graph_or_sql_neighbors(
+    workspace: &Path,
+    conn: &Connection,
+    node_fqn: &str,
+    node_id: &str,
+    direction: &str,
+    limit: usize,
+) -> Result<Vec<Node>, String> {
+    let graph_path = crate::storage_tools::graph_store_path(workspace);
+    let graph_direction = cortex_storage::graph::GraphDirection::from_str(direction);
+    match cortex_storage::graph::graph_neighbors(&graph_path, node_fqn, graph_direction, limit) {
+        Ok(fqns) if !fqns.is_empty() => fqns
+            .into_iter()
+            .filter_map(|fqn| get_node_by_fqn(conn, &fqn).transpose())
+            .collect(),
+        Ok(_) | Err(_) => {
+            // Fallback to SQLite edges
+            let mut neighbors = Vec::new();
+            if direction == "callers" || direction == "both" {
+                neighbors.extend(get_callers(conn, node_id)?);
+            }
+            if direction == "callees" || direction == "both" {
+                neighbors.extend(get_callees(conn, node_id)?);
+            }
+            Ok(neighbors)
+        }
+    }
 }
 
 fn generate_file_skeleton(nodes: &[NodeRecord], detail: &str) -> String {

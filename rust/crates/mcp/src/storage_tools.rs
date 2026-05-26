@@ -54,6 +54,7 @@ const DEFAULT_SESSION_TOKEN_BUDGET: u32 = 2000;
 const WORKSPACES_DIRNAME: &str = "workspaces";
 const GLOBAL_DATA_DIRNAME: &str = "data";
 const MEMORY_DB_FILENAME: &str = "memories.db";
+const GRAPH_STORE_DIRNAME: &str = "graph_db_store";
 const BOARD_STATE_DIRNAME: &str = "state";
 const BOARD_JSON_FILENAME: &str = "board.json";
 const SESSION_ID: &str = "rust-mcp";
@@ -63,7 +64,7 @@ const GLOBAL_MEMORY_KEY_PREFIX: &str = "global::";
 const GLOBAL_DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "json", "yaml", "yml"];
 
 #[derive(Debug, Clone)]
-struct Node {
+pub(crate) struct Node {
     id: String,
     node_type: String,
     name: String,
@@ -199,6 +200,10 @@ fn workspace_data_dir(workspace: impl AsRef<Path>) -> PathBuf {
 
 fn memories_db_path(workspace: impl AsRef<Path>) -> PathBuf {
     workspace_data_dir(workspace).join(MEMORY_DB_FILENAME)
+}
+
+pub(crate) fn graph_store_path(workspace: impl AsRef<Path>) -> PathBuf {
+    workspace_data_dir(workspace).join(GRAPH_STORE_DIRNAME)
 }
 
 fn global_memories_db_path() -> PathBuf {
@@ -506,26 +511,44 @@ pub fn normalize_fts_query(query: Option<&str>) -> String {
         .join(" OR ")
 }
 
-fn search_nodes_fts(conn: &Connection, query: &str, limit: usize) -> Result<Vec<Node>, String> {
+pub(crate) fn search_nodes_fts(conn: &Connection, query: &str, category: Option<&str>, limit: usize) -> Result<Vec<Node>, String> {
     let query = normalize_fts_query(Some(query));
     if query.is_empty() {
         return Ok(Vec::new());
     }
-    let mut stmt = conn
-        .prepare(
-            "SELECT n.* FROM nodes_fts f
-             JOIN nodes n ON n.rowid = f.rowid
-             WHERE nodes_fts MATCH ?1
-             ORDER BY CASE WHEN n.category = 'SOURCE' THEN 0 ELSE 1 END, rank
-             LIMIT ?2",
-        )
-        .map_err(|err| err.to_string())?;
-    let rows = stmt
-        .query_map(params![query, limit as i64], node_from_row)
-        .map_err(|err| err.to_string())?;
     let mut nodes = Vec::new();
-    for row in rows {
-        nodes.push(row.map_err(|err| err.to_string())?);
+    if let Some(cat) = category {
+        let mut stmt = conn
+            .prepare(
+                "SELECT n.* FROM nodes_fts f
+                 JOIN nodes n ON n.rowid = f.rowid
+                 WHERE nodes_fts MATCH ?1 AND n.category = ?2
+                 ORDER BY rank
+                 LIMIT ?3",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![query, cat, limit as i64], node_from_row)
+            .map_err(|err| err.to_string())?;
+        for row in rows {
+            nodes.push(row.map_err(|err| err.to_string())?);
+        }
+    } else {
+        let mut stmt = conn
+            .prepare(
+                "SELECT n.* FROM nodes_fts f
+                 JOIN nodes n ON n.rowid = f.rowid
+                 WHERE nodes_fts MATCH ?1
+                 ORDER BY CASE WHEN n.category = 'SOURCE' THEN 0 ELSE 1 END, rank
+                 LIMIT ?2",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map(params![query, limit as i64], node_from_row)
+            .map_err(|err| err.to_string())?;
+        for row in rows {
+            nodes.push(row.map_err(|err| err.to_string())?);
+        }
     }
     Ok(nodes)
 }

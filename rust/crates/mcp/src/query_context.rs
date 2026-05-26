@@ -281,7 +281,7 @@ fn collect_code_context_hits(
     lines: &mut Vec<RankedContextLine>,
     seen: &mut HashSet<String>,
 ) -> Result<(), String> {
-    for (idx, node) in search_nodes_fts(conn, query, 8)?.into_iter().enumerate() {
+    for (idx, node) in search_nodes_fts(conn, query, None, 8)?.into_iter().enumerate() {
         push_context_line(
             lines,
             seen,
@@ -374,7 +374,7 @@ fn collect_code_deep_hits(
     unified: &mut Vec<Value>,
     seen: &mut HashSet<String>,
 ) -> Result<(), String> {
-    for (idx, node) in search_nodes_fts(conn, query, 5)?.into_iter().enumerate() {
+    for (idx, node) in search_nodes_fts(conn, query, None, 5)?.into_iter().enumerate() {
         push_deep_hit(
             unified,
             seen,

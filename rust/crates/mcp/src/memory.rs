@@ -14,8 +14,17 @@ pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) ->
     let workspace = absolute_path(workspace);
     let branch = git_text(&workspace, &["rev-parse", "--abbrev-ref", "HEAD"])
         .unwrap_or_else(|| "unknown".to_string());
+    
+    let status1 = git_text(&workspace, &["diff", "--name-only", "HEAD"]).unwrap_or_default();
+    let status2 = git_text(&workspace, &["log", "-1", "--name-only", "--pretty=format:"]).unwrap_or_default();
+    let mut modified_files: Vec<String> = status1.lines().chain(status2.lines())
+        .map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
+    modified_files.sort();
+    modified_files.dedup();
+    let jira_issues: Vec<String> = Vec::new();
+
     let key = format!("session-sync-{}", now_unix());
-    let relationships = json!({"jira_issues": [], "modifies": [], "branch": branch});
+    let relationships = json!({"jira_issues": jira_issues, "modifies": modified_files, "branch": branch});
     write_memory_row(
         &workspace,
         &key,
@@ -24,12 +33,16 @@ pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) ->
         Some(json!(["session-sync", "auto-generated", "autonomous-rag"])),
         Some(relationships.clone()),
     )?;
+    
+    let md_res = append_session_sync_markdown(&workspace, task_desc, &branch, &jira_issues, &modified_files);
+    update_memory_yaml_if_exists(&workspace, &branch);
+    
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "success": true,
         "key": key,
         "extracted_relationships": relationships,
-        "markdown_synced": false,
+        "markdown_synced": md_res.is_ok(),
         "inbox_items": inbox_items,
     }))
 }
@@ -42,6 +55,7 @@ pub fn call_write_memory(workspace: impl AsRef<Path>, args: &Value) -> ToolResul
     let tags = args.get("tags").cloned();
     let relationships = args.get("relationships").cloned();
     write_memory_row(&workspace, key, category, content, tags, relationships)?;
+    let _ = append_promoted_memory_log(&workspace, category, key, content);
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "success": true,
@@ -93,6 +107,7 @@ pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> Too
         args.get("tags").cloned(),
         args.get("relationships").cloned(),
     )?;
+    let _ = append_promoted_memory_log(&workspace, category, new_key, content);
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "executed": true,
@@ -204,6 +219,13 @@ pub fn call_create_task_contract(workspace: impl AsRef<Path>, args: &Value) -> T
         now_text()
     );
     fs::write(&path, content).map_err(|err| err.to_string())?;
+    
+    // Acquire Relay lock (matching Python orchestration behavior)
+    let _ = std::process::Command::new("uv")
+        .args(&["run", "--project", ".agents", "python", ".agents/scripts/relay.py", "acquire", "rust-mcp", &task_name, &lane_id])
+        .current_dir(&workspace)
+        .status();
+
     save_observation(
         &workspace,
         "decision",
@@ -477,4 +499,104 @@ fn git_text(workspace: impl AsRef<Path>, args: &[&str]) -> Option<String> {
     String::from_utf8(output.stdout)
         .ok()
         .map(|text| text.trim().to_string())
+}
+
+fn history_markdown_path(workspace: impl AsRef<Path>, target_filename: &str) -> PathBuf {
+    workspace_history_dir(workspace).join(target_filename)
+}
+
+fn append_markdown_with_archive(
+    workspace: impl AsRef<Path>,
+    target_filename: &str,
+    content: &str,
+) -> Result<(), String> {
+    let md_path = history_markdown_path(&workspace, target_filename);
+    
+    if md_path.exists() {
+        if let Ok(metadata) = std::fs::metadata(&md_path) {
+            if metadata.len() > 50 * 1024 {
+                let archive_dir = workspace_history_dir(&workspace).join("archive");
+                let _ = std::fs::create_dir_all(&archive_dir);
+                let ts = now_unix();
+                let archive_name = format!("{}_{}.md", target_filename.trim_end_matches(".md"), ts);
+                let _ = std::fs::rename(&md_path, archive_dir.join(archive_name));
+            }
+        }
+    }
+    
+    if let Some(parent) = md_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&md_path)
+        .map_err(|e| e.to_string())?;
+    
+    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn append_promoted_memory_log(
+    workspace: impl AsRef<Path>,
+    category: &str,
+    title: &str,
+    content: &str,
+) -> Result<(), String> {
+    let target_file = match category {
+        "decision" | "architecture" => "decisions.md",
+        "pattern" | "convention" | "rule" | "protocol" => "patterns.md",
+        _ => return Ok(()),
+    };
+    
+    let date_str = std::process::Command::new("python")
+        .args(&["-c", "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d'))"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown-date".to_string());
+        
+    let log_line = format!("\n### [{}] {}\n- **Category**: {}\n- **Content**: {}\n", date_str, title, category, content);
+    append_markdown_with_archive(workspace, target_file, &log_line)
+}
+
+fn append_session_sync_markdown(
+    workspace: impl AsRef<Path>,
+    task_desc: &str,
+    branch: &str,
+    jira_issues: &[String],
+    modified_files: &[String],
+) -> Result<(), String> {
+    let date_str = std::process::Command::new("python")
+        .args(&["-c", "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown-date".to_string());
+        
+    let log_line = format!(
+        "\n- [CONFIRMED] **[SESSION_SYNC]** {} | Branch: {} | Issue: {:?}\n  - 📝 {}\n  - 📂 Modifies: {} files\n",
+        date_str, branch, jira_issues, task_desc, modified_files.len()
+    );
+    append_markdown_with_archive(workspace, "inbox.md", &log_line)
+}
+
+fn update_memory_yaml_if_exists(workspace: impl AsRef<Path>, branch: &str) {
+    let yaml_path = workspace_history_dir(&workspace).join("memory.yaml");
+    if yaml_path.exists() {
+        let script = format!(
+r#"
+import yaml, datetime, sys
+path = r"{}"
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {{}}
+    data["active_branch"] = r"{}"
+    data["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+except Exception as e:
+    sys.exit(1)
+"#, yaml_path.to_string_lossy().replace("\\", "\\\\"), branch);
+        let _ = std::process::Command::new("python").args(&["-c", &script]).status();
+    }
 }
