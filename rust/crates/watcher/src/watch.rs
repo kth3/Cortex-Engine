@@ -10,7 +10,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use crate::common::{load_ignore_patterns, should_track_path, workspace_db_path};
-use crate::index::{process_path, ProcessOutcome, ProcessResult};
+use crate::index::{process_path, sync_graph_store, ProcessOutcome, ProcessResult};
 
 const WATCH_DEBOUNCE: Duration = Duration::from_secs(5);
 const WATCH_HEARTBEAT: Duration = Duration::from_secs(60);
@@ -157,6 +157,7 @@ fn flush_pending_batch(
     }
 
     cortex_storage::resolve_unresolved_edges(conn)?;
+    // sync_graph_store(conn, workspace)?; // Removed to prevent full graph rebuild on every file change. Incremental sync is done in process_path.
 
     tracing::info!(
         rust_indexed = rust_count,

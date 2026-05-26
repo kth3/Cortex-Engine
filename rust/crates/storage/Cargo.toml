@@ -11,4 +11,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+kuzu = { workspace = true }
 cortex-parsers = { path = "../parsers" }

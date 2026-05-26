@@ -8,7 +8,8 @@ use rusqlite::OptionalExtension;
 
 use crate::common::{
     blake2b16_hex, category_for, file_extension, module_name_for, now_unix_seconds,
-    read_text_source, vector_prefix_for_path, workspace_db_path, workspace_id_for,
+    read_text_source, vector_prefix_for_path, workspace_db_path, workspace_graph_path,
+    workspace_id_for,
 };
 
 #[derive(Default, Serialize)]
@@ -121,6 +122,7 @@ pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
     }
 
     cortex_storage::resolve_unresolved_edges(&mut conn)?;
+    sync_graph_store(&conn, &workspace)?;
 
     let report = IndexReport {
         total_files: stats.total_files,
@@ -169,6 +171,7 @@ pub(crate) fn cmd_index_file(workspace: &Path, rel_path: &Path, force: bool) -> 
     };
 
     cortex_storage::resolve_unresolved_edges(&mut conn)?;
+    sync_graph_store(&conn, &workspace)?;
 
     let report = match outcome {
         ProcessOutcome::RustIndexed => serde_json::json!({
@@ -256,6 +259,16 @@ pub(crate) fn process_path(
     let vector_items = match indexed {
         InspectOutcome::Indexed(indexed) => {
             write_indexed_path(conn, &indexed)?;
+            let graph_path = crate::common::workspace_graph_path(workspace);
+            if let Err(e) = cortex_storage::graph::sync_file_graph(
+                graph_path,
+                &indexed.module_name,
+                &indexed.rel_path,
+                &indexed.nodes,
+                &indexed.edges,
+            ) {
+                tracing::warn!(error = %e, "incremental graph sync failed");
+            }
             indexed.vector_items
         }
         InspectOutcome::Skipped => {
@@ -346,6 +359,19 @@ fn write_indexed_path(conn: &mut rusqlite::Connection, indexed: &PreparedIndex) 
     };
 
     Ok(cortex_storage::write_file_batch(conn, &batch)?)
+}
+
+pub(crate) fn sync_graph_store(conn: &rusqlite::Connection, workspace: &Path) -> Result<()> {
+    let graph_path = workspace_graph_path(workspace);
+    let stats = cortex_storage::graph::sync_graph_store(conn, &graph_path)
+        .with_context(|| format!("failed to sync graph store: {}", graph_path.display()))?;
+    tracing::debug!(
+        graph_nodes = stats.nodes,
+        graph_edges = stats.edges,
+        graph = %graph_path.display(),
+        "graph store synced"
+    );
+    Ok(())
 }
 
 fn build_vector_items(

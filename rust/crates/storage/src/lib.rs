@@ -8,6 +8,7 @@ use std::path::Path;
 use cortex_parsers::{EdgeRecord, NodeRecord, UNRESOLVED_FQN_PREFIX};
 use rusqlite::{params, Connection, Result, Transaction};
 
+pub mod graph;
 mod resolver;
 mod schema;
 

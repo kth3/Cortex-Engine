@@ -7,6 +7,7 @@ use sha1::Digest as _;
 
 pub(crate) const SQLITE_DB_FILENAME: &str = "memories.db";
 pub(crate) const WORKSPACES_DIRNAME: &str = "workspaces";
+pub(crate) const GRAPH_STORE_DIRNAME: &str = "graph_db_store";
 
 pub(crate) fn read_text_source(file: &Path) -> Result<String> {
     let raw = std::fs::read_to_string(file)
@@ -89,6 +90,10 @@ pub(crate) fn workspace_data_home() -> PathBuf {
 
 pub(crate) fn workspace_db_path(workspace: &Path) -> PathBuf {
     workspace_data_dir(workspace).join(SQLITE_DB_FILENAME)
+}
+
+pub(crate) fn workspace_graph_path(workspace: &Path) -> PathBuf {
+    workspace_data_dir(workspace).join(GRAPH_STORE_DIRNAME)
 }
 
 pub(crate) fn workspace_data_dir(workspace: &Path) -> PathBuf {
