@@ -198,7 +198,7 @@ fn board_json_path(workspace: impl AsRef<Path>) -> PathBuf {
 }
 
 pub(crate) fn workspace_history_dir(workspace: impl AsRef<Path>) -> PathBuf {
-    absolute_path(workspace).join(".cortex").join("history")
+    cortex_root(workspace).join("history")
 }
 
 fn now_unix() -> i64 {
@@ -210,6 +210,19 @@ fn now_unix() -> i64 {
 
 fn now_text() -> String {
     now_unix().to_string()
+}
+
+fn cortex_root(workspace: impl AsRef<Path>) -> PathBuf {
+    let workspace = absolute_path(workspace);
+    if workspace
+        .file_name()
+        .and_then(|name| name.to_str())
+        == Some(".cortex")
+    {
+        workspace
+    } else {
+        workspace.join(".cortex")
+    }
 }
 
 pub(crate) fn open_connection(workspace: impl AsRef<Path>) -> Result<Connection, String> {

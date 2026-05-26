@@ -28,11 +28,11 @@ pub(crate) fn repo_root() -> PathBuf {
 }
 
 pub(crate) fn history_dir() -> PathBuf {
-    workspace().join(".cortex").join("history")
+    cortex_root().join("history")
 }
 
 pub(crate) fn data_home() -> PathBuf {
-    workspace().join(".cortex")
+    cortex_root()
 }
 
 pub(crate) fn pid_dir() -> PathBuf {
@@ -102,4 +102,17 @@ fn rust_binary(name: &str) -> PathBuf {
         .and_then(|path| path.parent().map(|dir| dir.join(name)))
         .filter(|path| path.exists())
         .unwrap_or_else(|| root.join("rust").join("target").join("release").join(name))
+}
+
+fn cortex_root() -> PathBuf {
+    let workspace = workspace();
+    if workspace
+        .file_name()
+        .and_then(|name| name.to_str())
+        == Some(".cortex")
+    {
+        workspace
+    } else {
+        workspace.join(".cortex")
+    }
 }
