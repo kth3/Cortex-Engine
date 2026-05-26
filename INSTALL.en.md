@@ -84,6 +84,8 @@ This extra adds `flash-attn`; the PyTorch CUDA 12.4 wheel follows the `pytorch-c
 
 Use this mode only when editing Cortex itself.
 
+Building or testing the Rust MCP/watcher/storage crates requires a Rust toolchain and native build tools. The Kuzu graph store (`graph_db_store/`) builds the C++ core through the Rust crate, so Windows source builds need MSVC Build Tools, CMake, and Ninja.
+
 ```bash
 # 1) Clone the repository.
 git clone https://github.com/kth3/Cortex-agents_infra.git

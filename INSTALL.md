@@ -82,6 +82,8 @@ uv sync --extra gpu-accel
 
 cortex 코드 자체를 수정·기여할 때 사용합니다.
 
+Rust MCP/watcher/storage를 빌드하거나 테스트하려면 Rust toolchain과 네이티브 빌드 도구가 필요합니다. Kuzu graph store(`graph_db_store/`)는 Rust crate 빌드 과정에서 C++ 코어를 함께 빌드하므로 Windows에서는 MSVC Build Tools, CMake, Ninja를 준비합니다.
+
 ```bash
 # 1) 저장소 클론
 git clone https://github.com/kth3/Cortex-agents_infra.git
