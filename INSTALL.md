@@ -29,7 +29,7 @@ uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
 # 2) Codex + Claude Code hook 등록 + 워크스페이스 데이터 디렉토리 초기화
 cortex-ctl bootstrap --include-all
 
-# 3) (선택) HF 토큰·임베딩 모델·사전 다운로드까지 한 번에
+# 3) (선택) HF 토큰 저장 + 임베딩 모델 사전 다운로드
 cortex-ctl bootstrap --include-all \
     --hf-token <YOUR_HF_TOKEN> \
     --warm-models
@@ -56,7 +56,29 @@ rm -rf ~/.cortex
 
 ---
 
-## 2. 개발 모드 (소스 트리에서 직접 작업)
+## 2. 임베딩·가속 선택
+
+그래픽카드가 없거나 저사양이면 추가 GPU 설치를 하지 않는 기본 경로를 사용합니다. 이 경우에도 검색·메모리·MCP 기능은 동작하고, 임베딩 모델은 첫 사용 시 CPU 또는 사용 가능한 장치에서 로드됩니다. `--warm-models`는 모델을 미리 받아두는 선택 옵션일 뿐 필수 설치 단계가 아닙니다.
+
+저사양 환경에서 기본 모델이 부담되면 더 작은 임베딩 모델로 바꿉니다:
+
+```bash
+cortex-ctl bootstrap \
+    --embedding-model google/embeddinggemma-300m \
+    --embedding-max-seq-length 2048
+```
+
+NVIDIA Ampere 이상 GPU가 있고 bf16/Flash-Attention까지 쓰려면 Linux 또는 WSL의 소스 체크아웃에서 GPU extra를 설치합니다:
+
+```bash
+uv sync --extra gpu-accel
+```
+
+이 extra는 `flash-attn`을 추가하고, PyTorch CUDA 12.4 wheel은 `pyproject.toml`의 `pytorch-cu124` index 설정을 따릅니다. 수동 wheel 다운로드나 별도 `pip install --index-url` 경로가 필요해지면 먼저 [DEPENDENCIES.md](./DEPENDENCIES.md)를 확인하십시오.
+
+---
+
+## 3. 개발 모드 (소스 트리에서 직접 작업)
 
 cortex 코드 자체를 수정·기여할 때 사용합니다.
 
@@ -68,7 +90,7 @@ cd Cortex-agents_infra
 # 2) 표준 의존성 설치
 uv sync
 
-# 3) GPU 가속 설치 (NVIDIA Ampere 이상, Linux 전용)
+# 3) (선택) GPU 가속 설치 (NVIDIA Ampere 이상, Linux/WSL)
 uv sync --extra gpu-accel
 
 # 4) 로컬 entry point로 호출
@@ -80,7 +102,7 @@ uv run cortex-index --force
 
 ---
 
-## 3. 경로 모델
+## 4. 경로 모델
 
 | 환경변수 | 의미 | 기본값 |
 |---|---|---|
@@ -96,7 +118,7 @@ uv run cortex-index --force
 
 ---
 
-## 4. HuggingFace 토큰
+## 5. HuggingFace 토큰
 
 | 방식 | 동작 | 우선순위 |
 |---|---|---|
@@ -110,7 +132,7 @@ uv run cortex-index --force
 
 ---
 
-## 5. 임베딩 모델 변경
+## 6. 임베딩 모델 변경
 
 기본 모델은 `Qwen/Qwen3-Embedding-0.6B` (컨텍스트 4096)입니다. 다른 모델로 옮기려면:
 
@@ -138,7 +160,7 @@ export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 
 ---
 
-## 6. MCP 서버 등록
+## 7. MCP 서버 등록
 
 Codex와 Claude Code는 `cortex-ctl bootstrap`이 hook을 자동 등록합니다(별도 MCP 등록 불필요). 그 외 CLI는 다음과 같이 수동 등록합니다.
 
@@ -168,7 +190,7 @@ cortex-ctl migrate              # 실제 이동
 
 ---
 
-## 7. 로컬 데몬 옵션 (선택)
+## 8. 로컬 데몬 옵션 (선택)
 
 `.env`에 다음 값을 설정하면 `cortex-ctl start` 시 engine server 준비 이후 local daemon을 추가 실행합니다.
 
@@ -180,7 +202,7 @@ daemon 경로가 상대 경로이면 `CORTEX_HOME` 기준으로 해석됩니다.
 
 ---
 
-## 8. 검증 절차
+## 9. 검증 절차
 
 CI와 동일한 방향으로 로컬 검증하려면 (개발 모드에서):
 

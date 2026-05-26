@@ -30,7 +30,7 @@ uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
 # 2) Install Codex + Claude Code hooks and initialize the data directory.
 cortex-ctl bootstrap --include-all
 
-# 3) Optional: save an HF token and pre-download embedding models.
+# 3) Optional: save an HF token and pre-download the embedding model.
 cortex-ctl bootstrap --include-all \
     --hf-token <YOUR_HF_TOKEN> \
     --warm-models
@@ -58,7 +58,29 @@ rm -rf ~/.cortex
 
 ---
 
-## 2. Development Mode (Source Checkout)
+## 2. Embedding And Acceleration Choices
+
+If the machine has no GPU or only a low-end GPU, use the default path and skip GPU extras. Search, memory, and MCP features still work; the embedding model loads on CPU or any available device on first use. `--warm-models` only pre-downloads the model and is not required for installation.
+
+For lower-spec machines, switch to a smaller embedding model:
+
+```bash
+cortex-ctl bootstrap \
+    --embedding-model google/embeddinggemma-300m \
+    --embedding-max-seq-length 2048
+```
+
+For NVIDIA Ampere-or-newer GPUs with bf16 and Flash-Attention, install the GPU extra from a Linux or WSL source checkout:
+
+```bash
+uv sync --extra gpu-accel
+```
+
+This extra adds `flash-attn`; the PyTorch CUDA 12.4 wheel follows the `pytorch-cu124` index configured in `pyproject.toml`. If you think you need manual wheel downloads or a separate `pip install --index-url` command, check [DEPENDENCIES.md](./DEPENDENCIES.md) first.
+
+---
+
+## 3. Development Mode (Source Checkout)
 
 Use this mode only when editing Cortex itself.
 
@@ -70,7 +92,7 @@ cd Cortex-agents_infra
 # 2) Install standard dependencies.
 uv sync
 
-# 3) Optional Linux NVIDIA GPU acceleration extras.
+# 3) Optional NVIDIA GPU acceleration extras on Linux/WSL.
 uv sync --extra gpu-accel
 
 # 4) Run local entrypoints.
@@ -82,7 +104,7 @@ When running from WSL2, prefer a Linux-home checkout such as `~/src/...`. Adviso
 
 ---
 
-## 3. Path Model
+## 4. Path Model
 
 | Environment variable | Meaning | Default |
 |---|---|---|
@@ -98,7 +120,7 @@ Indexes (`memories.db`, `graph_db_store/`) and history are isolated under `<CORT
 
 ---
 
-## 4. HuggingFace Tokens
+## 5. HuggingFace Tokens
 
 | Method | Behavior | Priority |
 |---|---|---|
@@ -112,7 +134,7 @@ The default model cache is `~/.cache/huggingface/hub/`. Set `HF_HOME` to move it
 
 ---
 
-## 5. Embedding Model Changes
+## 6. Embedding Model Changes
 
 Default:
 
@@ -151,7 +173,7 @@ cortex-index --force
 
 ---
 
-## 6. MCP Server Registration
+## 7. MCP Server Registration
 
 Codex and Claude Code hooks are installed by `cortex-ctl bootstrap`; no separate MCP registration is required for those integrations. Other CLIs can register the MCP server manually.
 
@@ -180,7 +202,7 @@ cortex-ctl migrate
 
 ---
 
-## 7. Optional Local Daemon
+## 8. Optional Local Daemon
 
 Set this in `.env` to start an additional local daemon after the engine server is ready:
 
@@ -192,7 +214,7 @@ Relative paths are resolved from `CORTEX_HOME`.
 
 ---
 
-## 8. Validation
+## 9. Validation
 
 For development-mode validation:
 

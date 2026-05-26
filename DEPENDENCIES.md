@@ -2,6 +2,8 @@
 
 본 문서는 NVIDIA GPU(Ampere 아키텍처 이상) 환경에서 `bf16` 정밀도와 `Flash-Attention`을 활용하여 인덱싱 및 임베딩 속도를 극대화하는 방법을 안내합니다.
 
+GPU가 없거나 저사양이면 이 문서의 extra 설치를 건너뜁니다. 기본 설치만으로도 Cortex는 동작하며, 임베딩은 CPU 또는 사용 가능한 장치에서 실행됩니다.
+
 ## 🚀 왜 이 설정이 필요한가요?
 
 - **속도**: GPU 가속을 통해 수천 개의 파일을 수초 내에 임베딩할 수 있습니다.
@@ -10,14 +12,14 @@
 
 ---
 
-## 🛠 설치 (uv 기반 — 단일 명령어)
+## 🛠 설치 (uv 기반 — 선택 extra)
 
-`pyproject.toml`의 `[dependency-groups]`에 GPU 가속 패키지(flash-attn 포함)가 선언되어 있습니다.
+`pyproject.toml`의 `[project.optional-dependencies]`에 GPU 가속 extra(`gpu-accel`)가 선언되어 있습니다.
 **torch CUDA wheel**은 `[tool.uv.sources]`에 의해 자동으로 올바른 CUDA 12.4 빌드가 설치됩니다.
 
 ```bash
-# GPU 가속 의존성 포함 전체 동기화 (단일 명령어)
-uv sync --project .cortex --group gpu-accel
+# GPU 가속 의존성 포함 전체 동기화
+uv sync --extra gpu-accel
 ```
 
 > **참고**: 위 명령어 한 줄로 PyTorch CUDA 12.4 빌드 + Flash-Attention 프리컴파일 wheel이 모두 설치됩니다.
