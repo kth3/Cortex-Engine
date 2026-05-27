@@ -43,12 +43,20 @@ pub fn call_sync_session_memory(workspace: impl AsRef<Path>, task_desc: &str) ->
         Some(json!(["session-sync", "auto-generated", "autonomous-rag"])),
         Some(relationships.clone()),
     )?;
+    let md_res = append_session_sync_markdown(
+        &workspace,
+        task_desc,
+        &branch,
+        &jira_issues,
+        &modified_files,
+    );
+    update_memory_yaml_if_exists(&workspace, &branch);
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "success": true,
         "key": key,
         "extracted_relationships": relationships,
-        "markdown_synced": false,
+        "markdown_synced": md_res.is_ok(),
         "inbox_items": inbox_items,
     }))
 }
@@ -61,11 +69,14 @@ pub fn call_write_memory(workspace: impl AsRef<Path>, args: &Value) -> ToolResul
     let tags = args.get("tags").cloned();
     let relationships = args.get("relationships").cloned();
     write_memory_row(&workspace, key, category, content, tags, relationships)?;
+    if let Some(target_file) = target_file_for_write_category(category) {
+        let _ = append_promoted_memory_log(&workspace, target_file, category, key, content);
+    }
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "success": true,
         "key": key,
-        "auto_promoted_to": promoted_file(category),
+        "auto_promoted_to": target_file_for_write_category(category),
         "inbox_items": inbox_items,
     }))
 }
@@ -90,11 +101,11 @@ pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> Too
     });
     if dry_run {
         return Ok(json!({
-        "executed": false,
-        "would_delete": old_keys,
-        "would_write": would_write,
-        "auto_promoted_to": Value::Null,
-        "note": "dry_run=true (default). actual merge/delete skipped.",
+            "executed": false,
+            "would_delete": old_keys,
+            "would_write": would_write,
+            "auto_promoted_to": target_file_for_consolidate_category(category),
+            "note": "dry_run=true (default). actual merge/delete skipped.",
         }));
     }
     let conn = open_connection(&workspace)?;
@@ -112,13 +123,16 @@ pub fn call_consolidate_memory(workspace: impl AsRef<Path>, args: &Value) -> Too
         args.get("tags").cloned(),
         args.get("relationships").cloned(),
     )?;
+    if let Some(target_file) = target_file_for_consolidate_category(category) {
+        let _ = append_promoted_memory_log(&workspace, target_file, category, new_key, content);
+    }
     let inbox_items = crate::hooks::after_save_observation(&workspace)?;
     Ok(json!({
         "executed": true,
         "success": true,
         "consolidated_key": new_key,
         "deleted_old_fragments": old_keys.len(),
-        "auto_promoted_to": Value::Null,
+        "auto_promoted_to": target_file_for_consolidate_category(category),
         "would_delete": old_keys,
         "would_write": would_write,
         "inbox_items": inbox_items,
@@ -493,9 +507,20 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> &'a str {
     args.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn promoted_file(category: &str) -> Option<&'static str> {
-    let _ = category;
-    None
+fn target_file_for_write_category(category: &str) -> Option<&'static str> {
+    match category {
+        "decision" | "architecture" => Some("decisions.md"),
+        "pattern" | "convention" | "rule" | "protocol" => Some("patterns.md"),
+        _ => None,
+    }
+}
+
+fn target_file_for_consolidate_category(category: &str) -> Option<&'static str> {
+    match category {
+        "decision" | "architecture" => Some("decisions.md"),
+        "pattern" | "convention" | "rule" => Some("patterns.md"),
+        _ => None,
+    }
 }
 
 fn git_text(workspace: impl AsRef<Path>, args: &[&str]) -> Option<String> {
@@ -510,4 +535,118 @@ fn git_text(workspace: impl AsRef<Path>, args: &[&str]) -> Option<String> {
     String::from_utf8(output.stdout)
         .ok()
         .map(|text| text.trim().to_string())
+}
+
+fn history_markdown_path(workspace: impl AsRef<Path>, target_filename: &str) -> PathBuf {
+    workspace_history_dir(workspace).join(target_filename)
+}
+
+fn append_markdown_with_archive(
+    workspace: impl AsRef<Path>,
+    target_filename: &str,
+    content: &str,
+) -> Result<(), String> {
+    let md_path = history_markdown_path(&workspace, target_filename);
+
+    if md_path.exists() {
+        if let Ok(metadata) = std::fs::metadata(&md_path) {
+            if metadata.len() > 50 * 1024 {
+                let archive_dir = workspace_history_dir(&workspace).join("archive");
+                let _ = std::fs::create_dir_all(&archive_dir);
+                let ts = now_unix();
+                let archive_name = format!("{}_{}.md", target_filename.trim_end_matches(".md"), ts);
+                let _ = std::fs::rename(&md_path, archive_dir.join(archive_name));
+            }
+        }
+    }
+
+    if let Some(parent) = md_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&md_path)
+        .map_err(|err| err.to_string())?;
+
+    file.write_all(content.as_bytes())
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn append_promoted_memory_log(
+    workspace: impl AsRef<Path>,
+    target_file: &str,
+    category: &str,
+    title: &str,
+    content: &str,
+) -> Result<(), String> {
+    let date_str = std::process::Command::new("python")
+        .args(&[
+            "-c",
+            "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d'))",
+        ])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown-date".to_string());
+
+    let log_line = format!(
+        "\n### [{}] {}\n- **Category**: {}\n- **Content**: {}\n",
+        date_str, title, category, content
+    );
+    append_markdown_with_archive(workspace, target_file, &log_line)
+}
+
+fn append_session_sync_markdown(
+    workspace: impl AsRef<Path>,
+    task_desc: &str,
+    branch: &str,
+    jira_issues: &[String],
+    modified_files: &[String],
+) -> Result<(), String> {
+    let date_str = std::process::Command::new("python")
+        .args(&[
+            "-c",
+            "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))",
+        ])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown-date".to_string());
+
+    let log_line = format!(
+        "\n- [CONFIRMED] **[SESSION_SYNC]** {} | Branch: {} | Issue: {:?}\n  - Task: {}\n  - Modifies: {} files\n",
+        date_str,
+        branch,
+        jira_issues,
+        task_desc,
+        modified_files.len()
+    );
+    append_markdown_with_archive(workspace, "inbox.md", &log_line)
+}
+
+fn update_memory_yaml_if_exists(workspace: impl AsRef<Path>, branch: &str) {
+    let yaml_path = workspace_history_dir(&workspace).join("memory.yaml");
+    if yaml_path.exists() {
+        let script = format!(
+            r#"
+import yaml, datetime, sys
+path = r"{}"
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {{}}
+    data["active_branch"] = r"{}"
+    data["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+except Exception:
+    sys.exit(1)
+"#,
+            yaml_path.to_string_lossy().replace("\\", "\\\\"),
+            branch
+        );
+        let _ = std::process::Command::new("python")
+            .args(&["-c", &script])
+            .status();
+    }
 }
