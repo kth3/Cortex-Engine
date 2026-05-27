@@ -5,6 +5,8 @@ Cortex MCP Tool Dispatcher
 - 주의: 이 모듈은 MCP tool routing과 response format 생성의 계약을 엄격히 지켜야 하며, 도메인 로직을 직접 구현하지 않는다.
 """
 import json
+from dataclasses import replace
+
 from cortex.hooks import manager as pc_hooks
 from cortex.mcp.response import create_text_response, create_error_response
 
@@ -115,10 +117,24 @@ def _run_before_tool_hook(ctx, tool_name: str, arguments: dict, request_id):
     return None, ""
 
 
+def _effective_context(ctx):
+    try:
+        import relay
+
+        routed_workspace = relay.isolated_workspace_for_session(ctx.session_id)
+    except Exception:
+        return ctx
+
+    if routed_workspace and routed_workspace != ctx.workspace:
+        return replace(ctx, workspace=routed_workspace)
+    return ctx
+
+
 def handle_tools_call(ctx, params, request_id):
     n, a = params.get("name"), params.get("arguments") or {}
     try:
-        blocked_response, hook_msg = _run_before_tool_hook(ctx, n, a, request_id)
+        effective_ctx = _effective_context(ctx)
+        blocked_response, hook_msg = _run_before_tool_hook(effective_ctx, n, a, request_id)
         if blocked_response is not None:
             return blocked_response
 
@@ -126,7 +142,7 @@ def handle_tools_call(ctx, params, request_id):
         if handler is None:
             return _unknown_tool_response(request_id, n)
 
-        r = handler(ctx, a)
+        r = handler(effective_ctx, a)
         return create_text_response(request_id, r, hook_msg)
     except Exception as e:
         return create_error_response(request_id, e)

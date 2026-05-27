@@ -24,7 +24,8 @@ _DEFAULT_LANE = {
     "handoff_message": None,
     "contract_id": None,
     "locked_at": None,  # 락 획득 시각 (좀비 감지용)
-    "files_to_modify": []
+    "files_to_modify": [],
+    "isolation": None,
 }
 
 
@@ -56,9 +57,7 @@ def _normalize_file_path(path):
     normalized = os.path.normpath(str(path).strip()).replace("\\", "/")
     if normalized in ("", "."):
         return None
-    if os.name == "nt":
-        normalized = normalized.casefold()
-    return normalized
+    return normalized.casefold()
 
 
 def normalize_files(files):
@@ -99,6 +98,8 @@ def _ensure_lane_schema(lane):
         if key not in lane:
             lane[key] = list(value) if isinstance(value, list) else value
     lane["files_to_modify"] = normalize_files(lane.get("files_to_modify"))
+    if lane.get("isolation") is not None and not isinstance(lane.get("isolation"), dict):
+        lane["isolation"] = None
 
 def _ensure_dir():
     """STATE_FILE 상위 디렉토리 보장 (FileNotFoundError 방지)"""
@@ -178,6 +179,7 @@ def _auto_evict_zombie(board, lane_id, lane):
     """좀비 락 자동 탈취: BUSY → IDLE 전환 및 경고 출력"""
     old_agent = lane.get("active_agent_id", "unknown")
     old_task = lane.get("current_task", "unknown")
+    _cleanup_isolated_workspace(lane)
     lane["status"] = "IDLE"
     lane["active_agent_id"] = None
     lane["current_task"] = None
@@ -212,6 +214,9 @@ def status(lane_id=None):
                 print(f"  Locked:   {l['locked_at']}")
             if l.get("files_to_modify"):
                 print(f"  Files:    {', '.join(format_file_claims(l['files_to_modify']))}")
+            isolation = l.get("isolation") or {}
+            if isolation.get("isolated_workspace"):
+                print(f"  Isolation:{isolation.get('status', 'unknown')} {isolation['isolated_workspace']}")
             
             # Zombie lock 경고
             if _is_zombie(l, board.get("updated_at")):
@@ -278,6 +283,10 @@ def _find_file_claim_conflicts(board, lane_id, files):
     return conflicts
 
 
+def _conflict_dicts(conflicts):
+    return [{"path": path, "lane_id": owner} for path, owner in conflicts]
+
+
 def claim_files_to_modify(lane_id, files):
     """lane의 수정 예정 파일을 예약하고, BUSY lane과 겹치면 차단한다."""
     normalized_files = normalize_files(files)
@@ -294,6 +303,105 @@ def claim_files_to_modify(lane_id, files):
         return board
 
     return _locked_transaction(_claim)
+
+
+def register_isolated_workspace(
+    lane_id,
+    session_id,
+    main_workspace,
+    isolated_workspace,
+    files,
+    conflicts,
+):
+    """활성 lane에 Git worktree 격리 라우팅 정보를 저장한다."""
+    normalized_files = normalize_files(files)
+    isolation = {
+        "type": "git_worktree",
+        "status": "active",
+        "cleanup_status": None,
+        "session_id": session_id,
+        "main_workspace": str(main_workspace),
+        "isolated_workspace": str(isolated_workspace),
+        "conflicts": _conflict_dicts(conflicts),
+    }
+
+    def _register(board):
+        if lane_id not in board["lanes"]:
+            board["lanes"][lane_id] = dict(_DEFAULT_LANE)
+
+        lane = board["lanes"][lane_id]
+        lane["files_to_modify"] = normalized_files
+        lane["isolation"] = dict(isolation)
+        return board
+
+    _locked_transaction(_register)
+    return dict(isolation)
+
+
+def isolated_workspace_for_session(session_id):
+    """현재 BUSY lane 중 session_id에 연결된 격리 workspace를 반환한다."""
+    if not session_id:
+        return None
+
+    route = []
+
+    def _read(board):
+        for lane in board.get("lanes", {}).values():
+            isolation = lane.get("isolation") or {}
+            if (
+                lane.get("status") == "BUSY"
+                and isolation.get("status") == "active"
+                and isolation.get("session_id") == session_id
+                and isolation.get("isolated_workspace")
+            ):
+                route.append(isolation["isolated_workspace"])
+                break
+        return None
+
+    _locked_transaction(_read)
+    return route[0] if route else None
+
+
+def _is_git_worktree_dirty(worktree_path):
+    from cortex.vcs.git_worktree import is_worktree_dirty
+
+    return is_worktree_dirty(worktree_path)
+
+
+def _remove_git_worktree(main_workspace, worktree_path):
+    from cortex.vcs.git_worktree import remove_worktree
+
+    remove_worktree(main_workspace, worktree_path)
+
+
+def _cleanup_isolated_workspace(lane):
+    isolation = lane.get("isolation") or {}
+    if isolation.get("type") != "git_worktree":
+        return
+
+    main_workspace = isolation.get("main_workspace")
+    isolated_workspace = isolation.get("isolated_workspace")
+    if not main_workspace or not isolated_workspace:
+        lane["isolation"] = None
+        return
+
+    try:
+        if _is_git_worktree_dirty(isolated_workspace):
+            isolation["status"] = "preserved_dirty"
+            isolation["cleanup_status"] = "preserved_dirty"
+            lane["isolation"] = isolation
+            print(f"[ISOLATION-PRESERVED] Dirty worktree kept at {isolated_workspace}")
+            return
+
+        _remove_git_worktree(main_workspace, isolated_workspace)
+        lane["isolation"] = None
+        print(f"[ISOLATION-CLEANED] Removed isolated worktree {isolated_workspace}")
+    except Exception as exc:
+        isolation["status"] = "cleanup_failed"
+        isolation["cleanup_status"] = "cleanup_failed"
+        isolation["cleanup_error"] = str(exc)
+        lane["isolation"] = isolation
+        print(f"[ISOLATION-CLEANUP-ERROR] Kept isolated worktree {isolated_workspace}: {exc}")
 
 def release(agent_id, lane_id="default", handoff_to=None, message=None, contract_id=None, phase="DONE"):
     def _release(board):
@@ -316,6 +424,7 @@ def release(agent_id, lane_id="default", handoff_to=None, message=None, contract
         lane["contract_id"] = contract_id
         lane["locked_at"] = None
         lane["files_to_modify"] = []
+        _cleanup_isolated_workspace(lane)
         
         if not handoff_to:
             lane["active_agent_id"] = None
@@ -346,6 +455,7 @@ def force_release(lane_id="default"):
         lane["handoff_message"] = f"Force-released by operator (was: {old_agent})"
         lane["locked_at"] = None
         lane["files_to_modify"] = []
+        _cleanup_isolated_workspace(lane)
         print(f"[FORCE-RELEASED] Lane '{lane_id}' has been forcefully released. (was held by: {old_agent})")
         return board
     
