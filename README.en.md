@@ -165,29 +165,26 @@ Code indexes, memory DBs, graph stores, and session history live under `<CORTEX_
 
 See [INSTALL.en.md](./INSTALL.en.md) for the full installation guide.
 
-```bash
-# Install Cortex once as a uv tool.
-uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
+Release package install:
 
-# Install supported Codex/Claude hooks and initialize the data directory.
-cortex-ctl bootstrap --include-all
-
-# Optional: save a HuggingFace token and warm the embedding model cache.
-cortex-ctl bootstrap --include-all --hf-token <YOUR_HF_TOKEN> --warm-models
-```
-
-Update:
-
-```bash
-uv tool upgrade cortex-agent
-```
-
-Development mode from a source checkout:
-
-```bash
+```powershell
+cd C:\path\to\Cortex-agents_infra
 uv sync
-uv run cortex-ctl bootstrap --include-all
-uv run cortex-index --force
+$env:PATH = "$PWD\rust\target\release;$env:PATH"
+cortex-ctl status
+```
+
+Build from source:
+
+```powershell
+git clone https://github.com/kth3/Cortex-agents_infra.git
+cd Cortex-agents_infra
+uv sync
+cargo build --manifest-path rust/Cargo.toml --release `
+  -p cortex-ctl `
+  -p cortex-runtime `
+  -p cortex-watcher `
+  -p cortex-mcp
 ```
 
 ---
@@ -196,12 +193,7 @@ uv run cortex-index --force
 
 ```text
 cortex-ctl start | stop | restart | status
-cortex-ctl bootstrap [--include-all] [--enable-knowledge]
-                     [--hf-token <T>] [--warm-models]
-                     [--embedding-model <id>] [--embedding-max-seq-length <n>]
-                     [--dry-run]
-cortex-ctl knowledge enable | disable | status [--force]
-cortex-ctl migrate [--source <workspace>] [--dry-run] [--force]
+cortex-ctl relay acquire | release | status | force-release
 ```
 
 ---
@@ -212,9 +204,9 @@ Cortex does not require `HF_TOKEN` for public models. Use one of these methods o
 
 | Method | Behavior |
 |---|---|
-| `cortex-ctl bootstrap --hf-token <T>` | Stores `HF_TOKEN=<T>` in `~/.cortex/.env`. |
 | `HF_TOKEN=<T>` environment variable | Uses the shell-provided token. |
 | `huggingface-cli login` | Uses the standard `~/.cache/huggingface/token` file. |
+| Managed `.env` or wrapper script | Loads the token before starting Cortex. |
 
 The implementation passes `token=None` when `HF_TOKEN` is unset or blank, so the HuggingFace library can still use its standard cached-token fallback.
 
@@ -229,16 +221,7 @@ Qwen/Qwen3-Embedding-0.6B
 max_seq_length = 4096
 ```
 
-Override through bootstrap:
-
-```bash
-cortex-ctl bootstrap \
-  --embedding-model google/embeddinggemma-300m \
-  --embedding-max-seq-length 2048 \
-  --warm-models
-```
-
-Or through environment variables:
+Override through environment variables:
 
 ```bash
 export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
@@ -251,24 +234,26 @@ export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 export CORTEX_EMBEDDING_TRUST_REMOTE_CODE=true
 ```
 
-Changing embedding model dimensions makes existing vectors incompatible. Run a full reindex after changing model family or vector dimension:
-
-```bash
-cortex-index --force
-```
+Changing embedding model dimensions makes existing vectors incompatible. Rebuild the target workspace index after changing model family or vector dimension.
 
 ---
 
 ## MCP Registration
 
-Codex and Claude Code hooks are installed through `cortex-ctl bootstrap`. MCP entrypoints remain available for platforms that support MCP directly:
+MCP entrypoints use the built Rust `cortex-mcp` binary:
 
-```bash
-cortex-mcp
-cortex-index <workspace> --force
+```powershell
+$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
+$CORTEX_WORKSPACE = "C:\path\to\your\project"
+$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
+
+gemini mcp add -s user `
+  -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
+  -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
+  cortex-mcp -- "$CORTEX_MCP"
 ```
 
-When registering MCP manually, pass `CORTEX_HOME`, `CORTEX_WORKSPACE`, and optionally `CORTEX_WORKSPACE_KEY` explicitly so the server resolves the same workspace data directory across platforms.
+Pass `CORTEX_WORKSPACE`, `CORTEX_DATA_HOME`, and optionally `CORTEX_WORKSPACE_KEY` explicitly so the server resolves the same workspace data directory across platforms.
 
 ---
 

@@ -160,7 +160,7 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 ## 디렉토리 구조
 
 ```text
-.cortex/                                  # cortex 본체 (uv tool install 대상)
+.cortex/                                  # cortex 본체
 ├── docs/                                 # 인프라 관련 문서
 ├── hooks/                                # 런타임 라이프사이클 훅
 ├── rules/                                # 에이전트 행동 규칙 및 정밀 편집 지침
@@ -168,7 +168,7 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 ├── tasks/                                # 능동적 추적을 위한 작업 문서
 ├── templates/                            # 시스템 템플릿 및 ignore 번들
 ├── knowledge/
-│   └── knowledge.zip                     # 외부 지식 시드 (opt-in 전개, cortex-ctl knowledge enable)
+│   └── knowledge.zip                     # 외부 지식 시드 (선택 전개)
 ├── pyproject.toml                        # uv 기반 의존성 선언
 ├── .venv/                                # [비공유] uv 가상 환경
 ├── uv.lock                               # 패키지 잠금 파일
@@ -204,7 +204,7 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 
 상세 가이드는 [INSTALL.md](./INSTALL.md)를 참고하십시오.
 
-### 글로벌 설치 (권장)
+### 릴리즈 패키지 설치
 
 uv가 없으면 먼저 설치합니다:
 
@@ -216,39 +216,39 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 iwr -useb https://astral.sh/uv/install.ps1 | iex
 ```
 
-그 다음 cortex를 글로벌로 설치하고 hook까지 한 호흡에 등록합니다:
+Windows 사용자는 릴리즈 zip을 받아 압축을 풀고 Python 의존성을 설치합니다. GPU 가속은 이 기본 설치 위에 선택으로 추가합니다.
 
-```bash
-# 1) cortex 본체 글로벌 설치 (PATH에 cortex-ctl 등 실행 파일 등록)
-uv tool install "git+https://github.com/kth3/Cortex-agents_infra.git"
+```powershell
+cd C:\path\to\Cortex-agents_infra
 
-# 2) Codex + Claude Code hook 등록 + 글로벌 데이터 디렉토리 초기화 + (선택) HF 토큰·모델 워밍
-cortex-ctl bootstrap --include-all --warm-models
-cortex-ctl bootstrap --include-all --hf-token <YOUR_HF_TOKEN>   # 가속 토큰 사용 시
+uv sync
 
-# 3) (선택) 외부 지식 시드 전개
-cortex-ctl bootstrap --include-all --enable-knowledge
+$env:PATH = "$PWD\rust\target\release;$env:PATH"
+cortex-ctl status
 ```
 
-업데이트는 한 줄:
+소스에서 직접 빌드하거나 릴리즈 패키지를 만들 때는 같은 구조에서 Rust 바이너리를 생성합니다:
 
-```bash
-uv tool upgrade cortex-agent
+```powershell
+git clone https://github.com/kth3/Cortex-agents_infra.git
+cd Cortex-agents_infra
+uv sync
+
+cargo build --manifest-path rust/Cargo.toml --release `
+  -p cortex-ctl `
+  -p cortex-runtime `
+  -p cortex-watcher `
+  -p cortex-mcp
 ```
 
 ### cortex-ctl 명령 표면
 
 ```text
 cortex-ctl start | stop | restart | status        # MCP 엔진 라이프사이클
-cortex-ctl bootstrap [--include-all] [--enable-knowledge]
-                     [--hf-token <T>] [--warm-models]
-                     [--embedding-model <id>] [--embedding-max-seq-length <n>]
-                     [--dry-run]                  # Codex+Claude hook 통합 + .env upsert
-cortex-ctl knowledge enable | disable | status [--force]
-                                                  # knowledge.zip opt-in 전개
-cortex-ctl migrate [--source <ws>] [--dry-run] [--force]
-                                                  # 레거시 <ws>/.cortex/data 를 ~/.cortex/workspaces/<key>/ 로 이동
+cortex-ctl relay acquire | release | status | force-release
 ```
+
+토큰과 임베딩 모델 설정은 환경변수 또는 실행 스크립트에서 관리합니다.
 
 ### HuggingFace 토큰
 
@@ -256,9 +256,9 @@ cortex는 토큰을 세 가지 소스에서 자동으로 찾습니다. 다음 �
 
 | 방식 | 동작 |
 |---|---|
-| `cortex-ctl bootstrap --hf-token <T>` | `~/.cortex/.env`에 `HF_TOKEN=<T>` upsert (cortex 격리) |
 | `huggingface-cli login` (1회) | `~/.cache/huggingface/token` 표준 위치에 저장 |
 | 셸 환경변수 `HF_TOKEN=<T>` | rc 파일에 `export HF_TOKEN=...` 추가 |
+| 직접 `.env` 관리 | 사용하는 셸/실행 스크립트에서 로드 |
 
 우선순위는 huggingface_hub 라이브러리 표준: **명시 인자 > `HF_TOKEN` env > `~/.cache/huggingface/token` 파일**. 공개 모델만 쓸 때는 토큰이 없어도 동작하며, 게이트 모델·속도 가속이 필요할 때만 설정합니다.
 
@@ -266,53 +266,32 @@ cortex는 토큰을 세 가지 소스에서 자동으로 찾습니다. 다음 �
 
 ### 임베딩 모델 변경
 
-기본 모델은 `Qwen/Qwen3-Embedding-0.6B` (컨텍스트 4096)입니다. 다른 모델로 옮기려면:
-
-```bash
-# .env에 영구 저장
-cortex-ctl bootstrap --embedding-model google/embeddinggemma-300m \
-                     --embedding-max-seq-length 2048 \
-                     --warm-models
-```
-
-또는 환경변수만:
+기본 모델은 `Qwen/Qwen3-Embedding-0.6B` (컨텍스트 4096)입니다. 다른 모델로 옮기려면 환경변수를 사용합니다:
 
 ```bash
 export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
 export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 ```
 
-> **주의**: 임베딩 모델의 벡터 차원이 기존과 다르면 `memories.db`·`graph_db_store/`의 기존 벡터와 호환되지 않습니다. 모델 변경 후 한 번 재인덱싱이 필요합니다:
->
-> ```bash
-> cortex-index --force
-> ```
->
-> 자세한 정책은 `rules/core/indexing-policy.md`를 참고하십시오.
+> **주의**: 임베딩 모델의 벡터 차원이 기존과 다르면 `memories.db`·`graph_db_store/`의 기존 벡터와 호환되지 않습니다. 모델 변경 후에는 대상 워크스페이스를 다시 인덱싱해야 합니다.
 
 ### Hook 통합 (양쪽 어댑터)
 
-| 이벤트 | Cortex 도구 매핑 |
-|---|---|
-| SessionStart | `pc_auto_context` — 이전 결정·최근 히스토리 주입 |
-| UserPromptSubmit | `pc_capsule` — 사용자 프롬프트 의미 검색 |
-| Stop | `pc_session_sync` — 세션 요약 자동 저장 |
-| PreToolUse(Edit/Write 매칭) | `pc_skeleton` — 편집 대상 파일 구조 사전 주입 |
-| PostToolUse(Edit/Write 매칭) | `pc_save_observation` — 수정 자동 기록 |
-
-Codex 매처는 `apply_patch`, Claude Code 매처는 `Edit|Write|MultiEdit` 정규식을 사용합니다.
+Codex/Claude hook은 사용하는 클라이언트의 hook 설정 방식에 맞춰 등록합니다. MCP 서버는 아래 `cortex-mcp` 바이너리를 기준으로 등록합니다.
 
 ### MCP 등록
 
-MCP 등록은 Rust `cortex-mcp` 바이너리를 기준으로 합니다. `CORTEX_HOME`, `CORTEX_WORKSPACE` 명시를 권장하며, 멀티레포 그룹화는 `CORTEX_WORKSPACE_KEY` 환경변수로 같은 값을 박아 처리합니다.
+MCP 등록은 빌드된 Rust `cortex-mcp` 바이너리를 기준으로 합니다. `CORTEX_WORKSPACE`, `CORTEX_DATA_HOME`, 필요 시 `CORTEX_WORKSPACE_KEY`를 명시해 플랫폼별 데이터 경로가 갈라지지 않게 합니다.
 
-### 마이그레이션
+```powershell
+$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
+$CORTEX_WORKSPACE = "C:\path\to\your\project"
+$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
 
-기존 `<ws>/.cortex/data/`에 데이터가 있던 사용자는 다음을 1회 실행하여 글로벌 위치로 이동시킵니다:
-
-```bash
-cortex-ctl migrate --dry-run    # 이동 계획 확인
-cortex-ctl migrate              # 실제 이동
+gemini mcp add -s user `
+  -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
+  -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
+  cortex-mcp -- "$CORTEX_MCP"
 ```
 
 ---
@@ -329,6 +308,26 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 - Rust MCP JSON-RPC smoke test
 
 장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)에 정리합니다.
+
+---
+
+## 릴리즈 패키지 구성
+
+Windows 릴리즈 zip은 현재 실행 레이아웃을 유지해 묶습니다. `cortex-ctl`은 `rust\target\release` 위치에서 실행될 때 repo root를 역산해 `src/cortex/runtime/engine_worker.py`를 찾습니다.
+
+```text
+Cortex-agents_infra/
+  pyproject.toml
+  uv.lock
+  src/cortex/runtime/engine_worker.py
+  src/cortex/embeddings/...
+  rust/target/release/cortex-ctl.exe
+  rust/target/release/cortex-engine.exe
+  rust/target/release/cortex-watcher.exe
+  rust/target/release/cortex-mcp.exe
+```
+
+릴리즈 패키지를 만들 때는 위 파일과 README/INSTALL 문서를 함께 압축합니다.
 
 ---
 
