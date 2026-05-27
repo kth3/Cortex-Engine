@@ -10,7 +10,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use crate::common::{load_ignore_patterns, should_track_path, workspace_db_path};
-use crate::index::{process_path, sync_graph_store, ProcessOutcome, ProcessResult};
+use crate::index::{process_path, ProcessOutcome, ProcessResult};
 
 const WATCH_DEBOUNCE: Duration = Duration::from_secs(5);
 const WATCH_HEARTBEAT: Duration = Duration::from_secs(60);

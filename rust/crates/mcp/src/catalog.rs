@@ -362,7 +362,7 @@ pub static TOOLS: LazyLock<Vec<Value>> = LazyLock::new(|| {
         ),
         tool(
             "sync_session_memory",
-            "Synchronize session state to persistent memory by scanning git status and recently modified files. Call at the end of a meaningful work session (code edits, design decisions, completed exploration). Side-effect: writes a session-sync memory record and updates memory.yaml. Not calling this will cause incomplete context restoration in the next session.",
+            "Synchronize session state to persistent memory by scanning git status and recently modified files. Call at the end of a meaningful work session (code edits, design decisions, completed exploration). Side-effect: writes a session-sync memory record to the database. Not calling this will cause incomplete context restoration in the next session.",
             Some(vec![(
                 "task_desc",
                 string_property(Some("Brief description of work completed in this session."), None, None),
@@ -371,7 +371,7 @@ pub static TOOLS: LazyLock<Vec<Value>> = LazyLock::new(|| {
         ),
         tool(
             "write_memory",
-            "Write a keyed knowledge record to persistent memory. Side-effect: persists to the memory database and optionally promotes to markdown history files (decisions.md for 'decision'/'architecture' categories; patterns.md for 'pattern'/'convention'/'rule'/'protocol').",
+            "Write a keyed knowledge record to persistent memory. Side-effect: persists to the memory database.",
             Some(vec![
                 ("key", string_property(Some("Unique identifier for this memory record."), None, None)),
                 (

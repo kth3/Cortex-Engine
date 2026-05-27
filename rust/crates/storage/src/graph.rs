@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use kuzu::{Connection as KuzuConnection, Database, SystemConfig, Value};
 use rusqlite::Connection as SqliteConnection;
 
+const UNRESOLVED_TARGET_PREFIX: &str = "__unresolved";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphDirection {
     Callers,
@@ -75,12 +77,20 @@ fn init_schema(conn: &KuzuConnection<'_>) -> Result<()> {
     let _ = conn.query("CREATE NODE TABLE IF NOT EXISTS Module (name STRING, file_path STRING, PRIMARY KEY (name))");
     let _ = conn.query("CREATE NODE TABLE IF NOT EXISTS Function (fqn STRING, name STRING, file_path STRING, PRIMARY KEY (fqn))");
     let _ = conn.query("CREATE NODE TABLE IF NOT EXISTS Class (fqn STRING, name STRING, file_path STRING, PRIMARY KEY (fqn))");
-    let _ = conn.query("CREATE NODE TABLE IF NOT EXISTS External (fqn STRING, name STRING, PRIMARY KEY (fqn))");
+    let _ = conn.query(
+        "CREATE NODE TABLE IF NOT EXISTS External (fqn STRING, name STRING, PRIMARY KEY (fqn))",
+    );
 
-    let _ = conn.query("CREATE REL TABLE IF NOT EXISTS Imports (FROM Module TO Module, FROM Module TO External)");
+    let _ = conn.query(
+        "CREATE REL TABLE IF NOT EXISTS Imports (FROM Module TO Module, FROM Module TO External)",
+    );
     let _ = conn.query("CREATE REL TABLE IF NOT EXISTS Calls (FROM Function TO Function, FROM Function TO Class, FROM Class TO Function, FROM Class TO Class, FROM Function TO External, FROM Class TO External, FROM Module TO External, FROM Module TO Function, FROM Module TO Class)");
-    let _ = conn.query("CREATE REL TABLE IF NOT EXISTS Defines (FROM Module TO Function, FROM Module TO Class)");
-    let _ = conn.query("CREATE REL TABLE IF NOT EXISTS Contains (FROM Class TO Function, FROM Class TO Class)");
+    let _ = conn.query(
+        "CREATE REL TABLE IF NOT EXISTS Defines (FROM Module TO Function, FROM Module TO Class)",
+    );
+    let _ = conn.query(
+        "CREATE REL TABLE IF NOT EXISTS Contains (FROM Class TO Function, FROM Class TO Class)",
+    );
     Ok(())
 }
 
@@ -113,39 +123,71 @@ pub fn sync_graph_store(
     let mut nodes_synced = 0;
     for node in &nodes {
         if let Some(tbl) = get_kuzu_table(&node.node_type) {
-            if tbl == "Module" {
-                if let Ok(mut stmt) = conn.prepare("MERGE (n:Module {name: $name}) SET n.file_path = $fp") {
-                    let _ = conn.execute(&mut stmt, vec![
-                        ("name", Value::String(node.fqn.clone())),
-                        ("fp", Value::String(node.file_path.clone())),
-                    ]);
+            let executed = if tbl == "Module" {
+                if let Ok(mut stmt) =
+                    conn.prepare("MERGE (n:Module {name: $name}) SET n.file_path = $fp")
+                {
+                    conn.execute(
+                        &mut stmt,
+                        vec![
+                            ("name", Value::String(node.fqn.clone())),
+                            ("fp", Value::String(node.file_path.clone())),
+                        ],
+                    )
+                    .is_ok()
+                } else {
+                    false
                 }
             } else {
-                let query = format!("MERGE (n:{} {{fqn: $fqn}}) SET n.name = $name, n.file_path = $fp", tbl);
+                let query = format!(
+                    "MERGE (n:{} {{fqn: $fqn}}) SET n.name = $name, n.file_path = $fp",
+                    tbl
+                );
                 if let Ok(mut stmt) = conn.prepare(&query) {
-                    let _ = conn.execute(&mut stmt, vec![
-                        ("fqn", Value::String(node.fqn.clone())),
-                        ("name", Value::String(node.name.clone())),
-                        ("fp", Value::String(node.file_path.clone())),
-                    ]);
+                    conn.execute(
+                        &mut stmt,
+                        vec![
+                            ("fqn", Value::String(node.fqn.clone())),
+                            ("name", Value::String(node.name.clone())),
+                            ("fp", Value::String(node.file_path.clone())),
+                        ],
+                    )
+                    .is_ok()
+                } else {
+                    false
                 }
+            };
+            if executed {
+                nodes_synced += 1;
             }
-            nodes_synced += 1;
         }
     }
 
     let mut edges_synced = 0;
     for edge in &edges {
-        let tgt_tbl = get_kuzu_table(edge.target_kind_hint.as_deref().unwrap_or(""));
+        let unresolved_target = is_unresolved_target(&edge.target_id);
+        let tgt_tbl = if unresolved_target {
+            Some("External")
+        } else {
+            get_kuzu_table(edge.target_kind_hint.as_deref().unwrap_or(""))
+        };
         if tgt_tbl == Some("External") {
-            if let Ok(mut stmt) = conn.prepare("MERGE (n:External {fqn: $fqn}) SET n.name = $name") {
+            if let Ok(mut stmt) = conn.prepare("MERGE (n:External {fqn: $fqn}) SET n.name = $name")
+            {
                 let name = edge.target_name.clone().unwrap_or_else(|| {
-                    edge.target_id.split("::").last().unwrap_or(&edge.target_id).to_string()
+                    edge.target_id
+                        .split("::")
+                        .last()
+                        .unwrap_or(&edge.target_id)
+                        .to_string()
                 });
-                let _ = conn.execute(&mut stmt, vec![
-                    ("fqn", Value::String(edge.target_id.clone())),
-                    ("name", Value::String(name)),
-                ]);
+                let _ = conn.execute(
+                    &mut stmt,
+                    vec![
+                        ("fqn", Value::String(edge_target_fqn(edge))),
+                        ("name", Value::String(name)),
+                    ],
+                );
             }
         }
     }
@@ -158,17 +200,21 @@ pub fn sync_graph_store(
     for edge in &edges {
         let src_info = fqn_map.get(&edge.source_id);
         let tgt_info = fqn_map.get(&edge.target_id);
-        
+
         let (src_fqn, src_tbl) = match src_info {
             Some(i) => (i.0.clone(), i.1),
             None => continue,
         };
-        
+
         let (tgt_fqn, tgt_tbl) = match tgt_info {
             Some(i) => (i.0.clone(), i.1),
             None => {
-                let t_tbl = get_kuzu_table(edge.target_kind_hint.as_deref().unwrap_or(""));
-                (edge.target_id.clone(), t_tbl)
+                let t_tbl = if is_unresolved_target(&edge.target_id) {
+                    Some("External")
+                } else {
+                    get_kuzu_table(edge.target_kind_hint.as_deref().unwrap_or(""))
+                };
+                (edge_target_fqn(edge), t_tbl)
             }
         };
 
@@ -176,20 +222,39 @@ pub fn sync_graph_store(
 
         if let (Some(s_tbl), Some(t_tbl), Some(r_tbl)) = (src_tbl, tgt_tbl, rel) {
             let query = if s_tbl == "Module" && t_tbl == "Module" {
-                format!("MATCH (a:Module {{name: $s}}), (b:Module {{name: $t}}) MERGE (a)-[:{}]->(b)", r_tbl)
+                format!(
+                    "MATCH (a:Module {{name: $s}}), (b:Module {{name: $t}}) MERGE (a)-[:{}]->(b)",
+                    r_tbl
+                )
             } else if s_tbl == "Module" {
-                format!("MATCH (a:Module {{name: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)", t_tbl, r_tbl)
+                format!(
+                    "MATCH (a:Module {{name: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)",
+                    t_tbl, r_tbl
+                )
             } else if t_tbl == "Module" {
-                format!("MATCH (a:{} {{fqn: $s}}), (b:Module {{name: $t}}) MERGE (a)-[:{}]->(b)", s_tbl, r_tbl)
+                format!(
+                    "MATCH (a:{} {{fqn: $s}}), (b:Module {{name: $t}}) MERGE (a)-[:{}]->(b)",
+                    s_tbl, r_tbl
+                )
             } else {
-                format!("MATCH (a:{} {{fqn: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)", s_tbl, t_tbl, r_tbl)
+                format!(
+                    "MATCH (a:{} {{fqn: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)",
+                    s_tbl, t_tbl, r_tbl
+                )
             };
             if let Ok(mut stmt) = conn.prepare(&query) {
-                let _ = conn.execute(&mut stmt, vec![
-                    ("s", Value::String(src_fqn.clone())),
-                    ("t", Value::String(tgt_fqn.clone())),
-                ]);
-                edges_synced += 1;
+                if conn
+                    .execute(
+                        &mut stmt,
+                        vec![
+                            ("s", Value::String(src_fqn.clone())),
+                            ("t", Value::String(tgt_fqn.clone())),
+                        ],
+                    )
+                    .is_ok()
+                {
+                    edges_synced += 1;
+                }
             }
         }
     }
@@ -216,52 +281,142 @@ pub fn sync_file_graph(
     init_schema(&conn)?;
 
     if let Ok(mut stmt) = conn.prepare("MERGE (m:Module {name: $name}) SET m.file_path = $path") {
-        let _ = conn.execute(&mut stmt, vec![
-            ("name", Value::String(module_name.to_string())),
-            ("path", Value::String(rel_path.to_string())),
-        ]);
+        let _ = conn.execute(
+            &mut stmt,
+            vec![
+                ("name", Value::String(module_name.to_string())),
+                ("path", Value::String(rel_path.to_string())),
+            ],
+        );
     }
 
     for node in nodes {
         if let Some(tbl) = get_kuzu_table(&node.node_type) {
             if tbl == "Function" || tbl == "Class" {
-                let query = format!("MERGE (n:{} {{fqn: $fqn}}) SET n.name = $name, n.file_path = $fp", tbl);
+                let query = format!(
+                    "MERGE (n:{} {{fqn: $fqn}}) SET n.name = $name, n.file_path = $fp",
+                    tbl
+                );
                 if let Ok(mut stmt) = conn.prepare(&query) {
-                    let _ = conn.execute(&mut stmt, vec![
-                        ("fqn", Value::String(node.fqn.clone())),
-                        ("name", Value::String(node.name.clone())),
-                        ("fp", Value::String(node.file_path.clone())),
-                    ]);
+                    let _ = conn.execute(
+                        &mut stmt,
+                        vec![
+                            ("fqn", Value::String(node.fqn.clone())),
+                            ("name", Value::String(node.name.clone())),
+                            ("fp", Value::String(node.file_path.clone())),
+                        ],
+                    );
                 }
 
                 let edge_query = format!("MATCH (m:Module {{name: $mod_name}}), (n:{} {{fqn: $fqn}}) MERGE (m)-[:Defines]->(n)", tbl);
                 if let Ok(mut edge_stmt) = conn.prepare(&edge_query) {
-                    let _ = conn.execute(&mut edge_stmt, vec![
-                        ("mod_name", Value::String(module_name.to_string())),
-                        ("fqn", Value::String(node.fqn.clone())),
-                    ]);
+                    let _ = conn.execute(
+                        &mut edge_stmt,
+                        vec![
+                            ("mod_name", Value::String(module_name.to_string())),
+                            ("fqn", Value::String(node.fqn.clone())),
+                        ],
+                    );
                 }
             }
         }
     }
 
     for edge in edges {
-        let s_node = nodes.iter().find(|n| n.fqn == edge.source_id || n.id == edge.source_id);
-        let s_kind = s_node.map(|n| n.node_type.as_str()).unwrap_or("FUNCTION");
-        let s_tbl = get_kuzu_table(s_kind).unwrap_or("Function");
-        let t_tbl = get_kuzu_table(edge.target_kind_hint.as_deref().unwrap_or("FUNCTION")).unwrap_or("Function");
+        let Some(s_node) = find_node_by_id_or_fqn(nodes, &edge.source_id) else {
+            continue;
+        };
+        let s_tbl = get_kuzu_table(&s_node.node_type).unwrap_or("Function");
+        let (target_fqn, target_kind) = edge_target_for_incremental(nodes, edge);
+        let t_tbl = get_kuzu_table(&target_kind).unwrap_or("Function");
         let r_tbl = get_kuzu_rel_table(&edge.edge_type).unwrap_or("Calls");
 
-        let edge_query = format!("MATCH (a:{} {{fqn: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)", s_tbl, t_tbl, r_tbl);
+        if t_tbl == "External" {
+            if let Ok(mut stmt) = conn.prepare("MERGE (n:External {fqn: $fqn}) SET n.name = $name")
+            {
+                let name = edge.target_name.clone().unwrap_or_else(|| {
+                    target_fqn
+                        .split("::")
+                        .last()
+                        .unwrap_or(&target_fqn)
+                        .to_string()
+                });
+                let _ = conn.execute(
+                    &mut stmt,
+                    vec![
+                        ("fqn", Value::String(target_fqn.clone())),
+                        ("name", Value::String(name)),
+                    ],
+                );
+            }
+        }
+
+        let edge_query = format!(
+            "MATCH (a:{} {{fqn: $s}}), (b:{} {{fqn: $t}}) MERGE (a)-[:{}]->(b)",
+            s_tbl, t_tbl, r_tbl
+        );
         if let Ok(mut edge_stmt) = conn.prepare(&edge_query) {
-            let _ = conn.execute(&mut edge_stmt, vec![
-                ("s", Value::String(edge.source_id.clone())), // assuming source_id is fqn here based on usage
-                ("t", Value::String(edge.target_id.clone())),
-            ]);
+            let _ = conn.execute(
+                &mut edge_stmt,
+                vec![
+                    ("s", Value::String(s_node.fqn.clone())),
+                    ("t", Value::String(target_fqn)),
+                ],
+            );
         }
     }
 
     Ok(())
+}
+
+fn is_unresolved_target(target_id: &str) -> bool {
+    target_id.starts_with(UNRESOLVED_TARGET_PREFIX)
+}
+
+fn edge_target_fqn(edge: &GraphEdgeRow) -> String {
+    edge.target_fqn_hint
+        .clone()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| edge.target_id.clone())
+}
+
+fn find_node_by_id_or_fqn<'a>(
+    nodes: &'a [cortex_parsers::NodeRecord],
+    id_or_fqn: &str,
+) -> Option<&'a cortex_parsers::NodeRecord> {
+    nodes
+        .iter()
+        .find(|node| node.id == id_or_fqn || node.fqn == id_or_fqn)
+}
+
+fn edge_target_for_incremental(
+    nodes: &[cortex_parsers::NodeRecord],
+    edge: &cortex_parsers::EdgeRecord,
+) -> (String, String) {
+    if let Some(target) = find_node_by_id_or_fqn(nodes, &edge.target_id) {
+        return (target.fqn.clone(), target.node_type.clone());
+    }
+
+    if is_unresolved_target(&edge.target_id) {
+        return (
+            edge.target_fqn_hint
+                .clone()
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| edge.target_id.clone()),
+            "EXTERNAL".to_string(),
+        );
+    }
+
+    (
+        edge.target_fqn_hint
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| edge.target_id.clone()),
+        edge.target_kind_hint
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "FUNCTION".to_string()),
+    )
 }
 
 pub fn graph_neighbors(
@@ -285,11 +440,20 @@ pub fn graph_neighbors(
         for s_tbl in &tables {
             for t_tbl in &tables {
                 let q = if *s_tbl == "Module" {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE src.name = $id RETURN dst.fqn", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE src.name = $id RETURN dst.fqn",
+                        s_tbl, t_tbl
+                    )
                 } else if *t_tbl == "Module" {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE src.fqn = $id RETURN dst.name", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE src.fqn = $id RETURN dst.name",
+                        s_tbl, t_tbl
+                    )
                 } else {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE src.fqn = $id RETURN dst.fqn", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE src.fqn = $id RETURN dst.fqn",
+                        s_tbl, t_tbl
+                    )
                 };
                 out.extend(query_neighbor_ids(&conn, &q, node_fqn, limit)?);
             }
@@ -301,11 +465,20 @@ pub fn graph_neighbors(
         for s_tbl in &tables {
             for t_tbl in &tables {
                 let q = if *t_tbl == "Module" {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE dst.name = $id RETURN src.fqn", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE dst.name = $id RETURN src.fqn",
+                        s_tbl, t_tbl
+                    )
                 } else if *s_tbl == "Module" {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE dst.fqn = $id RETURN src.name", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE dst.fqn = $id RETURN src.name",
+                        s_tbl, t_tbl
+                    )
                 } else {
-                    format!("MATCH (src:{})-[]->(dst:{}) WHERE dst.fqn = $id RETURN src.fqn", s_tbl, t_tbl)
+                    format!(
+                        "MATCH (src:{})-[]->(dst:{}) WHERE dst.fqn = $id RETURN src.fqn",
+                        s_tbl, t_tbl
+                    )
                 };
                 out.extend(query_neighbor_ids(&conn, &q, node_fqn, rem)?);
             }
@@ -380,7 +553,9 @@ fn query_neighbor_ids(
         return Ok(Vec::new());
     }
     if let Ok(mut stmt) = conn.prepare(query) {
-        if let Ok(mut result) = conn.execute(&mut stmt, vec![("id", Value::String(node_id.to_string()))]) {
+        if let Ok(mut result) =
+            conn.execute(&mut stmt, vec![("id", Value::String(node_id.to_string()))])
+        {
             let mut out = Vec::new();
             while let Some(row) = result.next() {
                 if let Some(Value::String(id)) = row.into_iter().next() {
