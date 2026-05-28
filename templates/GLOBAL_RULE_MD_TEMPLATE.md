@@ -58,12 +58,9 @@
 
 > **네이티브 도구 편향 억제**: 아래 조건에 해당하면 플랫폼 기본 도구 대신 반드시 지정 MCP 도구를 사용한다. 예외 없음.
 
-1. **hook 연동 기준**: Codex와 Claude Code hook은 `cortex-ctl bootstrap --include-all`로 설치된다고 가정한다. 수동 hook 명령이나 예전 `.cortex/scripts/...` 경로를 규칙 본문에 박아두지 않는다.
-2. **맥락 복원 1순위**: 세션 첫 지시가 모호하거나("이어서 해", "검토해" 등) 이전 작업 맥락이 필요한 경우, 다른 탐색 도구에 앞서 **`get_session_context`를 1순위로 호출**하여 최근 결정과 세션 동기화 데이터를 복원한다.
-3. **세션 종료 동기화**: 유의미한 작업(코드 수정·설계 결정·탐색 완료)을 마치면 반드시 **`sync_session_memory`를 호출**하여 세션 상태를 저장한다. 호출하지 않으면 다음 세션의 맥락 복원이 불완전해진다.
-4. **코드 편집 네이티브 도구 금지**: 파일 수정 시 플랫폼 네이티브 편집 도구 사용 금지. 순서: ① **`read_file_with_hash`로 파일 최신 상태 및 원본 텍스트를 정확히 확인** → ② **`replace_exact_text`로 편집**. 이 순서를 우회하면 시스템 DB 로깅 및 라이프사이클 훅이 트리거되지 않는 '스텔스 수정'이 발생한다.
-5. **관찰 기록 의무**: 코드 수정·설계 결정·버그 발견 등 유의미한 작업 직후 반드시 **`save_observation`을 호출**하여 관찰 내용을 DB에 기록한다. 기록하지 않으면 다른 에이전트와의 협업 맥락 및 이력이 단절된다.
-6. **복합 태스크 선행 계약**: 3개 이상의 파일 변경 또는 아키텍처·설계 관련 작업은 코딩 시작 전 반드시 `create_task_contract`와 `manage_todo`를 호출하여 작업 명세와 체크리스트를 생성한다.
+1. **맥락 복원 1순위**: 세션 첫 지시가 모호하거나("이어서 해", "검토해" 등) 이전 작업 맥락이 필요한 경우, 다른 탐색 도구에 앞서 **`search_context` 또는 `search_deep_context`**로 최근 결정·관련 파일·메모리 단서를 복원한다.
+2. **코드 편집 네이티브 도구 금지**: 파일 수정 시 플랫폼 네이티브 편집 도구 사용 금지. 순서: ① **`read_file_with_hash`로 파일 최신 상태 및 원본 텍스트를 정확히 확인** → ② **`replace_exact_text`로 편집**. 이 순서를 우회하면 시스템 DB 로깅 및 라이프사이클 훅이 트리거되지 않는 '스텔스 수정'이 발생한다.
+3. **복합 태스크 선행 계약**: 3개 이상의 파일 변경 또는 아키텍처·설계 관련 작업은 코딩 시작 전 반드시 `create_task_contract`와 `manage_todo`를 호출하여 작업 명세와 체크리스트를 생성한다.
 
 ## 3. 도구 운용 (Tool Operations)
 
@@ -113,7 +110,7 @@
 - 복잡 구현·리팩토링: `protocol::ultrawork` (5단계 PLAN→IMPL→VERIFY→REFINE→SHIP)
 - 진척 기록: `protocol::progress-tracking` (Markdown 화이트보드 규격)
 - 멀티 에이전트 협업: `protocol::multi-agent-relay` (Lane 격리, Contract 핸드오프)
-- 아키텍처 변경: `rule::architecture` (Strategy Pattern, Hooks 강제)
+- 아키텍처 변경: `rule::architecture` (Strategy Pattern, hook 기반 사후 처리)
 - 계층형 디버깅: `protocol::diagnostics` (환경/캐시/의존성 점검 절차)
 - 성공/금지 패턴: `rule::learning` (SCL/APL 메모리 기록 템플릿 규격)
 - AI 찌꺼기 제거: `protocol::ai-slop-cleaner` (리팩토링 시 Deletion First 원칙)
