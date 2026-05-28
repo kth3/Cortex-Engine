@@ -168,9 +168,7 @@ See [INSTALL.en.md](./INSTALL.en.md) for the full installation guide.
 Release package install:
 
 ```powershell
-cd C:\path\to\Cortex-agents_infra
-uv sync
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
+.\install.ps1
 cortex-ctl status
 ```
 
@@ -240,17 +238,15 @@ Changing embedding model dimensions makes existing vectors incompatible. Rebuild
 
 ## MCP Registration
 
-MCP entrypoints use the built Rust `cortex-mcp` binary:
+MCP entrypoints use the package `bin\cortex-mcp.exe` binary:
 
 ```powershell
-$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
-$CORTEX_WORKSPACE = "C:\path\to\your\project"
-$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
+$CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- "$CORTEX_MCP"
+  cortex-mcp -- ".\bin\cortex-mcp.exe"
 ```
 
 Pass `CORTEX_WORKSPACE`, `CORTEX_DATA_HOME`, and optionally `CORTEX_WORKSPACE_KEY` explicitly so the server resolves the same workspace data directory across platforms.

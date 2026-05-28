@@ -49,34 +49,29 @@ On Windows, download and extract the release zip. The package keeps the source-r
 
 ```text
 Cortex-agents_infra/
+  install.ps1
   pyproject.toml
   src/cortex/runtime/engine_worker.py
   src/cortex/embeddings/...
-  rust/target/release/cortex-ctl.exe
-  rust/target/release/cortex-engine.exe
-  rust/target/release/cortex-watcher.exe
-  rust/target/release/cortex-mcp.exe
+  bin/cortex-ctl.exe
+  bin/cortex-engine.exe
+  bin/cortex-watcher.exe
+  bin/cortex-mcp.exe
 ```
 
 Install:
 
 ```powershell
-cd C:\path\to\Cortex-agents_infra
-
-# Python embedding worker/provider dependencies
-uv sync
-
-# Use Cortex binaries in this PowerShell session
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
+.\install.ps1
 ```
 
-If the target workspace is not the Cortex repository, set it explicitly:
+To use `cortex-ctl` from new terminals, persist the package `bin` directory to the user PATH:
 
 ```powershell
-$env:CORTEX_WORKSPACE = "C:\path\to\your\project"
+.\install.ps1 -PersistPath
 ```
 
-Run a basic lifecycle check:
+Run a basic lifecycle check from the target project directory:
 
 ```powershell
 cortex-ctl status
@@ -117,8 +112,13 @@ cortex-ctl status
 Create a Windows release zip from the generated binaries and Python runtime source:
 
 ```powershell
+$Package = "Cortex-agents_infra-windows-x64"
+New-Item -ItemType Directory -Force "$Package\bin", "$Package\src" | Out-Null
+Copy-Item pyproject.toml, uv.lock, README.md, README.en.md, INSTALL.md, INSTALL.en.md, DEPENDENCIES.md, LICENSE, install.ps1 $Package
+Copy-Item src\cortex "$Package\src" -Recurse
+Copy-Item rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe "$Package\bin"
 Compress-Archive -Force `
-  -Path pyproject.toml, uv.lock, src, rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe, README.md, INSTALL.md `
+  -Path $Package `
   -DestinationPath Cortex-agents_infra-windows-x64.zip
 ```
 
@@ -181,7 +181,7 @@ The default model cache is `~/.cache/huggingface/hub/` on Linux/WSL/macOS and `%
 When mixing `cortex-ctl`, `cortex-mcp`, and `cortex-watcher` for the same project, set `CORTEX_WORKSPACE` and `CORTEX_DATA_HOME` explicitly so all processes use the same data location.
 
 ```powershell
-$env:CORTEX_WORKSPACE = "C:\path\to\your\project"
+$env:CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 ```
 
@@ -189,19 +189,17 @@ $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 
 ## 7. MCP Server Registration
 
-Register MCP by pointing your client at the built `cortex-mcp` binary and passing the workspace environment explicitly.
+Register MCP by pointing your client at the package `bin\cortex-mcp.exe` and passing the workspace environment explicitly.
 
 Gemini CLI, Windows PowerShell example:
 
 ```powershell
-$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
-$CORTEX_WORKSPACE = "C:\path\to\your\project"
-$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
+$CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- "$CORTEX_MCP"
+  cortex-mcp -- ".\bin\cortex-mcp.exe"
 ```
 
 ---

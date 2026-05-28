@@ -20,6 +20,8 @@ pub(crate) fn repo_root() -> PathBuf {
                     .and_then(Path::parent)
                     .and_then(Path::parent)
                     .map(Path::to_path_buf)
+            } else if bin.ends_with("bin") {
+                bin.parent().map(Path::to_path_buf)
             } else {
                 None
             }
@@ -91,6 +93,10 @@ pub(crate) fn worker_script() -> PathBuf {
 
 fn rust_binary(name: &str) -> PathBuf {
     let root = repo_root();
+    let candidate = root.join("bin").join(name);
+    if candidate.exists() {
+        return candidate;
+    }
     for profile in ["release", "debug"] {
         let candidate = root.join("rust").join("target").join(profile).join(name);
         if candidate.exists() {

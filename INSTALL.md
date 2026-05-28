@@ -49,34 +49,29 @@ Windows 사용자는 릴리즈 zip을 받아 압축을 풉니다. 패키지는 �
 
 ```text
 Cortex-agents_infra/
+  install.ps1
   pyproject.toml
   src/cortex/runtime/engine_worker.py
   src/cortex/embeddings/...
-  rust/target/release/cortex-ctl.exe
-  rust/target/release/cortex-engine.exe
-  rust/target/release/cortex-watcher.exe
-  rust/target/release/cortex-mcp.exe
+  bin/cortex-ctl.exe
+  bin/cortex-engine.exe
+  bin/cortex-watcher.exe
+  bin/cortex-mcp.exe
 ```
 
 설치:
 
 ```powershell
-cd C:\path\to\Cortex-agents_infra
-
-# Python embedding worker/provider 의존성 설치
-uv sync
-
-# 현재 PowerShell 세션에서 Cortex 실행 파일 사용
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
+.\install.ps1
 ```
 
-작업 대상 프로젝트가 Cortex repo가 아니라 별도 프로젝트라면 명시합니다.
+새 터미널에서도 `cortex-ctl`을 바로 쓰고 싶으면 사용자 PATH에 `bin`을 등록합니다.
 
 ```powershell
-$env:CORTEX_WORKSPACE = "C:\path\to\your\project"
+.\install.ps1 -PersistPath
 ```
 
-동작 확인:
+작업 대상 프로젝트 폴더에서 동작을 확인합니다.
 
 ```powershell
 cortex-ctl status
@@ -118,8 +113,13 @@ cortex-ctl status
 릴리즈 zip을 만들 때는 위 빌드 산출물과 Python runtime 소스를 함께 묶습니다.
 
 ```powershell
+$Package = "Cortex-agents_infra-windows-x64"
+New-Item -ItemType Directory -Force "$Package\bin", "$Package\src" | Out-Null
+Copy-Item pyproject.toml, uv.lock, README.md, README.en.md, INSTALL.md, INSTALL.en.md, DEPENDENCIES.md, LICENSE, install.ps1 $Package
+Copy-Item src\cortex "$Package\src" -Recurse
+Copy-Item rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe "$Package\bin"
 Compress-Archive -Force `
-  -Path pyproject.toml, uv.lock, src, rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe, README.md, INSTALL.md `
+  -Path $Package `
   -DestinationPath Cortex-agents_infra-windows-x64.zip
 ```
 
@@ -189,7 +189,7 @@ export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 `CORTEX_WORKSPACE`와 `CORTEX_DATA_HOME`을 명시적으로 맞추는 편이 안전합니다.
 
 ```powershell
-$env:CORTEX_WORKSPACE = "C:\path\to\your\project"
+$env:CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 ```
 
@@ -197,19 +197,17 @@ $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 
 ## 7. MCP 서버 등록
 
-MCP를 직접 등록할 때는 빌드된 `cortex-mcp` 바이너리와 환경변수를 명시합니다.
+MCP를 직접 등록할 때는 패키지의 `bin\cortex-mcp.exe`와 환경변수를 명시합니다.
 
 예: Gemini CLI, Windows PowerShell
 
 ```powershell
-$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
-$CORTEX_WORKSPACE = "C:\path\to\your\project"
-$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
+$CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- "$CORTEX_MCP"
+  cortex-mcp -- ".\bin\cortex-mcp.exe"
 ```
 
 ---

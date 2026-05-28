@@ -219,11 +219,7 @@ iwr -useb https://astral.sh/uv/install.ps1 | iex
 Windows 사용자는 릴리즈 zip을 받아 압축을 풀고 Python 의존성을 설치합니다. GPU 가속은 이 기본 설치 위에 선택으로 추가합니다.
 
 ```powershell
-cd C:\path\to\Cortex-agents_infra
-
-uv sync
-
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
+.\install.ps1
 cortex-ctl status
 ```
 
@@ -277,21 +273,19 @@ export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 
 ### Hook 통합 (양쪽 어댑터)
 
-Codex/Claude hook은 사용하는 클라이언트의 hook 설정 방식에 맞춰 등록합니다. MCP 서버는 아래 `cortex-mcp` 바이너리를 기준으로 등록합니다.
+Codex/Claude hook은 사용하는 클라이언트의 hook 설정 방식에 맞춰 등록합니다. MCP 서버는 아래 `bin\cortex-mcp.exe` 바이너리를 기준으로 등록합니다.
 
 ### MCP 등록
 
 MCP 등록은 빌드된 Rust `cortex-mcp` 바이너리를 기준으로 합니다. `CORTEX_WORKSPACE`, `CORTEX_DATA_HOME`, 필요 시 `CORTEX_WORKSPACE_KEY`를 명시해 플랫폼별 데이터 경로가 갈라지지 않게 합니다.
 
 ```powershell
-$CORTEX_REPO = "C:\path\to\Cortex-agents_infra"
-$CORTEX_WORKSPACE = "C:\path\to\your\project"
-$CORTEX_MCP = "$CORTEX_REPO\rust\target\release\cortex-mcp.exe"
+$CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- "$CORTEX_MCP"
+  cortex-mcp -- ".\bin\cortex-mcp.exe"
 ```
 
 ---
@@ -313,18 +307,19 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
 ## 릴리즈 패키지 구성
 
-Windows 릴리즈 zip은 현재 실행 레이아웃을 유지해 묶습니다. `cortex-ctl`은 `rust\target\release` 위치에서 실행될 때 repo root를 역산해 `src/cortex/runtime/engine_worker.py`를 찾습니다.
+Windows 릴리즈 zip은 설치자가 바로 실행하기 쉽도록 `bin\` 아래에 실행 파일을 묶습니다. 패키지 루트에는 Python worker 소스와 설치 스크립트를 같이 둡니다.
 
 ```text
 Cortex-agents_infra/
+  install.ps1
   pyproject.toml
   uv.lock
   src/cortex/runtime/engine_worker.py
   src/cortex/embeddings/...
-  rust/target/release/cortex-ctl.exe
-  rust/target/release/cortex-engine.exe
-  rust/target/release/cortex-watcher.exe
-  rust/target/release/cortex-mcp.exe
+  bin/cortex-ctl.exe
+  bin/cortex-engine.exe
+  bin/cortex-watcher.exe
+  bin/cortex-mcp.exe
 ```
 
 릴리즈 패키지를 만들 때는 위 파일과 README/INSTALL 문서를 함께 압축합니다.
