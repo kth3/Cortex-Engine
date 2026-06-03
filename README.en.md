@@ -10,7 +10,7 @@ Cortex is a local-first agent infrastructure for persistent memory, semantic cod
 
 ## System Architecture
 
-The MCP server, tool dispatcher, vector engine server, embedding worker, watcher, and runtime control layers are separated. `cortex-ctl` owns start/status/stop orchestration, while the embedding model is isolated in a worker process.
+The MCP server, tool dispatcher, vector engine server, watcher, and runtime control layers are separated from Python worker/helper code. `cortex-ctl` owns start/status/stop orchestration, while embedding, Kuzu graph integration, and parser implementations stay in Python to avoid heavy native Rust builds.
 
 ```mermaid
 ---
@@ -122,7 +122,7 @@ flowchart TB
 
 ### 2. Runtime Modularization
 
-The runtime is split into path resolution, IPC, process launch, locks, logging, control, engine routing, worker lifecycle, and watcher launch modules under `cortex/runtime/`. This keeps GPU/PyTorch dependencies inside the embedding worker and leaves control/server/router code relatively lightweight.
+The runtime is split into path resolution, IPC, process launch, locks, logging, control, engine routing, worker lifecycle, and watcher launch modules under `cortex/runtime/`. This keeps GPU/PyTorch, Kuzu, and parser native-package integration inside Python helpers and leaves control/server/router code relatively lightweight.
 
 ### 3. Global Data Model
 

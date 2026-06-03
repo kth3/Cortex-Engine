@@ -12,7 +12,7 @@
 
 ## 시스템 아키텍처
 
-기존 Python 단일체 엔진은 Rust MCP dispatcher, Rust engine server, Python embedding worker, Rust watcher, Rust process control 계층으로 분리되었습니다. `cortex-ctl`, `cortex-engine`, `cortex-mcp`, `cortex-watcher`가 운영 표면을 담당하고 Python은 임베딩 모델 실행 계층에만 남습니다.
+기존 Python 단일체 엔진은 Rust MCP dispatcher, Rust engine server, Rust watcher, Rust process control 계층과 Python worker/helper 계층으로 분리되었습니다. `cortex-ctl`, `cortex-engine`, `cortex-mcp`, `cortex-watcher`가 운영 표면을 담당하고 Python은 embedding worker와 Kuzu graph helper처럼 무거운 네이티브 패키지 연동을 담당합니다.
 
 ```mermaid
 ---
@@ -131,7 +131,7 @@ flowchart TB
 - `rust/crates/watcher`: file watch, scan, parse, SQLite write path
 - `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
 
-Python은 embedding 모델 생태계에 필요한 worker/provider 영역에만 남고, runtime orchestration과 MCP는 Rust 바이너리 기준으로 동작합니다.
+Python은 embedding 모델 생태계에 필요한 worker/provider, Kuzu graph helper, parser helper 영역에 남고, runtime orchestration과 MCP는 Rust 바이너리 기준으로 동작합니다.
 
 ### 3. `.cortex` Path Model
 
@@ -186,15 +186,17 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 
 ## Cortex Modular Layout
 
-최근 구조 개편에 따라 Cortex 백엔드는 Rust crate 중심으로 분리되었습니다. SQLite, 검색, 메모리, 편집, watcher, parser 구현은 Rust에 위치하고 Python은 임베딩 worker/provider만 유지합니다:
+최근 구조 개편에 따라 Cortex 백엔드는 Rust crate 중심으로 분리되었습니다. SQLite, 검색, 메모리, 편집, watcher 제어는 Rust에 위치하고 Python은 임베딩 worker/provider, Kuzu graph helper, parser helper를 유지합니다:
 
 - `rust/crates/mcp`: MCP JSON-RPC 도구 catalog, 검색, 메모리, 편집, 세션 도구
-- `rust/crates/storage`: SQLite 스키마, resolver, 공용 저장소 접근
+- `rust/crates/storage`: SQLite 스키마, resolver, 공용 저장소 접근, Python Kuzu bridge
 - `rust/crates/scanner`: `.gitignore` 기반 파일 탐색과 필터
-- `rust/crates/parsers`: Tree-sitter 중심 파서 레지스트리
+- `rust/crates/parsers`: Python parser helper bridge와 공용 JSON 스키마 타입
 - `rust/crates/watcher`: file watch, scan, parse, SQLite write path
 - `rust/crates/runtime`: 데몬 라우터, worker supervisor, IPC 등 실행 환경 인프라
 - `src/cortex/embeddings`, `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers 모델 로드와 추론
+- `src/cortex/storage/graph.py`: Python Kuzu sync/query helper
+- `src/cortex/parsers`: Python parser helper와 언어별 파서 구현
 
 > 외부 Workspace 경로 대응은 Rust `cortex-ctl`/`cortex-engine` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
 
@@ -316,6 +318,8 @@ Cortex-agents_infra/
   uv.lock
   src/cortex/runtime/engine_worker.py
   src/cortex/embeddings/...
+  src/cortex/storage/graph.py
+  src/cortex/parsers/...
   bin/cortex-ctl.exe
   bin/cortex-engine.exe
   bin/cortex-watcher.exe

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -57,7 +58,32 @@ pub(crate) enum ProcessOutcome {
     Deleted,
 }
 
+fn configure_parallelism() {
+    let requested = std::env::var("CORTEX_MAX_PARALLELISM")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| {
+            let available = std::thread::available_parallelism()
+                .map(|value| value.get())
+                .unwrap_or(2);
+            if is_wsl() {
+                available.min(2)
+            } else {
+                available.min(4)
+            }
+        });
+
+    let _ = ThreadPoolBuilder::new().num_threads(requested).build_global();
+}
+
+fn is_wsl() -> bool {
+    std::env::var_os("WSL_INTEROP").is_some() || std::env::var_os("WSL_DISTRO_NAME").is_some()
+}
+
 pub(crate) fn cmd_index(workspace: &Path, force: bool) -> Result<()> {
+    configure_parallelism();
+
     let workspace = workspace.to_path_buf();
     let settings = cortex_scanner::load_settings(&workspace).unwrap_or_default();
     let files = cortex_scanner::scan_files(&workspace, None)?;
@@ -361,9 +387,10 @@ fn write_indexed_path(conn: &mut rusqlite::Connection, indexed: &PreparedIndex) 
     Ok(cortex_storage::write_file_batch(conn, &batch)?)
 }
 
-pub(crate) fn sync_graph_store(conn: &rusqlite::Connection, workspace: &Path) -> Result<()> {
+pub(crate) fn sync_graph_store(_conn: &rusqlite::Connection, workspace: &Path) -> Result<()> {
+    let db_path = workspace_db_path(workspace);
     let graph_path = workspace_graph_path(workspace);
-    let stats = cortex_storage::graph::sync_graph_store(conn, &graph_path)
+    let stats = cortex_storage::graph::sync_graph_store(&db_path, &graph_path)
         .with_context(|| format!("failed to sync graph store: {}", graph_path.display()))?;
     tracing::debug!(
         graph_nodes = stats.nodes,

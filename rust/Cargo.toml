@@ -19,17 +19,7 @@ license = "MIT"
 notify = "6"
 walkdir = "2"
 ignore = "0.4"
-tree-sitter = "0.25"
-tree-sitter-python = "0.23"
-tree-sitter-c = "0.23"
-tree-sitter-cpp = "0.23"
-tree-sitter-java = "0.23"
-tree-sitter-c-sharp = "0.23"
-tree-sitter-typescript = "0.23"
-tree-sitter-language = "0.1"
-pulldown-cmark = "0.12"
-pdf-extract = "0.7"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = "0.32"
 uuid = { version = "1", features = ["v5"] }
 sha2 = "0.10"
 sha1 = "0.10"
@@ -45,7 +35,6 @@ rayon = "1"
 signal-hook = "0.3"
 serde_yaml = "0.9"
 globset = "0.4"
-kuzu = { version = "0.11.3", default-features = false, features = ["algo", "fts", "json", "vector"] }
 
 [profile.release]
 opt-level = 3
