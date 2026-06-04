@@ -12,7 +12,7 @@
 
 ## 시스템 아키텍처
 
-기존 Python 단일체 엔진은 Rust MCP dispatcher, Rust engine server, Rust watcher, Rust process control 계층과 Python worker/helper 계층으로 분리되었습니다. `cortex-ctl`, `cortex-engine`, `cortex-mcp`, `cortex-watcher`가 운영 표면을 담당하고 Python은 embedding worker와 Kuzu graph helper처럼 무거운 네이티브 패키지 연동을 담당합니다.
+기존 Python 단일체 엔진은 Rust MCP dispatcher, Rust engine server, Rust watcher, Rust process control 계층과 Python worker/helper 계층으로 분리되었습니다. `cortex`, `cortex-engine`, `cortex-mcp`, `cortex-watcher`가 운영 표면을 담당하고 Python은 embedding worker와 Kuzu graph helper처럼 무거운 네이티브 패키지 연동을 담당합니다.
 
 ```mermaid
 ---
@@ -135,17 +135,17 @@ Python은 embedding 모델 생태계에 필요한 worker/provider, Kuzu graph he
 
 ### 3. `.cortex` Path Model
 
-신규 기준 경로는 `.cortex`입니다. 설치/문서/CI 모두 `.cortex` 기준으로 정리됩니다.
+Cortex 본체 설치 위치와 작업 프로젝트 데이터 위치를 분리합니다.
 
-- `CORTEX_HOME`: Cortex 인프라 루트 (`pyproject.toml`이 있는 위치)
+- `CORTEX_HOME`: Cortex 본체 루트 (`pyproject.toml`이 있는 위치)
 - `CORTEX_WORKSPACE`: 실제 작업 대상 프로젝트 루트
-- `CORTEX_DATA_HOME`: 워크스페이스별 DB·인덱스가 저장되는 글로벌 루트(기본 `~/.cortex`)
+- `CORTEX_DATA_HOME`: DB·인덱스 루트. 기본값은 `~/.cortex`이며, 워크스페이스별 데이터는 `workspaces/<workspace-key>/` 아래에 저장
 - `CORTEX_WORKSPACE_KEY`: 멀티레포 그룹화 — 여러 폴더를 한 워크스페이스로 묶을 때 동일 값을 박는다
 - `CORTEX_ENV_PATH`: `.env` 파일 위치를 직접 지정할 때 사용
-- `CORTEX_START_TIMEOUT`: `cortex-ctl start`가 엔진 ready를 기다리는 시간(초). 기본 35, WSL/CUDA에선 60~120 권장. timeout 도달 시 엔진이 `loading` 상태라면 INFO 메시지와 함께 백그라운드 로딩을 인정하고 success 반환
+- `CORTEX_START_TIMEOUT`: `cortex start`가 엔진 ready를 기다리는 시간(초). 기본 35, WSL/CUDA에선 60~120 권장. timeout 도달 시 엔진이 `loading` 상태라면 INFO 메시지와 함께 백그라운드 로딩을 인정하고 success 반환
 - `CORTEX_DIAG_READY_TIMEOUT`: 진단 스크립트(`zombie-check.{sh,ps1}`)의 READY 폴링 시간(초). 기본 90
 
-코드 인덱스(`memories.db`, `graph_db_store/`)와 히스토리는 `<CORTEX_DATA_HOME>/workspaces/<sha1>/` 하위에 격리되며, 사용자 프로젝트 폴더에는 cortex 흔적이 남지 않습니다. 패키지(코드)와 데이터(인덱스·메모리)가 분리된 구조라 cortex 본체 업데이트가 워크스페이스 데이터를 건드리지 않습니다.
+코드 인덱스(`memories.db`, `graph_db_store/`)와 히스토리는 기본적으로 `~/.cortex/workspaces/<workspace-key>/` 아래에 생성됩니다. `CORTEX_DATA_HOME`을 명시하면 다른 전역 데이터 루트를 사용할 수 있습니다. Cortex 본체 업데이트는 사용자가 지정한 본체 설치 폴더에서 수행합니다.
 
 ### 4. Multi-Lane Parallel Execution
 
@@ -198,84 +198,38 @@ SentenceTransformers/PyTorch 기반 embedding worker를 별도 프로세스로 �
 - `src/cortex/storage/graph.py`: Python Kuzu sync/query helper
 - `src/cortex/parsers`: Python parser helper와 언어별 파서 구현
 
-> 외부 Workspace 경로 대응은 Rust `cortex-ctl`/`cortex-engine` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
+> 외부 Workspace 경로 대응은 Rust `cortex`/`cortex-engine` 경로 정책을 따르며, 모델 다운로드나 GPU 토큰 의존성 검증은 기본 CI에서 제외되고 로컬 구성 이후의 별도 검증 대상으로 분류됩니다.
 
 ---
 
 ## 설치 및 사용
 
-상세 가이드는 [INSTALL.md](./INSTALL.md)를 참고하십시오.
+상세 설치 명령은 [INSTALL.md](./INSTALL.md)를 따릅니다.
 
-### 릴리즈 패키지 설치
+- WSL에서 설치: [INSTALL.md](./INSTALL.md)의 `WSL / Linux에서 설치` 섹션을 위에서 아래로 실행합니다.
+- Windows에서 설치: [INSTALL.md](./INSTALL.md)의 `Windows PowerShell에서 설치` 섹션을 위에서 아래로 실행합니다.
 
-uv가 없으면 먼저 설치합니다:
+설치 흐름 요약:
 
-```bash
-# WSL / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
+- Cortex 본체는 사용자가 정한 도구 설치 폴더에 clone하고 빌드합니다.
+- `cortex` 실행 파일 경로를 PATH에 추가합니다.
+- 실제 작업 프로젝트에서 `cortex status`를 실행합니다.
+- 작업 프로젝트의 데이터는 기본적으로 `~/.cortex/workspaces/<workspace-key>/` 아래에 생성됩니다.
 
-# Windows PowerShell
-iwr -useb https://astral.sh/uv/install.ps1 | iex
-```
+임베딩은 Cortex 기본 기능입니다. 첫 실행 시 기본 모델 `Qwen/Qwen3-Embedding-0.6B`가 HuggingFace 캐시에 다운로드됩니다. 공개 모델만 사용할 때는 토큰이 없어도 됩니다.
 
-Windows 사용자는 릴리즈 zip을 받아 압축을 풀고 Python 의존성을 설치합니다. GPU 가속은 이 기본 설치 위에 선택으로 추가합니다.
+GPU 가속만 선택 사항입니다. NVIDIA RTX 3000번대 이상처럼 Ampere 이상 GPU에서 bf16/Flash-Attention 경로를 사용할 때만 [INSTALL.md](./INSTALL.md)의 GPU 가속 섹션을 추가로 따릅니다.
 
-```powershell
-.\install.ps1
-cortex-ctl status
-```
-
-소스에서 직접 빌드하거나 릴리즈 패키지를 만들 때는 같은 구조에서 Rust 바이너리를 생성합니다:
-
-```powershell
-git clone https://github.com/kth3/Cortex-agents_infra.git
-cd Cortex-agents_infra
-uv sync
-
-cargo build --manifest-path rust/Cargo.toml --release `
-  -p cortex-ctl `
-  -p cortex-runtime `
-  -p cortex-watcher `
-  -p cortex-mcp
-```
-
-### cortex-ctl 명령 표면
+### cortex 명령 표면
 
 ```text
-cortex-ctl start | stop | restart | status        # MCP 엔진 라이프사이클
-cortex-ctl relay acquire | release | status | force-release
+cortex start | stop | restart | status        # MCP 엔진 라이프사이클
+cortex relay acquire | release | status | force-release
 ```
 
-토큰과 임베딩 모델 설정은 환경변수 또는 실행 스크립트에서 관리합니다.
-
-### HuggingFace 토큰
-
-cortex는 토큰을 세 가지 소스에서 자동으로 찾습니다. 다음 중 **하나만** 해두면 됩니다:
-
-| 방식 | 동작 |
-|---|---|
-| `huggingface-cli login` (1회) | `~/.cache/huggingface/token` 표준 위치에 저장 |
-| 셸 환경변수 `HF_TOKEN=<T>` | rc 파일에 `export HF_TOKEN=...` 추가 |
-| 직접 `.env` 관리 | 사용하는 셸/실행 스크립트에서 로드 |
-
-우선순위는 huggingface_hub 라이브러리 표준: **명시 인자 > `HF_TOKEN` env > `~/.cache/huggingface/token` 파일**. 공개 모델만 쓸 때는 토큰이 없어도 동작하며, 게이트 모델·속도 가속이 필요할 때만 설정합니다.
-
-모델 캐시 기본 위치는 `~/.cache/huggingface/hub/` (Linux/WSL/Mac), Windows에서는 `%USERPROFILE%\.cache\huggingface\hub\`입니다. 다른 위치를 쓰려면 `HF_HOME` 환경변수로 루트를 변경합니다.
-
-### 임베딩 모델 변경
-
-기본 모델은 `Qwen/Qwen3-Embedding-0.6B` (컨텍스트 4096)입니다. 다른 모델로 옮기려면 환경변수를 사용합니다:
-
-```bash
-export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
-export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
+```text
+cortex index | index scan | index roots | index add <path> | index remove <target> | index file <path>
 ```
-
-> **주의**: 임베딩 모델의 벡터 차원이 기존과 다르면 `memories.db`·`graph_db_store/`의 기존 벡터와 호환되지 않습니다. 모델 변경 후에는 대상 워크스페이스를 다시 인덱싱해야 합니다.
-
-### Hook 통합 (양쪽 어댑터)
-
-Codex/Claude hook은 사용하는 클라이언트의 hook 설정 방식에 맞춰 등록합니다. MCP 서버는 아래 `bin\cortex-mcp.exe` 바이너리를 기준으로 등록합니다.
 
 ### MCP 등록
 
@@ -287,7 +241,7 @@ $CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- ".\bin\cortex-mcp.exe"
+  cortex-mcp -- "$env:LOCALAPPDATA/Cortex/rust/target/release/cortex-mcp.exe"
 ```
 
 ---
@@ -304,29 +258,6 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 - Rust MCP JSON-RPC smoke test
 
 장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)에 정리합니다.
-
----
-
-## 릴리즈 패키지 구성
-
-Windows 릴리즈 zip은 설치자가 바로 실행하기 쉽도록 `bin\` 아래에 실행 파일을 묶습니다. 패키지 루트에는 Python worker 소스와 설치 스크립트를 같이 둡니다.
-
-```text
-Cortex-agents_infra/
-  install.ps1
-  pyproject.toml
-  uv.lock
-  src/cortex/runtime/engine_worker.py
-  src/cortex/embeddings/...
-  src/cortex/storage/graph.py
-  src/cortex/parsers/...
-  bin/cortex-ctl.exe
-  bin/cortex-engine.exe
-  bin/cortex-watcher.exe
-  bin/cortex-mcp.exe
-```
-
-릴리즈 패키지를 만들 때는 위 파일과 README/INSTALL 문서를 함께 압축합니다.
 
 ---
 

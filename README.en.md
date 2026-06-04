@@ -4,13 +4,13 @@
 
 **"The Bridge between Human Intent and Agent Intelligence."**
 
-Cortex is a local-first agent infrastructure for persistent memory, semantic code search, graph analysis, and MCP integration. The current model installs Cortex once as a global tool and stores per-workspace data under `~/.cortex/workspaces/<key>/`, so user projects do not need to carry Cortex runtime files.
+Cortex is a local-first agent infrastructure for persistent memory, semantic code search, graph analysis, and MCP integration. Install Cortex in a tool directory, add its built binaries to PATH, and run `cortex` from the project you want to use. By default, project data is created under `~/.cortex/workspaces/<workspace-key>/` unless `CORTEX_DATA_HOME` is set explicitly.
 
 ---
 
 ## System Architecture
 
-The MCP server, tool dispatcher, vector engine server, watcher, and runtime control layers are separated from Python worker/helper code. `cortex-ctl` owns start/status/stop orchestration, while embedding, Kuzu graph integration, and parser implementations stay in Python to avoid heavy native Rust builds.
+The MCP server, tool dispatcher, vector engine server, watcher, and runtime control layers are separated from Python worker/helper code. `cortex` owns start/status/stop orchestration, while embedding, Kuzu graph integration, and parser implementations stay in Python to avoid heavy native Rust builds.
 
 ```mermaid
 ---
@@ -124,17 +124,17 @@ flowchart TB
 
 The runtime is split into path resolution, IPC, process launch, locks, logging, control, engine routing, worker lifecycle, and watcher launch modules under `cortex/runtime/`. This keeps GPU/PyTorch, Kuzu, and parser native-package integration inside Python helpers and leaves control/server/router code relatively lightweight.
 
-### 3. Global Data Model
+### 3. Path Model
 
 - `CORTEX_HOME`: Cortex package/runtime root.
 - `CORTEX_WORKSPACE`: project root to index and edit.
-- `CORTEX_DATA_HOME`: global data root, default `~/.cortex`.
+- `CORTEX_DATA_HOME`: DB and index root. Defaults to `~/.cortex`; workspace data is stored under `workspaces/<workspace-key>/`.
 - `CORTEX_WORKSPACE_KEY`: optional shared key for grouping multiple folders into one Cortex workspace.
 - `CORTEX_ENV_PATH`: explicit dotenv path.
-- `CORTEX_START_TIMEOUT`: seconds `cortex-ctl start` waits for the engine. Default 35; use 60-120 on WSL/CUDA. If the deadline elapses while the engine is still `loading`, `start` emits an INFO note and returns success while the engine keeps loading in the background.
+- `CORTEX_START_TIMEOUT`: seconds `cortex start` waits for the engine. Default 35; use 60-120 on WSL/CUDA. If the deadline elapses while the engine is still `loading`, `start` emits an INFO note and returns success while the engine keeps loading in the background.
 - `CORTEX_DIAG_READY_TIMEOUT`: seconds the diagnostic scripts (`zombie-check.{sh,ps1}`) poll for `READY` before accepting `LOADING`. Default 90.
 
-Code indexes, memory DBs, graph stores, and session history live under `<CORTEX_DATA_HOME>/workspaces/<key>/`. The default key is derived from the workspace path; set `CORTEX_WORKSPACE_KEY` when multiple repositories should share one Cortex data directory.
+Code indexes, memory DBs, graph stores, and session history are created under `~/.cortex/workspaces/<workspace-key>/` by default. Set `CORTEX_DATA_HOME` and optionally `CORTEX_WORKSPACE_KEY` when multiple repositories should share one separate Cortex data directory.
 
 ---
 
@@ -163,82 +163,82 @@ Code indexes, memory DBs, graph stores, and session history live under `<CORTEX_
 
 ## Installation
 
-See [INSTALL.en.md](./INSTALL.en.md) for the full installation guide.
+Follow [INSTALL.en.md](./INSTALL.en.md) for the actual commands.
 
-Release package install:
+- WSL install: run the `Install On WSL / Linux` section in [INSTALL.en.md](./INSTALL.en.md) from top to bottom.
+- Windows install: run the `Install On Windows PowerShell` section in [INSTALL.en.md](./INSTALL.en.md) from top to bottom.
 
-```powershell
-.\install.ps1
-cortex-ctl status
-```
+Install flow summary:
 
-Build from source:
+- Clone and build Cortex in a tool directory you choose.
+- Add the `cortex` binary directory to PATH.
+- Run `cortex status` from the project you want to use Cortex with.
+- Project data is created under `~/.cortex/workspaces/<workspace-key>/` by default.
 
-```powershell
-git clone https://github.com/kth3/Cortex-agents_infra.git
-cd Cortex-agents_infra
-uv sync
-cargo build --manifest-path rust/Cargo.toml --release `
-  -p cortex-ctl `
-  -p cortex-runtime `
-  -p cortex-watcher `
-  -p cortex-mcp
-```
+Embedding is a core Cortex feature. On first use, the default model `Qwen/Qwen3-Embedding-0.6B` is downloaded into the HuggingFace cache. Public models work without a token.
+
+Only GPU acceleration is optional. Add the GPU section in [INSTALL.en.md](./INSTALL.en.md) only for NVIDIA RTX 3000-series or newer GPUs, where Ampere-or-newer bf16/Flash-Attention paths are available.
 
 ---
 
-## `cortex-ctl` Surface
+## `cortex` Surface
 
 ```text
-cortex-ctl start | stop | restart | status
-cortex-ctl relay acquire | release | status | force-release
+cortex start | stop | restart | status
+cortex relay acquire | release | status | force-release
 ```
-
----
-
-## HuggingFace Token Policy
-
-Cortex does not require `HF_TOKEN` for public models. Use one of these methods only when a gated model or faster authenticated access is needed:
-
-| Method | Behavior |
-|---|---|
-| `HF_TOKEN=<T>` environment variable | Uses the shell-provided token. |
-| `huggingface-cli login` | Uses the standard `~/.cache/huggingface/token` file. |
-| Managed `.env` or wrapper script | Loads the token before starting Cortex. |
-
-The implementation passes `token=None` when `HF_TOKEN` is unset or blank, so the HuggingFace library can still use its standard cached-token fallback.
-
----
-
-## Embedding Model Policy
-
-Default model:
 
 ```text
-Qwen/Qwen3-Embedding-0.6B
-max_seq_length = 4096
+cortex index | index scan | index roots | index add <path> | index remove <target> | index file <path>
 ```
 
-Override through environment variables:
+---
+
+## HuggingFace Token And Embedding Model
+
+Embedding is a core Cortex feature. On first use, the default model `Qwen/Qwen3-Embedding-0.6B` is downloaded into the HuggingFace cache.
+
+Public models work without a token. If you use gated models, authenticated downloads, or want fewer download limits, set the token in the environment you are using.
+
+WSL / Linux:
+
+```bash
+export HF_TOKEN=<token>
+```
+
+Windows PowerShell:
+
+```powershell
+$env:HF_TOKEN = "<token>"
+```
+
+The default model cache is `~/.cache/huggingface/hub/` on Linux/WSL/macOS and `%USERPROFILE%\.cache\huggingface\hub\` on Windows. Set `HF_HOME` to move it.
+
+Override the default model through environment variables:
 
 ```bash
 export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
 export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 ```
 
-`trust_remote_code` is disabled by default. The default Qwen embedding model requires it, so enable it explicitly after reviewing the model code:
-
-```bash
-export CORTEX_EMBEDDING_TRUST_REMOTE_CODE=true
-```
-
 Changing embedding model dimensions makes existing vectors incompatible. Rebuild the target workspace index after changing model family or vector dimension.
 
 ---
 
+## Optional GPU Acceleration
+
+GPU acceleration is optional. Add it only for NVIDIA RTX 3000-series or newer GPUs, where Ampere-or-newer bf16/Flash-Attention paths are available.
+
+```bash
+uv sync --extra gpu-accel
+```
+
+---
+
+## MCP Registration
 ## MCP Registration
 
-MCP entrypoints use the package `bin\cortex-mcp.exe` binary:
+MCP entrypoints use the built `cortex-mcp` binary:
 
 ```powershell
 $CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
@@ -246,7 +246,7 @@ $CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- ".\bin\cortex-mcp.exe"
+  cortex-mcp -- "$env:LOCALAPPDATA/Cortex/rust/target/release/cortex-mcp.exe"
 ```
 
 Pass `CORTEX_WORKSPACE`, `CORTEX_DATA_HOME`, and optionally `CORTEX_WORKSPACE_KEY` explicitly so the server resolves the same workspace data directory across platforms.

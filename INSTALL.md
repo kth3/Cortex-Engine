@@ -1,102 +1,73 @@
 # Cortex Agent 설치 가이드
 
-이 문서는 실제 사용과 개발에 필요한 설치 경로를 구분해 안내합니다.
+환경별 섹션 하나만 골라 위에서 아래로 실행합니다.
 
-- 릴리즈 패키지 사용: 미리 빌드된 Windows 바이너리를 받아 설치합니다. 일반 사용자는 이 경로를 우선 사용합니다.
-- 소스에서 직접 빌드: 릴리즈 패키지를 직접 만들거나 Cortex 코드를 수정할 때 사용합니다.
-- GPU 가속: 위 두 경로와 별개로, 성능을 충족하는 GPU가 있는 환경에서만 추가합니다.
+Cortex 본체 설치 위치와 작업 프로젝트 데이터 위치는 다릅니다.
 
-## 1. 사전 요구사항
+- Cortex 본체: 사용자가 정한 도구 설치 폴더에 clone하고 빌드합니다.
+- 작업 프로젝트 데이터: 기본적으로 전역 데이터 루트 `~/.cortex/workspaces/<workspace-key>/` 아래에 생성됩니다.
+- 즉, 아래 명령은 Cortex를 도구처럼 설치한 뒤 PATH에 올리는 흐름입니다.
 
-릴리즈 패키지 사용 요구사항:
+## 1. WSL / Linux에서 설치
 
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/) 패키지 관리자
-
-uv 설치:
+Ubuntu/WSL 터미널에서 실행합니다.
 
 ```bash
-# WSL / Linux / macOS
-curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libsqlite3-dev
 
-# Windows PowerShell
-iwr -useb https://astral.sh/uv/install.ps1 | iex
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
+
+mkdir -p "$HOME/.local/share"
+git clone https://github.com/kth3/Cortex-agents_infra.git "$HOME/.local/share/cortex"
+cd "$HOME/.local/share/cortex"
+
+uv sync
+
+CMAKE_BUILD_PARALLEL_LEVEL=1 cargo build --manifest-path rust/Cargo.toml --release -j 1 \
+  -p cortex-ctl \
+  -p cortex-runtime \
+  -p cortex-watcher \
+  -p cortex-mcp
+
+export PATH="$HOME/.local/share/cortex/rust/target/release:$PATH"
+cortex status
 ```
 
-소스에서 직접 빌드하거나 릴리즈 패키지를 만드는 PC에는 추가로 필요합니다.
+다른 터미널에서도 쓰려면 shell rc 파일에 PATH를 추가합니다.
 
+```bash
+echo 'export PATH="$HOME/.local/share/cortex/rust/target/release:$PATH"' >> ~/.bashrc
+```
+
+작업 프로젝트에서 사용:
+
+```bash
+cd /path/to/your-project
+cortex status
+```
+
+`Engine Server: STOPPED`, `Watcher Daemon: STOPPED`가 보이면 설치와 실행 확인이 끝난 상태입니다.
+
+## 2. Windows PowerShell에서 설치
+
+PowerShell에서 실행합니다. 먼저 다음 도구가 필요합니다.
+
+- Python 3.12
 - Git
-- Rust stable toolchain
-- Windows: Rust `x86_64-pc-windows-msvc` toolchain
-- Windows: Visual Studio Build Tools의 C++ 빌드 도구
+- Rust stable toolchain + `x86_64-pc-windows-msvc`
+- Visual Studio Build Tools의 C++ 빌드 도구
 - CMake
 - Ninja
-
-확인:
-
-```powershell
-rustc --version
-cargo --version
-cmake --version
-ninja --version
-```
-
----
-
-## 2. 릴리즈 패키지 설치
-
-Windows 사용자는 릴리즈 zip을 받아 압축을 풉니다. 패키지는 소스 루트 구조를 유지해야 합니다.
-
-```text
-Cortex-agents_infra/
-  install.ps1
-  pyproject.toml
-  src/cortex/runtime/engine_worker.py
-  src/cortex/embeddings/...
-  bin/cortex-ctl.exe
-  bin/cortex-engine.exe
-  bin/cortex-watcher.exe
-  bin/cortex-mcp.exe
-```
-
-설치:
+- SQLite 개발 라이브러리
 
 ```powershell
-.\install.ps1
-```
+iwr -useb https://astral.sh/uv/install.ps1 | iex
 
-새 터미널에서도 `cortex-ctl`을 바로 쓰고 싶으면 사용자 PATH에 `bin`을 등록합니다.
-
-```powershell
-.\install.ps1 -PersistPath
-```
-
-작업 대상 프로젝트 폴더에서 동작을 확인합니다.
-
-```powershell
-cortex-ctl status
-cortex-ctl start
-cortex-ctl status
-cortex-ctl stop
-```
-
-현재 `cortex-ctl` 명령 표면:
-
-```text
-cortex-ctl start | stop | restart | status
-cortex-ctl relay acquire | release | status | force-release
-```
-
----
-
-## 3. 소스에서 직접 빌드
-
-릴리즈 패키지를 직접 만들거나 Cortex 코드를 수정할 때 사용합니다. 일반 사용 절차와
-결과물은 같고, 차이는 로컬에서 Rust 바이너리를 직접 만든다는 점입니다.
-
-```powershell
-git clone https://github.com/kth3/Cortex-agents_infra.git
-cd Cortex-agents_infra
+$CortexHome = "$env:LOCALAPPDATA\Cortex"
+git clone https://github.com/kth3/Cortex-agents_infra.git $CortexHome
+cd $CortexHome
 
 uv sync
 
@@ -106,62 +77,70 @@ cargo build --manifest-path rust/Cargo.toml --release `
   -p cortex-watcher `
   -p cortex-mcp
 
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
-cortex-ctl status
+$env:PATH = "$(Resolve-Path ./rust/target/release);$env:PATH"
+cortex status
 ```
 
-릴리즈 zip을 만들 때는 위 빌드 산출물과 Python runtime 소스를 함께 묶습니다.
+다른 터미널에서도 쓰려면 사용자 PATH에 빌드 경로를 추가합니다.
 
 ```powershell
-$Package = "Cortex-agents_infra-windows-x64"
-New-Item -ItemType Directory -Force "$Package\bin", "$Package\src" | Out-Null
-Copy-Item pyproject.toml, uv.lock, README.md, README.en.md, INSTALL.md, INSTALL.en.md, DEPENDENCIES.md, LICENSE, install.ps1 $Package
-Copy-Item src\cortex "$Package\src" -Recurse
-Copy-Item rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe "$Package\bin"
-Compress-Archive -Force `
-  -Path $Package `
-  -DestinationPath Cortex-agents_infra-windows-x64.zip
+$Bin = Join-Path $CortexHome "rust\target\release"
+[Environment]::SetEnvironmentVariable("Path", "$([Environment]::GetEnvironmentVariable('Path', 'User'));$Bin", "User")
+```
+
+작업 프로젝트에서 사용:
+
+```powershell
+cd C:\path\to\your-project
+cortex status
+```
+
+`Engine Server: STOPPED`, `Watcher Daemon: STOPPED`가 보이면 설치와 실행 확인이 끝난 상태입니다.
+
+현재 `cortex` 명령 표면:
+
+```text
+cortex start | stop | restart | status
+cortex relay acquire | release | status | force-release
+```
+
+인덱싱 명령 표면:
+
+```text
+cortex index                 # 현재 프로젝트 인덱싱
+cortex index --force         # 강제 재인덱싱
+cortex index scan            # 인덱싱 대상 파일만 확인
+cortex index roots           # 인덱싱 루트 목록
+cortex index add <path>      # 인덱싱 루트 추가
+cortex index add <path> --alias <name>
+cortex index remove <target>
+cortex index file <path>     # 단일 파일 인덱싱
+cortex watch                 # 현재 프로젝트 감시
 ```
 
 ---
 
-## 4. 임베딩 및 GPU 선택 경로
+## 3. 임베딩 모델과 HuggingFace 토큰
 
-기본 설치는 GPU extra 없이 동작합니다. 검색·메모리·MCP 기능은 사용할 수 있고,
-임베딩 모델은 첫 사용 시 CPU 또는 사용 가능한 장치에서 다운로드·로드됩니다.
 
-NVIDIA Ampere 이상 GPU가 있고 bf16/Flash-Attention 경로를 쓰려면 Linux 또는 WSL에서
-GPU extra를 설치합니다.
+임베딩은 Cortex의 기본 기능입니다. 별도 선택 기능이 아닙니다.
+첫 실행 시 기본 모델 `Qwen/Qwen3-Embedding-0.6B`가 HuggingFace 캐시에 다운로드됩니다.
+
+공개 모델만 사용할 때는 토큰이 없어도 동작합니다. 게이트 모델, 인증 다운로드, 다운로드 제한 완화가 필요하면 사용하는 환경에서 먼저 설정합니다.
+
+WSL / Linux:
 
 ```bash
-uv sync --extra gpu-accel
+export HF_TOKEN=<token>
 ```
 
-이 extra는 Linux에서만 `flash-attn`을 추가합니다. PyTorch CUDA 12.4 wheel은
-`pyproject.toml`의 `pytorch-cu124` index 설정을 따릅니다. 수동 wheel 다운로드나
-별도 `pip install --index-url` 경로가 필요해지면 먼저 [DEPENDENCIES.md](./DEPENDENCIES.md)를 확인하십시오.
-
-임베딩 모델을 바꾸려면 환경변수를 사용합니다.
+Windows PowerShell:
 
 ```powershell
-$env:CORTEX_EMBEDDING_MODEL = "google/embeddinggemma-300m"
-$env:CORTEX_EMBEDDING_MAX_SEQ_LENGTH = "2048"
+$env:HF_TOKEN = "<token>"
 ```
 
-Linux/WSL:
-
-```bash
-export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
-export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
-```
-
-모델의 벡터 차원이 바뀌면 기존 벡터 인덱스와 호환되지 않습니다. 모델 변경 후에는 대상 워크스페이스를 다시 인덱싱해야 합니다.
-
----
-
-## 5. HuggingFace 토큰
-
-공개 모델만 사용할 때는 토큰이 없어도 동작합니다. 게이트 모델이나 인증된 다운로드가 필요하면 다음 중 하나를 사용합니다.
+토큰 저장 방식:
 
 | 방식 | 동작 |
 |---|---|
@@ -169,24 +148,56 @@ export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
 | `huggingface-cli login` | HuggingFace 표준 캐시 위치에 토큰 저장 |
 | 직접 `.env` 관리 | 사용하는 셸/실행 스크립트에서 로드 |
 
-모델 캐시 기본 위치는 Linux/WSL/macOS에서 `~/.cache/huggingface/hub/`, Windows에서
-`%USERPROFILE%\.cache\huggingface\hub\`입니다. 다른 위치를 쓰려면 `HF_HOME`을
-설정합니다.
+모델 캐시 기본 위치는 Linux/WSL/macOS에서 `~/.cache/huggingface/hub/`, Windows에서 `%USERPROFILE%\.cache\huggingface\hub\`입니다. 다른 위치를 쓰려면 `HF_HOME`을 설정합니다.
+
+기본 모델:
+
+```text
+Qwen/Qwen3-Embedding-0.6B
+max_seq_length = 4096
+```
+
+다른 모델로 바꾸려면 환경변수를 사용합니다.
+
+```bash
+export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
+export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
+```
+
+```powershell
+$env:CORTEX_EMBEDDING_MODEL = "google/embeddinggemma-300m"
+$env:CORTEX_EMBEDDING_MAX_SEQ_LENGTH = "2048"
+```
+
+모델의 벡터 차원이 바뀌면 기존 벡터 인덱스와 호환되지 않습니다. 모델 변경 후에는 대상 워크스페이스를 다시 인덱싱해야 합니다.
 
 ---
 
-## 6. 경로 모델
+## 4. GPU 가속 선택 사항
+
+GPU 가속은 선택 사항입니다. NVIDIA RTX 3000번대 이상처럼 Ampere 이상 GPU에서 bf16/Flash-Attention 경로를 사용할 때만 추가합니다.
+
+WSL / Linux:
+
+```bash
+uv sync --extra gpu-accel
+```
+
+이 extra는 Linux에서만 `flash-attn`을 추가합니다. PyTorch CUDA 12.4 wheel은 `pyproject.toml`의 `pytorch-cu124` index 설정을 따릅니다. 수동 wheel 다운로드나 별도 `pip install --index-url` 경로가 필요해지면 먼저 [DEPENDENCIES.md](./DEPENDENCIES.md)를 확인하십시오.
+
+---
+
+## 5. 경로 모델
 
 | 환경변수 | 의미 | 기본 동작 |
 |---|---|---|
 | `CORTEX_WORKSPACE` | 실제 인덱싱/작업 대상 프로젝트 루트 | 없으면 현재 작업 디렉터리 |
-| `CORTEX_DATA_HOME` | DB·그래프 인덱스 루트 | standalone MCP/watcher는 `~/.cortex`; `cortex-ctl start`는 `<workspace>/.cortex`를 하위 프로세스에 전달 |
+| `CORTEX_DATA_HOME` | DB·그래프 인덱스 루트 | 기본값은 `~/.cortex`; 워크스페이스별 데이터는 `workspaces/<workspace-key>/` 아래에 저장 |
 | `CORTEX_WORKSPACE_KEY` | 여러 checkout을 같은 데이터로 묶는 키 | 없으면 워크스페이스 절대경로 sha1 prefix |
 | `CORTEX_PYTHON_EXECUTABLE` | embedding worker를 실행할 Python | 없으면 `python` |
 | `CORTEX_PYTHON_FALLBACK` | Python fallback 경로 | 없으면 `python` |
 
-같은 프로젝트에서 `cortex-ctl`, `cortex-mcp`, `cortex-watcher`를 섞어 실행할 때는
-`CORTEX_WORKSPACE`와 `CORTEX_DATA_HOME`을 명시적으로 맞추는 편이 안전합니다.
+같은 프로젝트에서 `cortex`, `cortex-mcp`, `cortex-watcher`를 섞어 실행할 때는 `CORTEX_WORKSPACE`와 필요 시 `CORTEX_WORKSPACE_KEY`를 명시적으로 맞추는 편이 안전합니다.
 
 ```powershell
 $env:CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
@@ -195,9 +206,9 @@ $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 
 ---
 
-## 7. MCP 서버 등록
+## 6. MCP 서버 등록
 
-MCP를 직접 등록할 때는 패키지의 `bin\cortex-mcp.exe`와 환경변수를 명시합니다.
+MCP를 직접 등록할 때는 빌드된 `cortex-mcp` 바이너리와 환경변수를 명시합니다.
 
 예: Gemini CLI, Windows PowerShell
 
@@ -207,12 +218,12 @@ $CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- ".\bin\cortex-mcp.exe"
+  cortex-mcp -- "./rust/target/release/cortex-mcp.exe"
 ```
 
 ---
 
-## 8. 로컬 검증 절차
+## 7. 로컬 검증 절차
 
 ```powershell
 # Python 의존성 및 문법 확인
@@ -232,8 +243,8 @@ uv run --group dev python -m pytest src/cortex/tests/test_mcp_smoke.py -q
 powershell -ExecutionPolicy Bypass -File scripts/diagnostics/zombie-check.ps1
 ```
 
-`zombie-check.ps1`는 PATH의 `cortex-ctl` 또는 소스 체크아웃의
-`rust\target\debug|release\cortex-ctl.exe`를 사용합니다. 포트 `42384`/`42385`가
+`zombie-check.ps1`는 PATH의 `cortex` 또는 소스 체크아웃의
+`rust\target\debug|release\cortex.exe`를 사용합니다. 포트 `42384`/`42385`가
 이미 점유되어 있으면 기존 Cortex 프로세스를 정리한 뒤 다시 실행하십시오.
 
 ---

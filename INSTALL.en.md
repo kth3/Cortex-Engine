@@ -1,101 +1,73 @@
 # Cortex Agent Installation Guide
 
-This guide separates the actual installation paths for use and development.
+Pick one environment section and run it from top to bottom.
 
-- Release package: use the prebuilt Windows binaries. This is the preferred path for ordinary use.
-- Source build: use this when creating a release package or editing Cortex itself.
-- GPU acceleration: optional on top of either path, only for machines with suitable GPU support.
+The Cortex install location and the project data location are different.
 
-## 1. Requirements
+- Cortex install: clone and build Cortex in a tool directory you choose.
+- Project data: created under the global data root `~/.cortex/workspaces/<workspace-key>/` by default.
+- In short, the commands below install Cortex as a tool and put its binaries on PATH.
 
-Release package requirements:
+## 1. Install On WSL / Linux
 
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/) package manager
-
-Install uv if needed:
+Run this in an Ubuntu/WSL terminal.
 
 ```bash
-# WSL / Linux / macOS
-curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libsqlite3-dev
 
-# Windows PowerShell
-iwr -useb https://astral.sh/uv/install.ps1 | iex
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
+
+mkdir -p "$HOME/.local/share"
+git clone https://github.com/kth3/Cortex-agents_infra.git "$HOME/.local/share/cortex"
+cd "$HOME/.local/share/cortex"
+
+uv sync
+
+CMAKE_BUILD_PARALLEL_LEVEL=1 cargo build --manifest-path rust/Cargo.toml --release -j 1 \
+  -p cortex-ctl \
+  -p cortex-runtime \
+  -p cortex-watcher \
+  -p cortex-mcp
+
+export PATH="$HOME/.local/share/cortex/rust/target/release:$PATH"
+cortex status
 ```
 
-Machines that build from source or create a release package also need:
+Add the PATH entry to your shell rc file for new terminals.
 
+```bash
+echo 'export PATH="$HOME/.local/share/cortex/rust/target/release:$PATH"' >> ~/.bashrc
+```
+
+Use it from a project:
+
+```bash
+cd /path/to/your-project
+cortex status
+```
+
+If `Engine Server: STOPPED` and `Watcher Daemon: STOPPED` are shown, install and runtime lookup are working.
+
+## 2. Install On Windows PowerShell
+
+Run this in PowerShell. These tools must already be installed.
+
+- Python 3.12
 - Git
-- Rust stable toolchain
-- Windows: Rust `x86_64-pc-windows-msvc` toolchain
-- Windows: Visual Studio Build Tools with C++ build tools
+- Rust stable toolchain + `x86_64-pc-windows-msvc`
+- Visual Studio Build Tools with C++ build tools
 - CMake
 - Ninja
-
-Check:
-
-```powershell
-rustc --version
-cargo --version
-cmake --version
-ninja --version
-```
-
----
-
-## 2. Release Package Install
-
-On Windows, download and extract the release zip. The package keeps the source-root layout:
-
-```text
-Cortex-agents_infra/
-  install.ps1
-  pyproject.toml
-  src/cortex/runtime/engine_worker.py
-  src/cortex/embeddings/...
-  bin/cortex-ctl.exe
-  bin/cortex-engine.exe
-  bin/cortex-watcher.exe
-  bin/cortex-mcp.exe
-```
-
-Install:
+- SQLite development library
 
 ```powershell
-.\install.ps1
-```
+iwr -useb https://astral.sh/uv/install.ps1 | iex
 
-To use `cortex-ctl` from new terminals, persist the package `bin` directory to the user PATH:
-
-```powershell
-.\install.ps1 -PersistPath
-```
-
-Run a basic lifecycle check from the target project directory:
-
-```powershell
-cortex-ctl status
-cortex-ctl start
-cortex-ctl status
-cortex-ctl stop
-```
-
-Current `cortex-ctl` command surface:
-
-```text
-cortex-ctl start | stop | restart | status
-cortex-ctl relay acquire | release | status | force-release
-```
-
----
-
-## 3. Build From Source
-
-Use this path when creating a release package or editing Cortex itself. The runtime result is the same as the release package; this path additionally builds the Rust binaries locally.
-
-```powershell
-git clone https://github.com/kth3/Cortex-agents_infra.git
-cd Cortex-agents_infra
+$CortexHome = "$env:LOCALAPPDATA\Cortex"
+git clone https://github.com/kth3/Cortex-agents_infra.git $CortexHome
+cd $CortexHome
 
 uv sync
 
@@ -105,58 +77,70 @@ cargo build --manifest-path rust/Cargo.toml --release `
   -p cortex-watcher `
   -p cortex-mcp
 
-$env:PATH = "$PWD\rust\target\release;$env:PATH"
-cortex-ctl status
+$env:PATH = "$(Resolve-Path ./rust/target/release);$env:PATH"
+cortex status
 ```
 
-Create a Windows release zip from the generated binaries and Python runtime source:
+Add the build output to the user PATH for new terminals.
 
 ```powershell
-$Package = "Cortex-agents_infra-windows-x64"
-New-Item -ItemType Directory -Force "$Package\bin", "$Package\src" | Out-Null
-Copy-Item pyproject.toml, uv.lock, README.md, README.en.md, INSTALL.md, INSTALL.en.md, DEPENDENCIES.md, LICENSE, install.ps1 $Package
-Copy-Item src\cortex "$Package\src" -Recurse
-Copy-Item rust\target\release\cortex-ctl.exe, rust\target\release\cortex-engine.exe, rust\target\release\cortex-watcher.exe, rust\target\release\cortex-mcp.exe "$Package\bin"
-Compress-Archive -Force `
-  -Path $Package `
-  -DestinationPath Cortex-agents_infra-windows-x64.zip
+$Bin = Join-Path $CortexHome "rust\target\release"
+[Environment]::SetEnvironmentVariable("Path", "$([Environment]::GetEnvironmentVariable('Path', 'User'));$Bin", "User")
+```
+
+Use it from a project:
+
+```powershell
+cd C:\path\to\your-project
+cortex status
+```
+
+If `Engine Server: STOPPED` and `Watcher Daemon: STOPPED` are shown, install and runtime lookup are working.
+
+Current `cortex` command surface:
+
+```text
+cortex start | stop | restart | status
+cortex relay acquire | release | status | force-release
+```
+
+Index command surface:
+
+```text
+cortex index                 # index the current project
+cortex index --force         # force re-indexing
+cortex index scan            # preview selected files
+cortex index roots           # list indexing roots
+cortex index add <path>      # add an indexing root
+cortex index add <path> --alias <name>
+cortex index remove <target>
+cortex index file <path>     # index one file
+cortex watch                 # watch the current project
 ```
 
 ---
 
-## 4. Embedding And GPU Options
+## 3. Embedding Model And HuggingFace Token
 
-The default install works without GPU extras. Search, memory, and MCP features can run, and the embedding model is downloaded and loaded on CPU or any available device on first use.
 
-For NVIDIA Ampere-or-newer GPUs with bf16 and Flash-Attention, install the GPU extra on Linux or WSL:
+Embedding is a core Cortex feature. It is not optional.
+On first use, the default model `Qwen/Qwen3-Embedding-0.6B` is downloaded into the HuggingFace cache.
+
+Public models work without a token. If you use gated models, authenticated downloads, or want fewer download limits, set the token in the environment you are using.
+
+WSL / Linux:
 
 ```bash
-uv sync --extra gpu-accel
+export HF_TOKEN=<token>
 ```
 
-This extra adds `flash-attn` on Linux only. The PyTorch CUDA 12.4 wheel follows the `pytorch-cu124` index configured in `pyproject.toml`. If you think you need manual wheel downloads or a separate `pip install --index-url` command, check [DEPENDENCIES.md](./DEPENDENCIES.md) first.
-
-Set a smaller embedding model through environment variables:
+Windows PowerShell:
 
 ```powershell
-$env:CORTEX_EMBEDDING_MODEL = "google/embeddinggemma-300m"
-$env:CORTEX_EMBEDDING_MAX_SEQ_LENGTH = "2048"
+$env:HF_TOKEN = "<token>"
 ```
 
-Linux/WSL:
-
-```bash
-export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
-export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
-```
-
-Changing vector dimensions makes the existing vector index incompatible. Rebuild the target workspace index after changing model family or vector dimension.
-
----
-
-## 5. HuggingFace Tokens
-
-Public models work without a token. For gated models or authenticated downloads, use one of these:
+Token storage options:
 
 | Method | Behavior |
 |---|---|
@@ -166,19 +150,54 @@ Public models work without a token. For gated models or authenticated downloads,
 
 The default model cache is `~/.cache/huggingface/hub/` on Linux/WSL/macOS and `%USERPROFILE%\.cache\huggingface\hub\` on Windows. Set `HF_HOME` to move it.
 
+Default model:
+
+```text
+Qwen/Qwen3-Embedding-0.6B
+max_seq_length = 4096
+```
+
+Override through environment variables:
+
+```bash
+export CORTEX_EMBEDDING_MODEL=google/embeddinggemma-300m
+export CORTEX_EMBEDDING_MAX_SEQ_LENGTH=2048
+```
+
+```powershell
+$env:CORTEX_EMBEDDING_MODEL = "google/embeddinggemma-300m"
+$env:CORTEX_EMBEDDING_MAX_SEQ_LENGTH = "2048"
+```
+
+Changing vector dimensions makes the existing vector index incompatible. Rebuild the target workspace index after changing model family or vector dimension.
+
 ---
 
-## 6. Path Model
+## 4. Optional GPU Acceleration
+
+GPU acceleration is optional. Add it only for NVIDIA RTX 3000-series or newer GPUs, where Ampere-or-newer bf16/Flash-Attention paths are available.
+
+WSL / Linux:
+
+```bash
+uv sync --extra gpu-accel
+```
+
+This extra adds `flash-attn` on Linux only. The PyTorch CUDA 12.4 wheel follows the `pytorch-cu124` index configured in `pyproject.toml`. If you think you need manual wheel downloads or a separate `pip install --index-url` command, check [DEPENDENCIES.md](./DEPENDENCIES.md) first.
+
+---
+
+## 5. Path Model
 
 | Environment variable | Meaning | Default behavior |
 |---|---|---|
 | `CORTEX_WORKSPACE` | Project root to index/edit | Current working directory |
-| `CORTEX_DATA_HOME` | DB and graph index root | Standalone MCP/watcher default to `~/.cortex`; `cortex-ctl start` passes `<workspace>/.cortex` to child processes |
+| `CORTEX_DATA_HOME` | DB and graph index root | Defaults to `~/.cortex`; workspace data is stored under `workspaces/<workspace-key>/` |
 | `CORTEX_WORKSPACE_KEY` | Shared key for grouping multiple checkouts | sha1 prefix of the workspace absolute path |
 | `CORTEX_PYTHON_EXECUTABLE` | Python executable for the embedding worker | `python` |
 | `CORTEX_PYTHON_FALLBACK` | Python fallback executable | `python` |
 
-When mixing `cortex-ctl`, `cortex-mcp`, and `cortex-watcher` for the same project, set `CORTEX_WORKSPACE` and `CORTEX_DATA_HOME` explicitly so all processes use the same data location.
+When mixing `cortex`, `cortex-mcp`, and `cortex-watcher` for the same project, set `CORTEX_WORKSPACE` and optionally `CORTEX_WORKSPACE_KEY` explicitly so all processes use the same workspace key.
 
 ```powershell
 $env:CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
@@ -187,9 +206,9 @@ $env:CORTEX_DATA_HOME = "$env:USERPROFILE\.cortex"
 
 ---
 
-## 7. MCP Server Registration
+## 6. MCP Server Registration
 
-Register MCP by pointing your client at the package `bin\cortex-mcp.exe` and passing the workspace environment explicitly.
+Register MCP by pointing your client at the built `cortex-mcp` binary and passing the workspace environment explicitly.
 
 Gemini CLI, Windows PowerShell example:
 
@@ -199,12 +218,12 @@ $CORTEX_WORKSPACE = (Resolve-Path ..\your-project).Path
 gemini mcp add -s user `
   -e CORTEX_WORKSPACE="$CORTEX_WORKSPACE" `
   -e CORTEX_DATA_HOME="$env:USERPROFILE\.cortex" `
-  cortex-mcp -- ".\bin\cortex-mcp.exe"
+  cortex-mcp -- "./rust/target/release/cortex-mcp.exe"
 ```
 
 ---
 
-## 8. Local Validation
+## 7. Local Validation
 
 ```powershell
 # Python dependencies and syntax
@@ -224,6 +243,6 @@ uv run --group dev python -m pytest src/cortex/tests/test_mcp_smoke.py -q
 powershell -ExecutionPolicy Bypass -File scripts/diagnostics/zombie-check.ps1
 ```
 
-`zombie-check.ps1` uses `cortex-ctl` from PATH or the source checkout's `rust\target\debug|release\cortex-ctl.exe`. If ports `42384` or `42385` are already occupied, stop existing Cortex processes and rerun the diagnostic.
+`zombie-check.ps1` uses `cortex` from PATH or the source checkout's `rust\target\debug|release\cortex.exe`. If ports `42384` or `42385` are already occupied, stop existing Cortex processes and rerun the diagnostic.
 
 ---

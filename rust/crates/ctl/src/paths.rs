@@ -1,3 +1,4 @@
+use sha1::Digest;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -30,11 +31,13 @@ pub(crate) fn repo_root() -> PathBuf {
 }
 
 pub(crate) fn history_dir() -> PathBuf {
-    cortex_root().join("history")
+    workspace_data_dir().join("history")
 }
 
 pub(crate) fn data_home() -> PathBuf {
-    cortex_root()
+    env::var_os("CORTEX_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".cortex"))
 }
 
 pub(crate) fn pid_dir() -> PathBuf {
@@ -110,11 +113,28 @@ fn rust_binary(name: &str) -> PathBuf {
         .unwrap_or_else(|| root.join("rust").join("target").join("release").join(name))
 }
 
-fn cortex_root() -> PathBuf {
-    let workspace = workspace();
-    if workspace.file_name().and_then(|name| name.to_str()) == Some(".cortex") {
-        workspace
-    } else {
-        workspace.join(".cortex")
+fn workspace_data_dir() -> PathBuf {
+    data_home().join("workspaces").join(workspace_key(&workspace()))
+}
+
+fn workspace_key(path: &Path) -> String {
+    if let Ok(value) = env::var("CORTEX_WORKSPACE_KEY") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return value.to_string();
+        }
     }
+    sha1_hex(path.to_string_lossy().as_bytes())[..12].to_string()
+}
+
+fn home_dir() -> PathBuf {
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn sha1_hex(data: &[u8]) -> String {
+    let digest = sha1::Sha1::digest(data);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }

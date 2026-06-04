@@ -3,6 +3,6 @@ mod paths;
 mod process;
 mod relay;
 
-fn main() -> anyhow::Result<()> {
+pub fn run() -> anyhow::Result<()> {
     commands::run()
 }

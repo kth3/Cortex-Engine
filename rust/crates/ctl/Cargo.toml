@@ -7,10 +7,15 @@ publish = false
 
 [[bin]]
 name = "cortex-ctl"
-path = "src/main.rs"
+path = "src/bin/cortex-ctl.rs"
+
+[[bin]]
+name = "cortex"
+path = "src/bin/cortex.rs"
 
 [dependencies]
 anyhow.workspace = true
 clap = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true

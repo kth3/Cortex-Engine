@@ -1,5 +1,6 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -7,7 +8,7 @@ use std::time::Duration;
 use crate::{paths, process, relay};
 
 #[derive(Parser)]
-#[command(name = "cortex-ctl", version, about = "Cortex Rust runtime supervisor")]
+#[command(version, about = "Cortex runtime and indexing CLI")]
 struct Cli {
     #[command(subcommand)]
     command: CommandKind,
@@ -19,9 +20,44 @@ enum CommandKind {
     Stop,
     Restart,
     Status,
+    /// Index the current project or manage indexing scope.
+    Index(IndexArgs),
+    /// Run the file watcher in the foreground for the current project.
+    Watch,
     Relay {
         #[command(subcommand)]
         command: relay::RelayCommand,
+    },
+}
+
+#[derive(Args)]
+struct IndexArgs {
+    /// Force re-indexing even when cache says files are unchanged.
+    #[arg(long, default_value_t = false)]
+    force: bool,
+    #[command(subcommand)]
+    command: Option<IndexCommand>,
+}
+
+#[derive(Subcommand)]
+enum IndexCommand {
+    /// Print files selected for indexing without writing to the DB.
+    Scan,
+    /// Print configured indexing roots.
+    Roots,
+    /// Add an indexing root.
+    Add {
+        path: PathBuf,
+        #[arg(long)]
+        alias: Option<String>,
+    },
+    /// Remove an indexing root by path, alias, or @external/<alias>.
+    Remove { target: String },
+    /// Index one workspace-relative file.
+    File {
+        file: PathBuf,
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
 }
 
@@ -34,7 +70,89 @@ pub(crate) fn run() -> Result<()> {
             start()
         }
         CommandKind::Status => status(),
+        CommandKind::Index(args) => index(args),
+        CommandKind::Watch => watch_foreground(),
         CommandKind::Relay { command } => relay::run(command),
+    }
+}
+
+
+fn index(args: IndexArgs) -> Result<()> {
+    let workspace = paths::workspace();
+    let mut command = Command::new(paths::watcher_binary());
+    match args.command {
+        None => {
+            command.arg("index").arg("--workspace").arg(&workspace);
+            if args.force {
+                command.arg("--force");
+            }
+        }
+        Some(IndexCommand::Scan) => {
+            command
+                .arg("scan")
+                .arg("--workspace")
+                .arg(&workspace)
+                .arg("--format")
+                .arg("lines");
+        }
+        Some(IndexCommand::Roots) => {
+            command
+                .arg("index-roots")
+                .arg("list")
+                .arg("--workspace")
+                .arg(&workspace);
+        }
+        Some(IndexCommand::Add { path, alias }) => {
+            command
+                .arg("index-roots")
+                .arg("add")
+                .arg(path)
+                .arg("--workspace")
+                .arg(&workspace);
+            if let Some(alias) = alias {
+                command.arg("--alias").arg(alias);
+            }
+        }
+        Some(IndexCommand::Remove { target }) => {
+            command
+                .arg("index-roots")
+                .arg("remove")
+                .arg(target)
+                .arg("--workspace")
+                .arg(&workspace);
+        }
+        Some(IndexCommand::File { file, force }) => {
+            command
+                .arg("index-file")
+                .arg("--workspace")
+                .arg(&workspace)
+                .arg("--file")
+                .arg(file);
+            if force || args.force {
+                command.arg("--force");
+            }
+        }
+    }
+    command.env("CORTEX_WORKSPACE", &workspace);
+    command.env("CORTEX_DATA_HOME", paths::data_home());
+    run_status(command)
+}
+
+fn watch_foreground() -> Result<()> {
+    let workspace = paths::workspace();
+    let mut command = Command::new(paths::watcher_binary());
+    command.arg("watch").arg("--workspace").arg(&workspace);
+    command.env("CORTEX_WORKSPACE", &workspace);
+    command.env("CORTEX_DATA_HOME", paths::data_home());
+    run_status(command)
+}
+
+fn run_status(mut command: Command) -> Result<()> {
+    let status = command.status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("command failed with status {status}"))
     }
 }
 
