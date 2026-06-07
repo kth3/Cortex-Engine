@@ -122,7 +122,14 @@ flowchart TB
 
 ### 2. Runtime Modularization
 
-The runtime is split into path resolution, IPC, process launch, locks, logging, control, engine routing, worker lifecycle, and watcher launch modules under `cortex/runtime/`. This keeps GPU/PyTorch, Kuzu, and parser native-package integration inside Python helpers and leaves control/server/router code relatively lightweight.
+The runtime control layer is split across Rust crates:
+
+- `rust/crates/ctl`: start/status/stop orchestration and process path management
+- `rust/crates/runtime`: Rust engine router, worker supervisor, idle monitor, length-prefixed JSON IPC
+- `rust/crates/watcher`: file watch, scan, parse, SQLite write path
+- `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
+
+Python remains responsible for embedding workers/providers, Kuzu graph helpers, and parser helpers. Runtime orchestration and MCP run through Rust binaries.
 
 ### 3. Path Model
 
@@ -235,7 +242,6 @@ uv sync --extra gpu-accel
 
 ---
 
-## MCP Registration
 ## MCP Registration
 
 MCP entrypoints use the built `cortex-mcp` binary:

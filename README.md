@@ -127,7 +127,6 @@ flowchart TB
 
 - `rust/crates/ctl`: start/status/stop orchestration과 프로세스 경로 관리
 - `rust/crates/runtime`: Rust engine router, worker supervisor, idle monitor, length-prefixed JSON IPC
-- `rust/crates/ctl`: start/status/stop orchestration
 - `rust/crates/watcher`: file watch, scan, parse, SQLite write path
 - `src/cortex/runtime/engine_worker.py`: PyTorch/SentenceTransformers embedding worker
 
