@@ -389,8 +389,8 @@ fn normalize_file_path(path: &str) -> Option<String> {
         .collect::<PathBuf>()
         .to_string_lossy()
         .replace('\\', "/");
-    let normalized = if cfg!(windows) {
-        normalized.to_lowercase()
+    let normalized = if cfg!(windows) || is_unity_risk_normalized(&normalized) {
+        normalized.to_ascii_lowercase()
     } else {
         normalized
     };
@@ -411,15 +411,18 @@ fn normalize_files(files: &[String]) -> Vec<String> {
 }
 
 fn is_unity_risk_file(path: &str) -> bool {
-    normalize_file_path(path).is_some_and(|normalized| {
-        UNITY_RISK_SUFFIXES
+    normalize_file_path(path).is_some_and(|normalized| is_unity_risk_normalized(&normalized))
+}
+
+fn is_unity_risk_normalized(path: &str) -> bool {
+    let normalized = path.to_ascii_lowercase();
+    UNITY_RISK_SUFFIXES
+        .iter()
+        .any(|suffix| normalized.ends_with(suffix))
+        || UNITY_RISK_EXACT_PATHS.contains(&normalized.as_str())
+        || UNITY_RISK_PREFIXES
             .iter()
-            .any(|suffix| normalized.ends_with(suffix))
-            || UNITY_RISK_EXACT_PATHS.contains(&normalized.as_str())
-            || UNITY_RISK_PREFIXES
-                .iter()
-                .any(|prefix| normalized.starts_with(prefix))
-    })
+            .any(|prefix| normalized.starts_with(prefix))
 }
 
 fn format_file_claim(path: &str) -> String {

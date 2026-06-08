@@ -683,7 +683,11 @@ mod tests {
         env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
         env::set_var("CORTEX_WORKSPACE_KEY", "workspace-key");
         let path = memories_db_path("repo");
-        assert!(path.ends_with(r"workspaces\workspace-key\memories.db"));
+        assert!(path.ends_with(
+            Path::new("workspaces")
+                .join("workspace-key")
+                .join("memories.db")
+        ));
         match old {
             Some(value) => env::set_var("CORTEX_DATA_HOME", value),
             None => env::remove_var("CORTEX_DATA_HOME"),
@@ -700,7 +704,7 @@ mod tests {
         let old = env::var("CORTEX_DATA_HOME").ok();
         env::set_var("CORTEX_DATA_HOME", "cortex-data-home");
         let path = global_memories_db_path();
-        assert!(path.ends_with(r"data\memories.db"));
+        assert!(path.ends_with(Path::new("data").join("memories.db")));
         match old {
             Some(value) => env::set_var("CORTEX_DATA_HOME", value),
             None => env::remove_var("CORTEX_DATA_HOME"),

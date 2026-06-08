@@ -52,8 +52,6 @@ const CREATE_CORE_TABLES_SQL: &str = r#"
         confidence  REAL DEFAULT 1.0,
         UNIQUE(source_id, target_id, type)
     );
-    CREATE INDEX IF NOT EXISTS idx_edges_hint_name ON edges(target_name);
-    CREATE INDEX IF NOT EXISTS idx_edges_hint_kind ON edges(target_kind_hint);
 "#;
 
 const CREATE_HISTORY_TABLES_SQL: &str = r#"
@@ -204,6 +202,8 @@ const CREATE_INDEXES_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
     CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
     CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+    CREATE INDEX IF NOT EXISTS idx_edges_hint_name ON edges(target_name);
+    CREATE INDEX IF NOT EXISTS idx_edges_hint_kind ON edges(target_kind_hint);
     CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
     CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
     CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);

@@ -56,9 +56,9 @@ def _walk(node, source, file_path, module_id, imports, nodes, edges, class_stack
         if n and n["fqn"] not in seen:
             seen.add(n["fqn"])
             nodes.append(n)
+            _annotation_edges(node, source, n["id"], imports, edges)
             if class_stack:
                 edges.append(edge(class_stack[-1]["id"], n["id"], "CONTAINS", call_site_line=n["start_line"]))
-            _annotation_edges(node, source, n["id"], imports, edges)
             body = node.child_by_field_name("body")
             if body:
                 _walk(body, source, file_path, module_id, imports, nodes, edges, class_stack, n["id"], seen)
@@ -73,7 +73,6 @@ def _walk(node, source, file_path, module_id, imports, nodes, edges, class_stack
                 "CALLS",
                 target_name=name,
                 target_kind_hint="function|method",
-                target_fqn_hint=target_fqn,
                 call_site_line=node_line(node),
             ))
     for child in node.children:
@@ -99,6 +98,15 @@ def _imports(root, source, module_id, edges):
             if " import " in text:
                 mod, names = text.split(" import ", 1)
                 mod = mod.replace("from", "", 1).strip()
+                edges.append(edge(
+                    module_id,
+                    unresolved_fqn(f"{mod}.{mod}"),
+                    "IMPORTS",
+                    target_name=mod,
+                    target_kind_hint="module",
+                    target_fqn_hint=f"{mod}.{mod}",
+                    call_site_line=node_line(node),
+                ))
                 for part in names.split(","):
                     raw = part.strip()
                     if not raw or raw == "*":

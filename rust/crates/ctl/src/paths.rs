@@ -67,7 +67,23 @@ pub(crate) fn watcher_log() -> PathBuf {
 pub(crate) fn python() -> String {
     env::var("CORTEX_PYTHON_EXECUTABLE")
         .or_else(|_| env::var("CORTEX_PYTHON_FALLBACK"))
-        .unwrap_or_else(|_| "python".to_string())
+        .unwrap_or_else(|_| {
+            let root = repo_root();
+            for base in [root.as_path(), workspace().as_path()] {
+                let candidate = base
+                    .join(".venv")
+                    .join(if cfg!(windows) { "Scripts" } else { "bin" })
+                    .join(if cfg!(windows) { "python.exe" } else { "python" });
+                if candidate.exists() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+            if cfg!(windows) {
+                "python".to_string()
+            } else {
+                "python3".to_string()
+            }
+        })
 }
 
 pub(crate) fn watcher_binary() -> PathBuf {

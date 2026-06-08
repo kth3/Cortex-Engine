@@ -192,3 +192,7 @@ def run_worker() -> None:
         pass
     finally:
         server.close()
+
+
+if __name__ == "__main__":
+    run_worker()
