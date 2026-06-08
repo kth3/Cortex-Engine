@@ -14,7 +14,10 @@ Ubuntu/WSL 터미널에서 실행합니다.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libsqlite3-dev
+sudo apt-get install -y build-essential pkg-config libsqlite3-dev curl git ca-certificates
+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+source "$HOME/.cargo/env"
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source "$HOME/.local/bin/env"
