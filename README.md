@@ -256,7 +256,7 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 - `.cortex` 기준 테스트 워크스페이스 인덱싱
 - Rust MCP JSON-RPC smoke test
 
-장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [OS Validation Runbook](./docs/runbook-os-validation.md)에 정리합니다.
+장시간 daemon 실기동, 실제 GPU/CUDA 메모리 동작, 로컬 모델 캐시 상태는 환경 의존성이 높아 로컬 검증 대상으로 둡니다. 실측 절차는 [INSTALL.md의 로컬 검증 절차](./INSTALL.md#7-로컬-검증-절차)를 따릅니다.
 
 ---
 
@@ -273,4 +273,3 @@ GitHub Actions는 Windows와 Ubuntu에서 다음을 검증합니다.
 
 - **Code**: [MIT License](LICENSE)
 - **Knowledge**: 외부 지식 라이브러리의 원본은 [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills)이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 라이선스를 따릅니다.
-
