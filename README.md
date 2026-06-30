@@ -139,7 +139,7 @@ Cortex 본체 설치 위치와 작업 프로젝트 데이터 위치를 분리합
 - `CORTEX_HOME`: Cortex 본체 루트 (`pyproject.toml`이 있는 위치)
 - `CORTEX_WORKSPACE`: 실제 작업 대상 프로젝트 루트
 - `CORTEX_DATA_HOME`: DB·인덱스 루트. 기본값은 `~/.cortex`이며, 워크스페이스별 데이터는 `workspaces/<workspace-key>/` 아래에 저장
-- `CORTEX_WORKSPACE_KEY`: 멀티레포 그룹화 — 여러 폴더를 한 워크스페이스로 묶을 때 동일 값을 박는다
+- `CORTEX_WORKSPACE_KEY`: 멀티레포 그룹화 — 여러 폴더를 한 워크스페이스로 묶을 때 동일 값을 지정합니다
 - `CORTEX_ENV_PATH`: `.env` 파일 위치를 직접 지정할 때 사용
 - `CORTEX_START_TIMEOUT`: `cortex start`가 엔진 ready를 기다리는 시간(초). 기본 35, WSL/CUDA에선 60~120 권장. timeout 도달 시 엔진이 `loading` 상태라면 INFO 메시지와 함께 백그라운드 로딩을 인정하고 success 반환
 - `CORTEX_DIAG_READY_TIMEOUT`: 진단 스크립트(`zombie-check.{sh,ps1}`)의 READY 폴링 시간(초). 기본 90
